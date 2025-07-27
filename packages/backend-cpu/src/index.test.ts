@@ -12,6 +12,7 @@ import {
   generateDevUtilsTests,
   generateViewOperationTests,
   generateUnaryOperationTests,
+  generateBinaryOperationTests,
 } from '@typetensor/test-utils';
 import { cpu } from './index';
 
@@ -55,4 +56,5 @@ describe('CPU Backend Integration Tests', () => {
   generateDevUtilsTests(cpu, testFramework);
   generateViewOperationTests(cpu, testFramework);
   generateUnaryOperationTests(cpu, testFramework);
+  generateBinaryOperationTests(cpu, testFramework);
 });

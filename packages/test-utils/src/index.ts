@@ -3,3 +3,4 @@ export { generateTensorPropertyTests } from './generators/tensor-properties';
 export { generateDevUtilsTests } from './generators/dev-utils';
 export { generateViewOperationTests } from './generators/view-operations';
 export { generateUnaryOperationTests } from './generators/unary-operations';
+export { generateBinaryOperationTests } from './generators/binary-operations';

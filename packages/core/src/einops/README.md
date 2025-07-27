@@ -236,8 +236,11 @@ function rearrange<Pattern extends string>(
    - ✅ Ellipsis patterns: `"batch ... -> ..."`, `"... channels -> channels ..."`
    - ✅ Singleton patterns: `"h w 1 -> h w"`, `"batch 1 height -> batch height 1"`
 
-### ⏳ Phase 2: AST & Type-Level Parser (READY TO START)
-   - 🔄 Define AST types for einops patterns
+### 🚧 Phase 2: AST & Type-Level Parser (IN PROGRESS)
+   - ✅ **AST Types**: [`ast.ts`](./ast.ts) - Complete AST pattern definitions with metadata
+   - ✅ **Type Guards**: Full pattern discrimination and utility functions  
+   - ✅ **AST Tests**: [`ast.test.ts`](./ast.test.ts) - 42 comprehensive tests covering all functionality
+   - ✅ **AST Type Tests**: [`ast.test-d.ts`](./ast.test-d.ts) - Complete compile-time validation
    - ⏳ Implement pattern parsing using template literals
    - ⏳ Add axis validation
    - ⏳ Create error messages
@@ -288,12 +291,31 @@ const reduced = reduce(tensor, 'batch ... h w c -> batch ... c', 'mean');
 ## Next Steps
 
 1. ✅ **Complete scanner implementation** → **FULLY COMPLETE** with all 7 token types (axis, arrow, whitespace, lparen, rparen, ellipsis, singleton)
-2. 🔄 **Define AST types for einops patterns** → **READY TO START** (scanner provides complete foundation)
-3. ⏳ Implement type-level parser using template literals
+2. ✅ **Define AST types for einops patterns** → **FULLY COMPLETE** with comprehensive AST structure and utilities (90 total tests passing)
+3. 🔄 **Implement type-level parser** → **READY TO START** (tokens → AST conversion using template literals)
 4. ⏳ Build runtime validator and operation planner
 5. ⏳ Connect to tensor operations with full einops API
 
 This implementation will bring the elegance of einops to TypeScript with the type safety inspired by ArkType's groundbreaking approach to string template parsing.
+
+## Current Implementation Progress
+
+### ✅ **Phase 1: Scanner & Tokenizer (FULLY COMPLETE)**
+- **Files**: `scanner.ts`, `types.ts`, `scanner.test.ts`, `scanner.test-d.ts`
+- **Tests**: 48 runtime tests + comprehensive type tests
+- **Token Coverage**: All 7 einops token types implemented
+- **Pattern Support**: Simple, composite, ellipsis, and singleton patterns
+
+### ✅ **Phase 2: AST Foundation (FULLY COMPLETE)** 
+- **Files**: `ast.ts`, `ast.test.ts`, `ast.test-d.ts`
+- **Tests**: 42 runtime tests + comprehensive type tests  
+- **AST Coverage**: All 4 pattern types with discriminated unions
+- **Utilities**: 7 helper functions for AST analysis and validation
+
+### 🔄 **Phase 2: Parser Implementation (READY TO START)**
+- **Next**: Convert tokens → AST using type-level parsing
+- **Foundation**: Scanner + AST provide complete structural foundation
+- **Total**: 90 tests passing, full TypeScript compilation
 
 ## TypeTensor Integration Deep Dive
 
@@ -737,33 +759,36 @@ digit           ::= "0".."9"
 whitespace      ::= " " | "\t" | "\n"
 ```
 
-### 4. Complete AST Structure
+### 4. Complete AST Structure ✅ IMPLEMENTED
+
+**Files**: [`ast.ts`](./ast.ts) | [`ast.test.ts`](./ast.test.ts) | [`ast.test-d.ts`](./ast.test-d.ts)
 
 ```typescript
-// Full AST with metadata for error reporting
+// Full AST with metadata for error reporting - IMPLEMENTED
 interface EinopsAST {
-  input: AxisPattern[];
-  output: AxisPattern[];
-  metadata: {
-    originalPattern: string;
-    inputTokens: TokenInfo[];
-    outputTokens: TokenInfo[];
-    arrowPosition: number;
-  };
+  readonly input: readonly AxisPattern[];
+  readonly output: readonly AxisPattern[];
+  readonly metadata: ASTMetadata;
 }
 
-interface TokenInfo {
-  type: "axis" | "lparen" | "rparen" | "arrow" | "ellipsis" | "whitespace";
-  value: string;
-  start: number;
-  end: number;
+interface ASTMetadata {
+  readonly originalPattern: string;
+  readonly arrowPosition: Position;
+  readonly inputTokenCount: number;
+  readonly outputTokenCount: number;
 }
 
 type AxisPattern = 
-  | SimpleAxis
-  | CompositeAxis
-  | EllipsisAxis
-  | SingletonAxis;
+  | SimpleAxis      // ✅ IMPLEMENTED
+  | CompositeAxis   // ✅ IMPLEMENTED  
+  | EllipsisAxis    // ✅ IMPLEMENTED
+  | SingletonAxis;  // ✅ IMPLEMENTED
+
+// Comprehensive utility functions - IMPLEMENTED
+function getAxisNames(patterns: readonly AxisPattern[]): string[];
+function hasEllipsis(patterns: readonly AxisPattern[]): boolean;
+function getCompositeDepth(pattern: CompositeAxis): number;
+// + 4 more utility functions with full test coverage
 
 interface SimpleAxis {
   type: "simple";

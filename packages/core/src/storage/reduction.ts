@@ -130,6 +130,86 @@ export type MeanOp<
     }
   : never; // Invalid reduction parameters result in never type
 
+/**
+ * Max reduction operation
+ * Computes the maximum of tensor elements along specified axes
+ * 
+ * @template Input - Input tensor storage type
+ * @template Axes - Axes to reduce along (undefined means reduce all)
+ * @template KeepDims - Whether to keep reduced dimensions as size 1
+ * @template OutputDType - Output data type (defaults to same as input)
+ * 
+ * @example
+ * // Max along axis 1, remove dimension
+ * type Input = TensorStorage<Float32, [2, 3, 4], [12, 4, 1], DefaultLayoutFlags>;
+ * type Result = MaxOp<Input, [1], false>; // Shape: [2, 4]
+ * 
+ * @example
+ * // Global max (all elements)
+ * type GlobalMax = MaxOp<Input, undefined, false>; // Shape: []
+ */
+export type MaxOp<
+  Input extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined,
+  KeepDims extends boolean = false,
+  OutputDType extends AnyDType = Input['__dtype']
+> = ValidateReduction<Input['__shape'], Axes> extends true
+  ? StorageTransformation<
+      'max',
+      TensorStorage<
+        OutputDType,
+        ComputeReductionShape<Input['__shape'], Axes, KeepDims>,
+        ComputeStrides<ComputeReductionShape<Input['__shape'], Axes, KeepDims>>,
+        ReductionOpLayout<Input['__layout']>
+      >,
+      readonly [Input]
+    > & {
+      // Store reduction metadata for device implementation
+      readonly __maxAxes: Axes;
+      readonly __keepDims: KeepDims;
+    }
+  : never; // Invalid reduction parameters result in never type
+
+/**
+ * Min reduction operation
+ * Computes the minimum of tensor elements along specified axes
+ * 
+ * @template Input - Input tensor storage type
+ * @template Axes - Axes to reduce along (undefined means reduce all)
+ * @template KeepDims - Whether to keep reduced dimensions as size 1
+ * @template OutputDType - Output data type (defaults to same as input)
+ * 
+ * @example
+ * // Min along last axis, keep dimension
+ * type Input = TensorStorage<Int32, [2, 3, 4], [12, 4, 1], DefaultLayoutFlags>;
+ * type Result = MinOp<Input, [-1], true>; // Shape: [2, 3, 1]
+ * 
+ * @example
+ * // Global min (all elements)
+ * type GlobalMin = MinOp<Input, undefined, false>; // Shape: []
+ */
+export type MinOp<
+  Input extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined,
+  KeepDims extends boolean = false,
+  OutputDType extends AnyDType = Input['__dtype']
+> = ValidateReduction<Input['__shape'], Axes> extends true
+  ? StorageTransformation<
+      'min',
+      TensorStorage<
+        OutputDType,
+        ComputeReductionShape<Input['__shape'], Axes, KeepDims>,
+        ComputeStrides<ComputeReductionShape<Input['__shape'], Axes, KeepDims>>,
+        ReductionOpLayout<Input['__layout']>
+      >,
+      readonly [Input]
+    > & {
+      // Store reduction metadata for device implementation
+      readonly __minAxes: Axes;
+      readonly __keepDims: KeepDims;
+    }
+  : never; // Invalid reduction parameters result in never type
+
 // =============================================================================
 // Type-Level Reduction Functions
 // =============================================================================
