@@ -18,7 +18,26 @@ import type { ReshapeOp, Flatten } from '../storage/view';
 import { expectTypeOf } from 'expect-type';
 import type { Device } from '../device';
 
-const mockDevice = {} as Device;
+const mockDevice = {
+  id: 'mock',
+  type: 'mock',
+  execute: async () => {},
+  createData: () => ({
+    device: mockDevice,
+    byteLength: 0,
+  }),
+  disposeData: () => {},
+  readData: async () => new ArrayBuffer(0),
+  writeData: async () => {},
+  __sliceIndices: [],
+  __strides: [],
+  __shape: [],
+  __dtype: float32,
+  __layout: {
+    c_contiguous: true,
+    f_contiguous: false,
+  },
+} as unknown as Device;
 
 describe('tensor() shape inference', () => {
   it('should infer scalar shape', async () => {
@@ -195,8 +214,11 @@ describe('tensor() error handling', () => {
     ).rejects.toThrow(/Inconsistent array dimensions/);
   });
 
-  it('should throw on empty arrays', async () => {
-    await expect(tensor([], { device: mockDevice, dtype: float32 })).rejects.toThrow();
+  it('should create zero-sized tensor from empty arrays', async () => {
+    const emptyTensor = await tensor([], { device: mockDevice, dtype: float32 });
+    expect(emptyTensor.shape).toEqual([0]);
+    expect(emptyTensor.size).toBe(0);
+    expect(emptyTensor.dtype).toBe(float32);
   });
 });
 
@@ -296,12 +318,12 @@ describe('eye() shape specification', () => {
 describe('tensor string representation', () => {
   it('should format scalar tensors', async () => {
     const scalar = await tensor(42, { device: mockDevice, dtype: float32 });
-    expect(scalar.toString()).toBe('Tensor(shape=scalar [], dtype=float32, device=cpu)');
+    expect(scalar.toString()).toBe('Tensor(shape=scalar [], dtype=float32, device=mock)');
   });
 
   it('should format vector tensors', async () => {
     const vec = await tensor([1, 2, 3], { device: mockDevice, dtype: float32 });
-    expect(vec.toString()).toBe('Tensor(shape=[3], dtype=float32, device=cpu)');
+    expect(vec.toString()).toBe('Tensor(shape=[3], dtype=float32, device=mock)');
   });
 
   it('should format matrix tensors with different dtypes', async () => {
@@ -312,7 +334,7 @@ describe('tensor string representation', () => {
       ],
       { device: mockDevice, dtype: int32 },
     );
-    expect(mat.toString()).toBe('Tensor(shape=[2, 2], dtype=int32, device=cpu)');
+    expect(mat.toString()).toBe('Tensor(shape=[2, 2], dtype=int32, device=mock)');
   });
 });
 

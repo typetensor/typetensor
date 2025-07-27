@@ -10,7 +10,7 @@ import type { Tensor } from './tensor';
 import type { TensorStorage, CreateOp } from '../storage/layout';
 import type { Neg, Abs } from '../storage/unary';
 import type { Add } from '../storage/binary';
-import type { ReshapeOp, Flatten, View } from '../storage/view';
+import type { ReshapeOp, Flatten, View, SliceOp } from '../storage/view';
 import type { NestedArray, InferShape, TensorOptions, DTypeValue } from './types';
 import type { Float32, Int32, Bool, Int64, AnyDType } from '../dtype/types';
 import type { Shape, CanReshape } from '../shape/types';
@@ -313,3 +313,169 @@ expectTypeOf(deviceTensor.toString()).toEqualTypeOf<string>();
 // Test dispose() returns void
 // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
 expectTypeOf(deviceTensor.dispose()).toEqualTypeOf<void>();
+
+// =============================================================================
+// Slice Operation Type Tests
+// =============================================================================
+
+// Test 1: Basic 1D slicing
+declare const slice1DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10]>>>;
+
+// Integer indexing (removes dimension)
+declare const slice1DResult1: Awaited<ReturnType<typeof slice1DTensor.slice<readonly [5]>>>;
+expectTypeOf(slice1DResult1).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10]>, readonly [5]>>
+>();
+expectTypeOf(slice1DResult1.shape).toEqualTypeOf<readonly []>(); // Scalar result
+
+// Slice with start and stop
+declare const slice1DResult2: Awaited<
+  ReturnType<typeof slice1DTensor.slice<readonly [{ start: 2; stop: 8 }]>>
+>;
+expectTypeOf(slice1DResult2).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10]>, readonly [{ start: 2; stop: 8 }]>>
+>();
+expectTypeOf(slice1DResult2.shape).toEqualTypeOf<readonly [6]>();
+
+// Test 2: Multi-dimensional slicing
+declare const slice2DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10, 20]>>>;
+
+// Integer index on first dimension
+declare const slice2DResult1: Awaited<ReturnType<typeof slice2DTensor.slice<readonly [5]>>>;
+expectTypeOf(slice2DResult1).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10, 20]>, readonly [5]>>
+>();
+expectTypeOf(slice2DResult1.shape).toEqualTypeOf<readonly [20]>();
+
+// Mixed indexing: integer and slice
+declare const slice2DResult2: Awaited<
+  ReturnType<typeof slice2DTensor.slice<readonly [5, { start: 5; stop: 15 }]>>
+>;
+expectTypeOf(slice2DResult2).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10, 20]>, readonly [5, { start: 5; stop: 15 }]>>
+>();
+expectTypeOf(slice2DResult2.shape).toEqualTypeOf<readonly [10]>(); // First dim removed, second sliced
+
+// Both dimensions sliced
+declare const slice2DResult3: Awaited<
+  ReturnType<typeof slice2DTensor.slice<readonly [{ start: 0; stop: 5 }, { start: 5; stop: 15 }]>>
+>;
+expectTypeOf(slice2DResult3).toMatchTypeOf<
+  Tensor<
+    SliceOp<
+      TensorStorage<Float32, readonly [10, 20]>,
+      readonly [{ start: 0; stop: 5 }, { start: 5; stop: 15 }]
+    >
+  >
+>();
+expectTypeOf(slice2DResult3.shape).toEqualTypeOf<readonly [5, 10]>();
+
+// Test 3: 3D tensor slicing
+declare const slice3DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [8, 12, 16]>>>;
+
+// Complex slice from view.test-d.ts test 15
+declare const slice3DResult1: Awaited<
+  ReturnType<
+    typeof slice3DTensor.slice<readonly [{ step: 2 }, { start: 2; stop: 10 }, { step: 3 }]>
+  >
+>;
+expectTypeOf(slice3DResult1).toMatchTypeOf<
+  Tensor<
+    SliceOp<
+      TensorStorage<Float32, readonly [8, 12, 16]>,
+      readonly [{ step: 2 }, { start: 2; stop: 10 }, { step: 3 }]
+    >
+  >
+>();
+expectTypeOf(slice3DResult1.shape).toEqualTypeOf<readonly [4, 8, 6]>();
+
+// Mixed null, integer, and slice
+declare const slice3DResult2: Awaited<
+  ReturnType<typeof slice3DTensor.slice<readonly [null, 5, { start: 0; stop: 10; step: 2 }]>>
+>;
+expectTypeOf(slice3DResult2).toMatchTypeOf<
+  Tensor<
+    SliceOp<
+      TensorStorage<Float32, readonly [8, 12, 16]>,
+      readonly [null, 5, { start: 0; stop: 10; step: 2 }]
+    >
+  >
+>();
+expectTypeOf(slice3DResult2.shape).toEqualTypeOf<readonly [8, 5]>(); // Middle dim removed
+
+// Test 4: Null slicing (keeps dimension)
+declare const sliceNullResult: Awaited<
+  ReturnType<typeof slice2DTensor.slice<readonly [null, null]>>
+>;
+expectTypeOf(sliceNullResult).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10, 20]>, readonly [null, null]>>
+>();
+expectTypeOf(sliceNullResult.shape).toEqualTypeOf<readonly [10, 20]>(); // Shape unchanged
+
+// Test 5: Partial indexing (fewer indices than dimensions)
+declare const slicePartialResult: Awaited<
+  ReturnType<typeof slice3DTensor.slice<readonly [5]>>
+>;
+expectTypeOf(slicePartialResult).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [8, 12, 16]>, readonly [5]>>
+>();
+expectTypeOf(slicePartialResult.shape).toEqualTypeOf<readonly [12, 16]>(); // First dim removed
+
+// Test 6: Negative step slicing
+declare const sliceNegStepResult: Awaited<
+  ReturnType<typeof slice1DTensor.slice<readonly [{ step: -1 }]>>
+>;
+expectTypeOf(sliceNegStepResult).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10]>, readonly [{ step: -1 }]>>
+>();
+expectTypeOf(sliceNegStepResult.shape).toEqualTypeOf<readonly [10]>(); // Full reversal
+
+// Test 7: Empty slice (start >= stop with positive step)
+declare const sliceEmptyResult: Awaited<
+  ReturnType<typeof slice1DTensor.slice<readonly [{ start: 5; stop: 5 }]>>
+>;
+expectTypeOf(sliceEmptyResult).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10]>, readonly [{ start: 5; stop: 5 }]>>
+>();
+expectTypeOf(sliceEmptyResult.shape).toEqualTypeOf<readonly [0]>(); // Empty
+
+// Test 8: Dtype preservation
+declare const sliceInt32Tensor: Tensor<CreateOp<TensorStorage<Int32, readonly [10, 20]>>>;
+declare const sliceInt32Result: Awaited<
+  ReturnType<typeof sliceInt32Tensor.slice<readonly [{ start: 2; stop: 8 }, null]>>
+>;
+expectTypeOf(sliceInt32Result).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Int32, readonly [10, 20]>, readonly [{ start: 2; stop: 8 }, null]>>
+>();
+expectTypeOf(sliceInt32Result.dtype).toEqualTypeOf<Int32>();
+expectTypeOf(sliceInt32Result.shape).toEqualTypeOf<readonly [6, 20]>();
+
+// Test 9: Layout properties after slicing
+declare const sliceLayoutTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10, 20]>>>;
+declare const sliceLayoutResult: Awaited<
+  ReturnType<typeof sliceLayoutTensor.slice<readonly [{ start: 0; stop: 5 }, null]>>
+>;
+// Check that layout is preserved but contiguity becomes unknown
+expectTypeOf(sliceLayoutResult.layout.is_view).toEqualTypeOf<true>();
+expectTypeOf(sliceLayoutResult.layout.c_contiguous).toEqualTypeOf<true>();
+expectTypeOf(sliceLayoutResult.layout.f_contiguous).toEqualTypeOf<false>();
+
+// Test 10: Zero step should fail at runtime (type system allows it)
+declare const sliceZeroStepTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10]>>>;
+declare const sliceZeroStepResult: Awaited<
+  ReturnType<typeof sliceZeroStepTensor.slice<readonly [{ step: 0 }]>>
+>;
+// Type system allows this, but runtime will throw
+expectTypeOf(sliceZeroStepResult).toMatchTypeOf<
+  Tensor<SliceOp<TensorStorage<Float32, readonly [10]>, readonly [{ step: 0 }]>>
+>();
+
+// Test 11: Verify return type structure
+declare const sliceReturnType: Awaited<
+  ReturnType<typeof slice3DTensor.slice<readonly [5, { start: 2; stop: 8 }, null]>>
+>;
+// Verify the full type structure
+type ExpectedSliceType = Tensor<
+  SliceOp<TensorStorage<Float32, readonly [8, 12, 16]>, readonly [5, { start: 2; stop: 8 }, null]>
+>;
+expectTypeOf(sliceReturnType).toMatchTypeOf<ExpectedSliceType>();

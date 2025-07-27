@@ -457,17 +457,17 @@ type ReadOnlyTensor = TensorStorage<Float32, readonly [3, 4], readonly [4, 1], R
 {
   type Tensor2D = TensorStorage<Float32, readonly [10, 20], readonly [20, 1]>;
 
-  // Slicing preserves strides (but as number type)
+  // Slicing preserves strides with concrete values
   type Sliced1 = SliceOp<Tensor2D, readonly [{ start: 0; stop: 5 }, null]>;
   type Sliced1Output = OutputOf<Sliced1>;
   type Sliced1Strides = StridesOf<Sliced1Output>;
-  expectTypeOf<Sliced1Strides>().toEqualTypeOf<readonly [number, number]>();
+  expectTypeOf<Sliced1Strides>().toEqualTypeOf<readonly [20, 1]>();
 
   // Integer indexing removes strides
   type Indexed1 = SliceOp<Tensor2D, readonly [5, null]>;
   type Indexed1Output = OutputOf<Indexed1>;
   type Indexed1Strides = StridesOf<Indexed1Output>;
-  expectTypeOf<Indexed1Strides>().toEqualTypeOf<readonly [number]>();
+  expectTypeOf<Indexed1Strides>().toEqualTypeOf<readonly [1]>();
 }
 
 // Test 6: Layout preservation

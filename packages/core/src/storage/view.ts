@@ -14,7 +14,7 @@ import type {
   SliceSpec,
   SliceIndex,
 } from '../shape/types';
-import type { Divide, Mod } from 'ts-arithmetic';
+import type { Divide, Mod, Multiply } from 'ts-arithmetic';
 import type {
   TensorStorage,
   StorageTransformation,
@@ -292,13 +292,25 @@ type ComputeSlicedStridesHelper<
             ? RestIndices extends readonly SliceIndex[]
               ? FirstIndex extends number
                 ? ComputeSlicedStridesHelper<RestStrides, RestIndices, Acc> // Integer index: remove stride
-                : FirstIndex extends SliceSpec | null
+                : FirstIndex extends null
                   ? ComputeSlicedStridesHelper<
                       RestStrides,
                       RestIndices,
-                      readonly [...Acc, number] // Slice: stride depends on runtime step
+                      readonly [...Acc, FirstStride] // null: preserve stride
                     >
-                  : never
+                  : FirstIndex extends SliceSpec
+                    ? FirstIndex['step'] extends number
+                      ? ComputeSlicedStridesHelper<
+                          RestStrides,
+                          RestIndices,
+                          readonly [...Acc, Multiply<FirstStride, FirstIndex['step']>] // Multiply stride by step
+                        >
+                      : ComputeSlicedStridesHelper<
+                          RestStrides,
+                          RestIndices,
+                          readonly [...Acc, FirstStride] // No step specified: default to 1, preserve stride
+                        >
+                    : never
               : never
             : never
           : never

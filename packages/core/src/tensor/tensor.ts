@@ -7,15 +7,15 @@
 
 import type { AnyStorageTransformation, ComputeStrides } from '../storage/layout';
 import type { DeviceData, Device } from '../device/types';
-import type { Shape, CanReshape, Product, CanBroadcast, ShapeToString } from '../shape/types';
+import type { Shape, CanReshape, Product, CanBroadcast, ShapeToString, SliceIndex } from '../shape/types';
 import type { Neg, Abs, Sin, Cos, Exp, Log, Sqrt, Square } from '../storage/unary';
 import type { Add, Sub, Mul, Div } from '../storage/binary';
-import type { ReshapeOp, Flatten, View } from '../storage/view';
+import type { ReshapeOp, Flatten, View, SliceOp } from '../storage/view';
 import type { DTypeValue } from '../dtype/types';
 import type { NestedArray } from './types';
 import { bufferToNestedArray } from './types';
 import { formatShape, broadcastShapes, assertShapesCompatible } from '../shape';
-import { computeStrides, computeSize } from './utils';
+import { computeStrides, computeSize, computeSlicedShape, computeSlicedStrides, validateSliceIndices } from './utils';
 import { toFloatDType, toPromotedDType } from '../dtype';
 import type { Mod } from 'ts-arithmetic';
 
@@ -764,6 +764,59 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const result = [...shape];
     result[inferIndex] = totalSize / knownSize;
     return result as readonly number[];
+  }
+
+  /**
+   * Slice tensor along dimensions
+   *
+   * Creates a view of the tensor with a subset of elements along each dimension.
+   * Supports integer indexing (removes dimension), slice notation with start/stop/step,
+   * and null for keeping entire dimension.
+   *
+   * @param indices - Array of slice indices for each dimension
+   * @returns New tensor with sliced data
+   *
+   * @example
+   * const a = await tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+   * const b = await a.slice([0]);           // [[1, 2], [3, 4]] - select first element
+   * const c = await a.slice([null, 1]);     // [[3, 4], [7, 8]] - select column
+   * const d = await a.slice([{ start: 0, stop: 2, step: 1 }, null]); // full tensor
+   */
+  async slice<Indices extends readonly SliceIndex[]>(
+    indices: Indices,
+  ): Promise<Tensor<SliceOp<S['__output'], Indices>>> {
+    // Validate indices
+    validateSliceIndices(this.shape, indices);
+
+    // Compute runtime shape and strides
+    const slicedShape = computeSlicedShape(this.shape, indices);
+    const slicedStrides = computeSlicedStrides(this.strides, indices);
+    const slicedSize = computeSize(slicedShape);
+
+    // Build the slice operation
+    const sliceOp = {
+      __op: 'slice' as const,
+      __output: {
+        __dtype: this.storage.__dtype,
+        __shape: slicedShape,
+        __strides: slicedStrides,
+        __size: slicedSize,
+        __layout: {
+          ...this.storage.__layout,
+          is_view: true,
+          // Slicing may break contiguity
+          c_contiguous: 'unknown' as const,
+          f_contiguous: 'unknown' as const,
+        },
+        __offset: this.storage.__offset, // Backend will compute actual offset
+        __sliceIndices: indices,
+      } as SliceOp<S['__output'], Indices>['__output'] & { __sliceIndices: Indices },
+      __inputs: [this.storage] as const,
+    } as SliceOp<S['__output'], Indices>;
+
+    // Execute on device - slicing needs device support for proper memory handling
+    const resultData = await this.data.device.execute(sliceOp, [this.data]);
+    return new Tensor(sliceOp, resultData);
   }
 
   // =============================================================================
