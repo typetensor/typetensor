@@ -1,6 +1,6 @@
 /**
  * Integration tests for CPU backend using shared test generators
- * 
+ *
  * This test suite uses the standardized test generators from @typetensor/test-utils
  * to validate the CPU device implementation against the core tensor operations.
  */
@@ -14,6 +14,7 @@ import {
   generateUnaryOperationTests,
   generateBinaryOperationTests,
   generateReductionOperationTests,
+  generateSoftmaxOperationTests,
 } from '@typetensor/test-utils';
 import { cpu } from './index';
 
@@ -28,9 +29,11 @@ const testFramework = {
     toMatch: (pattern: RegExp) => expect(actual).toMatch(pattern),
     toContain: (substring: string) => expect(actual).toContain(substring),
     toBeGreaterThan: (expected: number) => expect(actual).toBeGreaterThan(expected),
-    toBeCloseTo: (expected: number, precision?: number) => expect(actual).toBeCloseTo(expected, precision),
+    toBeCloseTo: (expected: number, precision?: number) =>
+      expect(actual).toBeCloseTo(expected, precision),
     toBeTruthy: () => expect(actual).toBeTruthy(),
     toBeFalsy: () => expect(actual).toBeFalsy(),
+    toBeLessThan: (expected: number) => expect(actual).toBeLessThan(expected),
     toHaveLength: (length: number) => expect(actual).toHaveLength(length),
     toBeInstanceOf: (constructor: any) => expect(actual).toBeInstanceOf(constructor),
     rejects: {
@@ -59,4 +62,5 @@ describe('CPU Backend Integration Tests', () => {
   generateUnaryOperationTests(cpu, testFramework);
   generateBinaryOperationTests(cpu, testFramework);
   generateReductionOperationTests(cpu, testFramework);
+  generateSoftmaxOperationTests(cpu, testFramework);
 });

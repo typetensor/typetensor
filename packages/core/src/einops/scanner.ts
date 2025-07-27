@@ -367,3 +367,12 @@ export function tokenize(pattern: string): TokenizeResult {
   const scanner = new EinopsScanner(pattern);
   return scanner.tokenize();
 }
+
+/**
+ * Convenience function for full parse pipeline (scanner + parser)
+ */
+export function parse(pattern: string): import('./ast').EinopsAST {
+  const { tokens } = tokenize(pattern);
+  const { parseTokens } = require('./parser');
+  return parseTokens(tokens);
+}

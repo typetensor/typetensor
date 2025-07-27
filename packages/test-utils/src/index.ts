@@ -5,3 +5,4 @@ export { generateViewOperationTests } from './generators/view-operations';
 export { generateUnaryOperationTests } from './generators/unary-operations';
 export { generateBinaryOperationTests } from './generators/binary-operations';
 export { generateReductionOperationTests } from './generators/reduction-operations';
+export { generateSoftmaxOperationTests } from './generators/softmax-operations';

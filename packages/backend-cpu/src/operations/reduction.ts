@@ -373,13 +373,33 @@ function performAxisMaxMin(
     // Convert flat index to multi-dimensional coordinates
     const inputCoords = flatIndexToCoords(flatIdx, inputStrides);
     
-    // Map to output coordinates by removing reduced dimensions
+    // Map to output coordinates based on the actual output shape
+    // If keepDims=true, outputShape retains all dimensions (with reduced dims as size 1)
+    // If keepDims=false, outputShape has reduced dimensions removed
     const outputCoords: number[] = [];
-    for (let dim = 0; dim < inputCoords.length; dim++) {
-      if (!axisSet.has(dim)) {
-        const coord = inputCoords[dim];
-        if (coord !== undefined) {
-          outputCoords.push(coord);
+    
+    if (inputCoords.length === outputShape.length) {
+      // keepDims=true case: output shape matches input rank
+      // Set reduced dimensions to 0, keep others as-is
+      for (let dim = 0; dim < inputCoords.length; dim++) {
+        if (axisSet.has(dim)) {
+          outputCoords.push(0); // Reduced dimension maps to index 0
+        } else {
+          const coord = inputCoords[dim];
+          if (coord !== undefined) {
+            outputCoords.push(coord);
+          }
+        }
+      }
+    } else {
+      // keepDims=false case: output shape has reduced dimensions removed
+      // Only include non-reduced dimensions
+      for (let dim = 0; dim < inputCoords.length; dim++) {
+        if (!axisSet.has(dim)) {
+          const coord = inputCoords[dim];
+          if (coord !== undefined) {
+            outputCoords.push(coord);
+          }
         }
       }
     }
@@ -457,13 +477,33 @@ function performAxisReduction(
     // Convert flat index to multi-dimensional coordinates
     const inputCoords = flatIndexToCoords(flatIdx, inputStrides);
     
-    // Map to output coordinates by removing reduced dimensions
+    // Map to output coordinates based on the actual output shape
+    // If keepDims=true, outputShape retains all dimensions (with reduced dims as size 1)
+    // If keepDims=false, outputShape has reduced dimensions removed
     const outputCoords: number[] = [];
-    for (let dim = 0; dim < inputCoords.length; dim++) {
-      if (!axisSet.has(dim)) {
-        const coord = inputCoords[dim];
-        if (coord !== undefined) {
-          outputCoords.push(coord);
+    
+    if (inputCoords.length === outputShape.length) {
+      // keepDims=true case: output shape matches input rank
+      // Set reduced dimensions to 0, keep others as-is
+      for (let dim = 0; dim < inputCoords.length; dim++) {
+        if (axisSet.has(dim)) {
+          outputCoords.push(0); // Reduced dimension maps to index 0
+        } else {
+          const coord = inputCoords[dim];
+          if (coord !== undefined) {
+            outputCoords.push(coord);
+          }
+        }
+      }
+    } else {
+      // keepDims=false case: output shape has reduced dimensions removed
+      // Only include non-reduced dimensions
+      for (let dim = 0; dim < inputCoords.length; dim++) {
+        if (!axisSet.has(dim)) {
+          const coord = inputCoords[dim];
+          if (coord !== undefined) {
+            outputCoords.push(coord);
+          }
         }
       }
     }

@@ -389,5 +389,304 @@ export function generateViewOperationTests(
         expect(chainedData).toEqual([1, 4, 2, 5, 3, 6]);
       });
     });
+
+    describe('slice operations', () => {
+      it('should slice vectors with start and end indices', async () => {
+        const vector = await tensor([1, 2, 3, 4, 5, 6] as const, { device, dtype: float32 });
+
+        // Slice [1:4] should give [2, 3, 4]
+        const sliced = await vector.slice([{ start: 1, stop: 4 }]);
+
+        expect(sliced.shape).toEqual([3]);
+        expect(sliced.dtype).toBe(float32);
+        expect(sliced.device).toBe(device);
+
+        const data = await sliced.toArray();
+        expect(data).toEqual([2, 3, 4]);
+      });
+
+      it('should slice matrices along rows', async () => {
+        const matrix = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+            [7, 8, 9],
+            [10, 11, 12],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Slice rows [1:3] should give middle two rows
+        const sliced = await matrix.slice([{ start: 1, stop: 3 }, null]);
+
+        expect(sliced.shape).toEqual([2, 3]);
+
+        const data = await sliced.toArray();
+        expect(data).toEqual([
+          [4, 5, 6],
+          [7, 8, 9],
+        ]);
+      });
+
+      it('should slice matrices along columns', async () => {
+        const matrix = await tensor(
+          [
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // PyTorch reference: matrix[:, 1:3] = [[2, 3], [6, 7]]
+        const sliced = await matrix.slice([null, { start: 1, stop: 3 }]);
+
+        expect(sliced.shape).toEqual([2, 2]);
+
+        const data = await sliced.toArray();
+        expect(data).toEqual([
+          [2, 3],
+          [6, 7],
+        ]);
+      });
+
+      it('should handle 3D tensor slicing', async () => {
+        const tensor3d = await tensor(
+          [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+            [
+              [5, 6],
+              [7, 8],
+            ],
+            [
+              [9, 10],
+              [11, 12],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Slice first dimension [0:2]
+        const sliced = await tensor3d.slice([{ start: 0, stop: 2 }, null, null]);
+
+        expect(sliced.shape).toEqual([2, 2, 2]);
+
+        const data = await sliced.toArray();
+        expect(data).toEqual([
+          [
+            [1, 2],
+            [3, 4],
+          ],
+          [
+            [5, 6],
+            [7, 8],
+          ],
+        ]);
+      });
+
+      it('should handle single element slices', async () => {
+        const matrix = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // PyTorch reference: matrix[1:2, 1:2] = [[5]] (preserves dimensions)
+        const sliced = await matrix.slice([{ start: 1, stop: 2 }, { start: 1, stop: 2 }]);
+
+        expect(sliced.shape).toEqual([1, 1]);
+
+        const data = await sliced.toArray();
+        expect(data).toEqual([[5]]);
+      });
+
+      it('should preserve data integrity in slices', async () => {
+        const original = await tensor(
+          [
+            [10, 20, 30],
+            [40, 50, 60],
+            [70, 80, 90],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        const sliced = await original.slice([{ start: 0, stop: 2 }, { start: 1, stop: 3 }]);
+
+        expect(sliced.shape).toEqual([2, 2]);
+        expect(sliced.dtype).toBe(float32);
+        expect(sliced.device).toBe(device);
+
+        const data = await sliced.toArray();
+        expect(data).toEqual([
+          [20, 30],
+          [50, 60],
+        ]);
+      });
+    });
+
+    describe('permute operations', () => {
+      it('should permute 2D matrix dimensions', async () => {
+        const matrix = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Permute [0, 1] -> [1, 0] (same as transpose)
+        const permuted = matrix.permute([1, 0] as const);
+
+        expect(permuted.shape).toEqual([3, 2]);
+        expect(permuted.dtype).toBe(float32);
+        expect(permuted.device).toBe(device);
+
+        const data = await permuted.toArray();
+        expect(data).toEqual([
+          [1, 4],
+          [2, 5],
+          [3, 6],
+        ]);
+      });
+
+      it('should permute 3D tensor dimensions', async () => {
+        // Create a 2x3x4 tensor
+        const tensor3d = await tensor(
+          [
+            [
+              [1, 2, 3, 4],
+              [5, 6, 7, 8],
+              [9, 10, 11, 12],
+            ],
+            [
+              [13, 14, 15, 16],
+              [17, 18, 19, 20],
+              [21, 22, 23, 24],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        expect(tensor3d.shape).toEqual([2, 3, 4]);
+
+        // Permute [0, 1, 2] -> [2, 0, 1]
+        // Shape should become [4, 2, 3]
+        const permuted = tensor3d.permute([2, 0, 1] as const);
+
+        expect(permuted.shape).toEqual([4, 2, 3]);
+        expect(permuted.dtype).toBe(float32);
+        expect(permuted.device).toBe(device);
+
+        const data = await permuted.toArray();
+
+        // First element of each dimension should match expected positions
+        expect(data[0][0][0]).toBe(1); // Original [0,0,0]
+        expect(data[1][0][0]).toBe(2); // Original [0,0,1]
+        expect(data[0][1][0]).toBe(13); // Original [1,0,0]
+        expect(data[0][0][1]).toBe(5); // Original [0,1,0]
+      });
+
+      it('should handle identity permutation', async () => {
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Identity permutation [0, 1] should not change anything
+        const permuted = matrix.permute([0, 1] as const);
+
+        expect(permuted.shape).toEqual([2, 2]);
+
+        const originalData = await matrix.toArray();
+        const permutedData = await permuted.toArray();
+        expect(permutedData).toEqual(originalData);
+      });
+
+      it('should handle vector permutation (no-op)', async () => {
+        const vector = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
+
+        // Vector permutation should be identity
+        const permuted = vector.permute([0] as const);
+
+        expect(permuted.shape).toEqual([4]);
+
+        const originalData = await vector.toArray();
+        const permutedData = await permuted.toArray();
+        expect(permutedData).toEqual(originalData);
+      });
+
+      it('should preserve data integrity across permutations', async () => {
+        const tensor3d = await tensor(
+          [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+            [
+              [5, 6],
+              [7, 8],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Multiple permutations should preserve total elements
+        const permuted1 = tensor3d.permute([1, 2, 0] as const);
+        const permuted2 = permuted1.permute([2, 0, 1] as const);
+
+        expect(tensor3d.shape).toEqual([2, 2, 2]);
+        expect(permuted1.shape).toEqual([2, 2, 2]);
+        expect(permuted2.shape).toEqual([2, 2, 2]);
+
+        // All should have same total elements
+        expect(tensor3d.size).toBe(8);
+        expect(permuted1.size).toBe(8);
+        expect(permuted2.size).toBe(8);
+
+        // Round-trip should return to original
+        const finalData = await permuted2.toArray();
+        const originalData = await tensor3d.toArray();
+        expect(finalData).toEqual(originalData);
+      });
+
+      it('should work with complex permutation patterns', async () => {
+        // Create a batch x channels x height x width tensor (common in ML)
+        const bchw = await tensor(
+          [
+            [
+              [
+                [1, 2],
+                [3, 4],
+              ],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        expect(bchw.shape).toEqual([1, 1, 2, 2]);
+
+        // Convert BCHW to BHWC (batch, height, width, channels)
+        const bhwc = bchw.permute([0, 2, 3, 1] as const);
+
+        expect(bhwc.shape).toEqual([1, 2, 2, 1]);
+        expect(bhwc.dtype).toBe(float32);
+        expect(bhwc.device).toBe(device);
+
+        const data = await bhwc.toArray();
+        expect(data).toEqual([
+          [
+            [[1], [2]],
+            [[3], [4]],
+          ],
+        ]);
+      });
+    });
   });
 }
