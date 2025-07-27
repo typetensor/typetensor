@@ -13,6 +13,8 @@ import type {
   WhitespaceToken,
   LparenToken,
   RparenToken,
+  EllipsisToken,
+  SingletonToken,
   TokenizeResult,
 } from './types';
 import { EinopsError, InvalidCharacterError, MalformedArrowError } from './types';
@@ -35,6 +37,7 @@ const AXIS_START_CHARS = /^[a-zA-Z_]$/;
  * Characters that are valid for continuing an axis name
  */
 const AXIS_CONTINUE_CHARS = /^[a-zA-Z0-9_]$/;
+
 
 // =============================================================================
 // Scanner Class
@@ -243,6 +246,45 @@ export class EinopsScanner {
   }
 
   /**
+   * Scan ellipsis token and return ellipsis token
+   */
+  private scanEllipsis(): EllipsisToken {
+    const start = this.index;
+    
+    // Must be exactly "..."
+    if (this.lookahead === '.' && 
+        this.nextLookahead === '.' && 
+        this.chars[this.index + 2] === '.') {
+      this.shift(); // consume first '.'
+      this.shift(); // consume second '.'
+      this.shift(); // consume third '.'
+      
+      return {
+        type: 'ellipsis',
+        position: { start, end: this.index },
+      };
+    }
+    
+    throw new InvalidCharacterError(this.lookahead, this.pattern, {
+      start: this.index,
+      end: this.index + 1,
+    });
+  }
+
+  /**
+   * Scan singleton token and return singleton token
+   */
+  private scanSingleton(): SingletonToken {
+    const start = this.index;
+    this.shift(); // consume '1'
+    
+    return {
+      type: 'singleton', 
+      position: { start, end: this.index },
+    };
+  }
+
+  /**
    * Scan the next token from the current position
    */
   private scanToken(): EinopsToken {
@@ -274,6 +316,16 @@ export class EinopsScanner {
     // Handle right parenthesis
     if (this.lookahead === ')') {
       return this.scanRparen();
+    }
+
+    // Handle ellipsis
+    if (this.lookahead === '.') {
+      return this.scanEllipsis();
+    }
+
+    // Handle singleton
+    if (this.lookahead === '1') {
+      return this.scanSingleton();
     }
 
     // Invalid character

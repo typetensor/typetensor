@@ -317,7 +317,7 @@ export function generateViewOperationTests(
           { device, dtype: float32 },
         );
         const reshaped = original.reshape([4] as const);
-        const flattened = original.flatten();
+        const flattened = await original.flatten();
         const transposed = original.transpose();
 
         expect(reshaped.device).toBe(device);
@@ -334,7 +334,7 @@ export function generateViewOperationTests(
           { device, dtype: int32 },
         );
         const reshaped = original.reshape([4] as const);
-        const flattened = original.flatten();
+        const flattened = await original.flatten();
         const transposed = original.transpose();
 
         expect(reshaped.dtype).toBe(int32);

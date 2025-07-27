@@ -215,7 +215,7 @@ expectTypeOf<CanReshape<readonly [2, 3, 4], readonly [5, 5]>>().toEqualTypeOf<fa
 
 // Test flatten
 declare const flattenTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [3, 2]>>>;
-const flatResult = flattenTensor.flatten();
+const flatResult = await flattenTensor.flatten();
 expectTypeOf(flatResult).toMatchTypeOf<Tensor<Flatten<TensorStorage<Float32, readonly [3, 2]>>>>();
 
 // Test view with dimension inference

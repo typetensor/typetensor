@@ -2,54 +2,70 @@
  * Type-level tests for reduction shape utilities
  */
 
-import { expectType, expectError } from 'tsd';
-import type { 
-  ValidateAxes, 
-  ReduceShape, 
-  ValidateReduction,
-  DimensionError 
-} from './types';
+import { expectTypeOf } from 'expect-type';
+import type { ValidateAxes, ReduceShape, ValidateReduction, DimensionError } from './types';
 
 // =============================================================================
 // ValidateAxes Tests
 // =============================================================================
 
 // Valid cases
-expectType<readonly [0, 2]>(true as any as ValidateAxes<[0, -1], [2, 3, 4]>); // normalized
-expectType<readonly [1]>(true as any as ValidateAxes<[1], [2, 3, 4]>);
-expectType<readonly []>(true as any as ValidateAxes<[], [2, 3, 4]>); // empty axes
+{
+  type CaseOne = ValidateAxes<[0, -1], [2, 3, 4]>;
+  expectTypeOf<CaseOne>().toEqualTypeOf<readonly [0, 2]>(); // normalized
+  type CaseTwo = ValidateAxes<[1], [2, 3, 4]>;
+  expectTypeOf<CaseTwo>().toEqualTypeOf<readonly [1]>();
+  type CaseThree = ValidateAxes<[], [2, 3, 4]>;
+  expectTypeOf<CaseThree>().toEqualTypeOf<readonly []>(); // empty axes
+}
 
 // Invalid cases - should return DimensionError
-expectType<DimensionError<string>>(true as any as ValidateAxes<[5], [2, 3, 4]>); // out of bounds
-expectType<DimensionError<string>>(true as any as ValidateAxes<[-5], [2, 3, 4]>); // out of bounds negative
+{
+  type CaseOne = ValidateAxes<[5], [2, 3, 4]>;
+  expectTypeOf<CaseOne>().toEqualTypeOf<
+    DimensionError<'Invalid dimension 5 for tensor with 3 dimensions (must be < 3)'>
+  >(); // out of bounds
+  type CaseTwo = ValidateAxes<[-5], [2, 3, 4]>;
+  expectTypeOf<CaseTwo>().toEqualTypeOf<
+    DimensionError<'Invalid dimension -5 for tensor with 3 dimensions (must be >= -3)'>
+  >(); // out of bounds negative
+}
 
 // =============================================================================
-// ReduceShape Tests  
+// ReduceShape Tests
 // =============================================================================
 
 // keepdims=false (default)
-expectType<readonly [2, 4]>(true as any as ReduceShape<[2, 3, 4], [1], false>); // remove middle dim
-expectType<readonly [3]>(true as any as ReduceShape<[2, 3, 4], [0, 2], false>); // remove first and last
-expectType<readonly []>(true as any as ReduceShape<[2, 3, 4], [0, 1, 2], false>); // remove all -> scalar
+expectTypeOf<ReduceShape<[2, 3, 4], [1], false>>().toEqualTypeOf<readonly [2, 4]>(); // remove middle dim
+expectTypeOf<ReduceShape<[2, 3, 4], [0, 2], false>>().toEqualTypeOf<readonly [3]>(); // remove first and last
+expectTypeOf<ReduceShape<[2, 3, 4], [0, 1, 2], false>>().toEqualTypeOf<readonly []>(); // remove all -> scalar
 
 // keepdims=true
-expectType<readonly [2, 1, 4]>(true as any as ReduceShape<[2, 3, 4], [1], true>); // keep middle as 1
-expectType<readonly [1, 3, 1]>(true as any as ReduceShape<[2, 3, 4], [0, 2], true>); // keep first/last as 1
-expectType<readonly [1, 1, 1]>(true as any as ReduceShape<[2, 3, 4], [0, 1, 2], true>); // keep all as 1
+expectTypeOf<ReduceShape<[2, 3, 4], [1], true>>().toEqualTypeOf<readonly [2, 1, 4]>(); // keep middle as 1
+expectTypeOf<ReduceShape<[2, 3, 4], [0, 2], true>>().toEqualTypeOf<readonly [1, 3, 1]>(); // keep first/last as 1
+expectTypeOf<ReduceShape<[2, 3, 4], [0, 1, 2], true>>().toEqualTypeOf<readonly [1, 1, 1]>(); // keep all as 1
 
 // Edge cases
-expectType<readonly [2, 3, 4]>(true as any as ReduceShape<[2, 3, 4], [], false>); // no reduction
-expectType<readonly [2, 3, 4]>(true as any as ReduceShape<[2, 3, 4], [], true>); // no reduction with keepdims
+expectTypeOf<ReduceShape<[2, 3, 4], [], false>>().toEqualTypeOf<readonly [2, 3, 4]>(); // no reduction
+expectTypeOf<ReduceShape<[2, 3, 4], [], true>>().toEqualTypeOf<readonly [2, 3, 4]>(); // no reduction with keepdims
 
 // =============================================================================
 // ValidateReduction Tests
 // =============================================================================
 
 // Valid cases
-expectType<true>(true as any as ValidateReduction<[2, 3, 4], [1]>);
-expectType<true>(true as any as ValidateReduction<[2, 3, 4], undefined>); // reduce all
-expectType<true>(true as any as ValidateReduction<[2, 3, 4], []>); // no reduction
+expectTypeOf<ValidateReduction<[2, 3, 4], [1]>>().toEqualTypeOf<true>();
+expectTypeOf<ValidateReduction<[2, 3, 4], undefined>>().toEqualTypeOf<true>(); // reduce all
+expectTypeOf<ValidateReduction<[2, 3, 4], []>>().toEqualTypeOf<true>(); // no reduction
 
 // Invalid cases
-expectType<DimensionError<string>>(true as any as ValidateReduction<[2, 3, 4], [5]>); // out of bounds
-expectType<DimensionError<string>>(true as any as ValidateReduction<[2, 3, 4], [1, 1]>); // duplicate axes
+{
+  type CaseOne = ValidateReduction<[2, 3, 4], [5]>;
+  expectTypeOf<CaseOne>().toEqualTypeOf<
+    DimensionError<'Invalid dimension 5 for tensor with 3 dimensions (must be < 3)'>
+  >(); // out of bounds
+  type CaseTwo = ValidateReduction<[2, 3, 4], [1, 1]>;
+  expectTypeOf<CaseTwo>().toEqualTypeOf<
+    DimensionError<'Duplicate axes found in reduction. Each axis can only appear once.'>
+  >(); // duplicate axes
+}

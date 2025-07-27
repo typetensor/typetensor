@@ -23,3 +23,6 @@ export type * from './matmul';
 
 // Re-export softmax operations
 export type * from './softmax';
+
+// Re-export reduction operations
+export type * from './reduction';

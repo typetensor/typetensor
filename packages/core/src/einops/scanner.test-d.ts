@@ -13,6 +13,8 @@ import type {
   WhitespaceToken,
   LparenToken,
   RparenToken,
+  EllipsisToken,
+  SingletonToken,
   Position,
   TokenizeResult,
 } from './types';
@@ -50,6 +52,16 @@ import { EinopsScanner, tokenize } from './scanner';
     type: 'rparen', 
     position: { start: 4, end: 5 },
   };
+  
+  const ellipsisToken: EllipsisToken = {
+    type: 'ellipsis',
+    position: { start: 0, end: 3 },
+  };
+  
+  const singletonToken: SingletonToken = {
+    type: 'singleton',
+    position: { start: 0, end: 1 },
+  };
 
   // All should be assignable to EinopsToken
   expectTypeOf<typeof axisToken>().toMatchTypeOf<EinopsToken>();
@@ -57,6 +69,8 @@ import { EinopsScanner, tokenize } from './scanner';
   expectTypeOf<typeof whitespaceToken>().toMatchTypeOf<EinopsToken>();
   expectTypeOf<typeof lparenToken>().toMatchTypeOf<EinopsToken>();
   expectTypeOf<typeof rparenToken>().toMatchTypeOf<EinopsToken>();
+  expectTypeOf<typeof ellipsisToken>().toMatchTypeOf<EinopsToken>();
+  expectTypeOf<typeof singletonToken>().toMatchTypeOf<EinopsToken>();
 }
 
 {
@@ -76,6 +90,12 @@ import { EinopsScanner, tokenize } from './scanner';
   
   expectTypeOf<RparenToken['type']>().toEqualTypeOf<'rparen'>();
   expectTypeOf<RparenToken['position']>().toEqualTypeOf<Position>();
+  
+  expectTypeOf<EllipsisToken['type']>().toEqualTypeOf<'ellipsis'>();
+  expectTypeOf<EllipsisToken['position']>().toEqualTypeOf<Position>();
+  
+  expectTypeOf<SingletonToken['type']>().toEqualTypeOf<'singleton'>();
+  expectTypeOf<SingletonToken['position']>().toEqualTypeOf<Position>();
 }
 
 // =============================================================================
@@ -198,4 +218,24 @@ import { EinopsScanner, tokenize } from './scanner';
     .map(t => t.name);
   
   expectTypeOf<typeof axisNames>().toEqualTypeOf<string[]>();
+}
+
+// =============================================================================
+// New Token Type Tests
+// =============================================================================
+
+{
+  // Test filtering with new tokens
+  const tokens: readonly EinopsToken[] = [];
+  
+  const ellipsisTokens = tokens.filter((t): t is EllipsisToken => t.type === 'ellipsis');
+  expectTypeOf<typeof ellipsisTokens>().toEqualTypeOf<EllipsisToken[]>();
+  
+  const singletonTokens = tokens.filter((t): t is SingletonToken => t.type === 'singleton');
+  expectTypeOf<typeof singletonTokens>().toEqualTypeOf<SingletonToken[]>();
+  
+  const specialTokens = tokens.filter((t): t is EllipsisToken | SingletonToken => 
+    t.type === 'ellipsis' || t.type === 'singleton'
+  );
+  expectTypeOf<typeof specialTokens>().toEqualTypeOf<(EllipsisToken | SingletonToken)[]>();
 }

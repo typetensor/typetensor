@@ -11,6 +11,7 @@ import { executeBinaryOp } from './binary';
 import { executeViewOp, executeSliceOp } from './view';
 import { executeMatmulOp } from './matmul';
 import { executeSoftmaxOp, executeLogSoftmaxOp } from './softmax';
+import { executeSumOp, executeMeanOp } from './reduction';
 
 /**
  * Execute a tensor operation on the CPU device
@@ -105,7 +106,7 @@ export async function executeOperation(
 
     // Transpose operation - view operation that swaps last two dimensions
     case 'transpose':
-    // Permute operation - view operation that rearranges dimensions  
+    // Permute operation - view operation that rearranges dimensions
     case 'permute': {
       if (inputs.length !== 1) {
         throw new Error(`${op.__op} operation requires exactly 1 input, got ${inputs.length}`);
@@ -122,9 +123,7 @@ export async function executeOperation(
     // Matrix multiplication
     case 'matmul': {
       if (inputs.length !== 2) {
-        throw new Error(
-          `Matrix multiplication requires exactly 2 inputs, got ${inputs.length}`,
-        );
+        throw new Error(`Matrix multiplication requires exactly 2 inputs, got ${inputs.length}`);
       }
       const inputA = inputs[0];
       const inputB = inputs[1];
@@ -143,7 +142,12 @@ export async function executeOperation(
       if (!input) {
         throw new Error('Input is undefined');
       }
-      return executeSoftmaxOp(device, op as AnyStorageTransformation & { __softmaxAxis: number }, input, output);
+      return executeSoftmaxOp(
+        device,
+        op as AnyStorageTransformation & { __softmaxAxis: number },
+        input,
+        output,
+      );
     }
 
     case 'log_softmax': {
@@ -154,7 +158,51 @@ export async function executeOperation(
       if (!input) {
         throw new Error('Input is undefined');
       }
-      return executeLogSoftmaxOp(device, op as AnyStorageTransformation & { __logSoftmaxAxis: number }, input, output);
+      return executeLogSoftmaxOp(
+        device,
+        op as AnyStorageTransformation & { __logSoftmaxAxis: number },
+        input,
+        output,
+      );
+    }
+
+    // Reduction operations
+    case 'sum': {
+      if (inputs.length !== 1) {
+        throw new Error(`Sum operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeSumOp(
+        device,
+        op as AnyStorageTransformation & {
+          __sumAxes: readonly number[] | undefined;
+          __keepDims: boolean;
+        },
+        input,
+        output,
+      );
+    }
+
+    case 'mean': {
+      if (inputs.length !== 1) {
+        throw new Error(`Mean operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeMeanOp(
+        device,
+        op as AnyStorageTransformation & {
+          __meanAxes: readonly number[] | undefined;
+          __keepDims: boolean;
+        },
+        input,
+        output,
+      );
     }
 
     default:

@@ -70,9 +70,27 @@ export interface RparenToken {
 }
 
 /**
+ * Ellipsis token for variable dimensions
+ * Matches: "..."
+ */
+export interface EllipsisToken {
+  readonly type: 'ellipsis';
+  readonly position: Position;
+}
+
+/**
+ * Singleton token for unit dimensions  
+ * Matches: "1"
+ */
+export interface SingletonToken {
+  readonly type: 'singleton';
+  readonly position: Position;
+}
+
+/**
  * Union type representing all possible einops tokens
  */
-export type EinopsToken = AxisToken | ArrowToken | WhitespaceToken | LparenToken | RparenToken;
+export type EinopsToken = AxisToken | ArrowToken | WhitespaceToken | LparenToken | RparenToken | EllipsisToken | SingletonToken;
 
 // =============================================================================
 // Tokenization Result

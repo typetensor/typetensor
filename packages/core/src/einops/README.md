@@ -164,25 +164,23 @@ type EinopsToken =
   | { type: 'arrow'; position: Position }                   // ✅ IMPLEMENTED
   | { type: 'lparen'; position: Position }                  // ✅ IMPLEMENTED
   | { type: 'rparen'; position: Position }                  // ✅ IMPLEMENTED
-  | { type: 'ellipsis'; position: Position }                // ⏳ TODO
-  | { type: 'singleton'; position: Position }               // ⏳ TODO
+  | { type: 'ellipsis'; position: Position }                // ✅ IMPLEMENTED
+  | { type: 'singleton'; position: Position }               // ✅ IMPLEMENTED
   | { type: 'whitespace'; position: Position };             // ✅ IMPLEMENTED
 ```
 
-#### 🔄 Progress: MAJOR COMPLETION
+#### ✅ Progress: FULL COMPLETION
 **Files**: [`scanner.ts`](./scanner.ts) | [`types.ts`](./types.ts) | [`scanner.test.ts`](./scanner.test.ts) | [`scanner.test-d.ts`](./scanner.test-d.ts)
 
 **✅ Completed:**
 - ✅ **Basic Scanner**: Character-by-character parsing with position tracking
 - ✅ **Core Token Types**: `AxisToken`, `ArrowToken`, `WhitespaceToken` with position info
 - ✅ **Composite Tokens**: `LparenToken`, `RparenToken` for patterns like `"(h w) c -> h w c"`
+- ✅ **Ellipsis Tokens**: `EllipsisToken` for patterns like `"batch ... -> ..."`
+- ✅ **Singleton Tokens**: `SingletonToken` for patterns like `"h w 1 -> h w"`
 - ✅ **Error Handling**: Comprehensive error classes with helpful messages and position highlighting
-- ✅ **Comprehensive Testing**: 34 runtime tests + type tests covering all implemented functionality
-- ✅ **Complex Patterns**: Handles composite patterns including `"(batch seq) embed"`, `"((a b) c) d"`, nested parentheses
-
-**⏳ Still Needed:**
-- ⏳ **Ellipsis Token**: `...` for patterns like `"batch ... -> ..."`
-- ⏳ **Singleton Token**: `1` for patterns like `"h w 1 -> h w"`
+- ✅ **Comprehensive Testing**: 48 runtime tests + type tests covering all implemented functionality
+- ✅ **Complex Patterns**: Handles all einops syntax including `"(batch seq) embed"`, `"((a b) c) d"`, `"batch ... -> ..."`, `"h w 1 -> h w"`
 
 ### Phase 2: Parser State Machine
 
@@ -226,18 +224,19 @@ function rearrange<Pattern extends string>(
 
 ## Implementation Status
 
-### ✅ Phase 1: Scanner & Tokenizer (NEARLY COMPLETED)
-   - ✅ **Scanner Implementation**: [`scanner.ts`](./scanner.ts) - Full scanner with composite token support
-   - ✅ **Token Types**: [`types.ts`](./types.ts) - Complete token definitions including parentheses
-   - ✅ **Runtime Tests**: [`scanner.test.ts`](./scanner.test.ts) - 34 comprehensive tests covering all functionality
+### ✅ Phase 1: Scanner & Tokenizer (FULLY COMPLETED)
+   - ✅ **Scanner Implementation**: [`scanner.ts`](./scanner.ts) - Complete scanner with all token types
+   - ✅ **Token Types**: [`types.ts`](./types.ts) - Complete token definitions including all einops syntax
+   - ✅ **Runtime Tests**: [`scanner.test.ts`](./scanner.test.ts) - 48 comprehensive tests covering all functionality
    - ✅ **Type Tests**: [`scanner.test-d.ts`](./scanner.test-d.ts) - Full compile-time type safety validation
 
    **Supports**: 
    - ✅ Simple patterns: `"a"`, `"h w -> w h"`, `"batch height width channels -> batch channels height width"`
    - ✅ Composite patterns: `"(h w) c -> h w c"`, `"(batch seq) embed"`, `"((a b) c) d"`
-   - ⏳ Still missing: ellipsis `...` and singleton `1` tokens
+   - ✅ Ellipsis patterns: `"batch ... -> ..."`, `"... channels -> channels ..."`
+   - ✅ Singleton patterns: `"h w 1 -> h w"`, `"batch 1 height -> batch height 1"`
 
-### 🚧 Phase 2: AST & Type-Level Parser (IN PROGRESS)
+### ⏳ Phase 2: AST & Type-Level Parser (READY TO START)
    - 🔄 Define AST types for einops patterns
    - ⏳ Implement pattern parsing using template literals
    - ⏳ Add axis validation
@@ -288,11 +287,11 @@ const reduced = reduce(tensor, 'batch ... h w c -> batch ... c', 'mean');
 
 ## Next Steps
 
-1. 🔄 **Complete scanner implementation** → ✅ Added composite `()` tokens, ⏳ still need ellipsis `...` and singleton `1` tokens
-2. 🔄 **Define AST types for einops patterns** → **READY TO START** (scanner provides solid foundation)
-3. ⏳ Implement type-level parser  
-4. ⏳ Build runtime validator
-5. ⏳ Connect to tensor operations
+1. ✅ **Complete scanner implementation** → **FULLY COMPLETE** with all 7 token types (axis, arrow, whitespace, lparen, rparen, ellipsis, singleton)
+2. 🔄 **Define AST types for einops patterns** → **READY TO START** (scanner provides complete foundation)
+3. ⏳ Implement type-level parser using template literals
+4. ⏳ Build runtime validator and operation planner
+5. ⏳ Connect to tensor operations with full einops API
 
 This implementation will bring the elegance of einops to TypeScript with the type safety inspired by ArkType's groundbreaking approach to string template parsing.
 

@@ -11,6 +11,7 @@ import {
   generateTensorPropertyTests,
   generateDevUtilsTests,
   generateViewOperationTests,
+  generateUnaryOperationTests,
 } from '@typetensor/test-utils';
 import { cpu } from './index';
 
@@ -21,7 +22,7 @@ const testFramework = {
   expect: (actual: unknown) => ({
     toBe: (expected: unknown) => expect(actual).toBe(expected),
     toEqual: (expected: unknown) => expect(actual).toEqual(expected),
-    toThrow: (error?: string | RegExp) => expect(() => actual).toThrow(error),
+    toThrow: (error?: string | RegExp) => expect(actual as () => void).toThrow(error),
     toMatch: (pattern: RegExp) => expect(actual).toMatch(pattern),
     toContain: (substring: string) => expect(actual).toContain(substring),
     toBeGreaterThan: (expected: number) => expect(actual).toBeGreaterThan(expected),
@@ -53,4 +54,5 @@ describe('CPU Backend Integration Tests', () => {
   generateTensorPropertyTests(cpu, testFramework);
   generateDevUtilsTests(cpu, testFramework);
   generateViewOperationTests(cpu, testFramework);
+  generateUnaryOperationTests(cpu, testFramework);
 });

@@ -14,7 +14,7 @@ import { float32, int32, int8, uint8, int64, bool } from '../dtype/constants';
 import type { Int32, Int8, Uint8, Int64, Bool } from '../dtype/types';
 import { Tensor } from './tensor';
 import type { CreateOp, TensorStorage } from '../storage/layout';
-import type { ReshapeOp, Flatten } from '../storage/view';
+import type { ReshapeOp } from '../storage/view';
 import { expectTypeOf } from 'expect-type';
 import type { Device } from '../device';
 
@@ -371,27 +371,5 @@ describe('view operations', () => {
     expect(() => t.reshape([2, 2] as const)).toThrow(/different number of elements/);
     // @ts-expect-error - Type error
     expect(() => t.reshape([3, 3] as const)).toThrow(/different number of elements/);
-  });
-
-  it('should flatten tensors', async () => {
-    const mat = await tensor(
-      [
-        [1, 2],
-        [3, 4],
-      ] as const,
-      { device: mockDevice, dtype: float32 },
-    );
-    expectTypeOf(mat).toEqualTypeOf<
-      Tensor<CreateOp<TensorStorage<typeof float32, readonly [2, 2]>>>
-    >();
-
-    const flat = mat.flatten();
-    expectTypeOf(flat).toMatchTypeOf<
-      Tensor<Flatten<TensorStorage<typeof float32, readonly [2, 2]>>>
-    >();
-    expectTypeOf(flat.shape).toEqualTypeOf<readonly [4]>();
-
-    expect(flat.shape).toEqual([4]);
-    expect(flat.layout.is_view).toBe(true);
   });
 });

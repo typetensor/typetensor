@@ -18,12 +18,14 @@ import type {
   CanMatmul,
   ValidateDim,
   DimensionError,
+  ValidateReduction,
 } from '../shape/types';
 import type { Neg, Abs, Sin, Cos, Exp, Log, Sqrt, Square } from '../storage/unary';
 import type { Add, Sub, Mul, Div } from '../storage/binary';
 import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from '../storage/view';
 import type { MatmulOp } from '../storage/matmul';
 import type { SoftmaxOp, LogSoftmaxOp } from '../storage/softmax';
+import type { SumOp, MeanOp } from '../storage/reduction';
 import type { DTypeValue } from '../dtype/types';
 import type { NestedArray } from './types';
 import { bufferToNestedArray } from './types';
@@ -741,7 +743,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       device: this.device,
       dtype: this.dtype,
       shape: this.shape,
-    })) as Tensor<S>;
+    })) as unknown as Tensor<S>;
   }
 
   /**
@@ -1532,5 +1534,213 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
 
     const resultData = await this.data.device.execute(logSoftmaxOp, [this.data]);
     return new Tensor(logSoftmaxOp, resultData);
+  }
+
+  // =============================================================================
+  // Reduction Operations
+  // =============================================================================
+
+  /**
+   * Sum of tensor elements along specified axes
+   *
+   * Computes the sum of tensor elements along the given axes. If no axes are
+   * specified, sums all elements to produce a scalar result.
+   *
+   * @param axes - Axes along which to sum (supports negative indexing)
+   * @param keepdims - Whether to keep reduced dimensions as size 1
+   * @returns New tensor with summed values
+   *
+   * @example
+   * // Sum along specific axis
+   * const x = await tensor([[1, 2, 3], [4, 5, 6]]);  // shape: [2, 3]
+   * const rowSums = await x.sum([1]);                 // shape: [2] - sum each row
+   * const colSums = await x.sum([0]);                 // shape: [3] - sum each column
+   *
+   * @example
+   * // Global sum (all elements)
+   * const total = await x.sum();                      // shape: [] - scalar result
+   *
+   * @example
+   * // Keep dimensions
+   * const keepDims = await x.sum([0], true);          // shape: [1, 3] - keep batch dim
+   */
+  async sum<
+    Axes extends readonly number[] | undefined = undefined,
+    KeepDims extends boolean = false,
+  >(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for sum reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): Promise<Tensor<SumOp<S['__output'], Axes, KeepDims>>> {
+    // Normalize and validate axes at runtime
+    const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
+    const keepDimsFlag = keepdims ?? false;
+
+    // Compute output shape based on reduction
+    const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
+    const outputStrides = computeStrides(outputShape);
+    const outputSize = computeSize(outputShape);
+
+    // Build the sum operation with proper output metadata
+    const sumOp = {
+      __op: 'sum' as const,
+      __output: {
+        __dtype: this.storage.__dtype,
+        __shape: outputShape as any, // Runtime shape
+        __strides: outputStrides as any, // Runtime strides
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      },
+      __inputs: [this.storage] as const,
+      __sumAxes: axes,
+      __keepDims: keepDimsFlag,
+    } as unknown as SumOp<S['__output'], Axes, KeepDims>;
+
+    const resultData = await this.data.device.execute(sumOp as any, [this.data]);
+    return new Tensor(sumOp, resultData) as Tensor<SumOp<S['__output'], Axes, KeepDims>>;
+  }
+
+  /**
+   * Mean of tensor elements along specified axes
+   *
+   * Computes the arithmetic mean of tensor elements along the given axes.
+   * If no axes are specified, computes the mean of all elements to produce
+   * a scalar result. The output is always a floating-point type.
+   *
+   * @param axes - Axes along which to compute mean (supports negative indexing)
+   * @param keepdims - Whether to keep reduced dimensions as size 1
+   * @returns New tensor with mean values
+   *
+   * @example
+   * // Mean along specific axis
+   * const x = await tensor([[1, 2, 3], [4, 5, 6]]);  // shape: [2, 3]
+   * const rowMeans = await x.mean([1]);               // shape: [2] - mean of each row
+   * const colMeans = await x.mean([0]);               // shape: [3] - mean of each column
+   *
+   * @example
+   * // Global mean (all elements)
+   * const avgValue = await x.mean();                  // shape: [] - scalar result
+   *
+   * @example
+   * // Layer normalization pattern
+   * const features = await tensor([[[1, 2], [3, 4]]]); // shape: [1, 2, 2]
+   * const layerMean = await features.mean([-1], true);  // shape: [1, 2, 1]
+   */
+  async mean<
+    Axes extends readonly number[] | undefined = undefined,
+    KeepDims extends boolean = false,
+  >(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for mean reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): Promise<Tensor<MeanOp<S['__output'], Axes, KeepDims>>> {
+    // Normalize and validate axes at runtime
+    const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
+    const keepDimsFlag = keepdims ?? false;
+
+    // Compute output shape based on reduction
+    const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
+    const outputStrides = computeStrides(outputShape);
+    const outputSize = computeSize(outputShape);
+    const outputDtype = toFloatDType(this.dtype);
+
+    // Build the mean operation with proper output metadata
+    const meanOp = {
+      __op: 'mean' as const,
+      __output: {
+        __dtype: outputDtype,
+        __shape: outputShape as any, // Runtime shape
+        __strides: outputStrides as any, // Runtime strides
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      },
+      __inputs: [this.storage] as const,
+      __meanAxes: axes,
+      __keepDims: keepDimsFlag,
+    } as unknown as MeanOp<S['__output'], Axes, KeepDims>;
+
+    const resultData = await this.data.device.execute(meanOp as any, [this.data]);
+    return new Tensor(meanOp, resultData) as Tensor<MeanOp<S['__output'], Axes, KeepDims>>;
+  }
+
+  // =============================================================================
+  // Reduction Utilities
+  // =============================================================================
+
+  /**
+   * Normalize and validate reduction axes
+   * Handles undefined (all axes), negative indexing, and validation
+   */
+  private normalizeReductionAxes(axes?: readonly number[]): number[] | undefined {
+    if (axes === undefined) {
+      return undefined; // Reduce all axes
+    }
+
+    const rank = this.shape.length;
+    const normalizedAxes: number[] = [];
+
+    for (const axis of axes) {
+      if (!Number.isInteger(axis)) {
+        throw new Error(`Axis must be an integer, got ${axis}`);
+      }
+
+      const normalizedAxis = axis < 0 ? rank + axis : axis;
+
+      if (normalizedAxis < 0 || normalizedAxis >= rank) {
+        throw new Error(
+          `Axis ${axis} out of bounds for tensor with ${rank} dimensions. Valid range: [-${rank}, ${rank})`,
+        );
+      }
+
+      if (normalizedAxes.includes(normalizedAxis)) {
+        throw new Error(`Duplicate axis ${axis} in reduction axes`);
+      }
+
+      normalizedAxes.push(normalizedAxis);
+    }
+
+    return normalizedAxes;
+  }
+
+  /**
+   * Compute the output shape after reduction
+   */
+  private computeReductionShape(axes: number[] | undefined, keepdims: boolean): number[] {
+    if (axes === undefined) {
+      // Reduce all axes
+      return keepdims ? this.shape.map(() => 1) : [];
+    }
+
+    const outputShape: number[] = [];
+    for (let i = 0; i < this.shape.length; i++) {
+      if (axes.includes(i)) {
+        // This axis is being reduced
+        if (keepdims) {
+          outputShape.push(1);
+        }
+        // else: skip this dimension (remove it)
+      } else {
+        // This axis is preserved
+        outputShape.push(this.shape[i]!);
+      }
+    }
+
+    return outputShape;
   }
 }

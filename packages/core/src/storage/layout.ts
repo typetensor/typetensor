@@ -110,7 +110,9 @@ export type AllOperationTypes =
   | 'matmul' // Matrix multiplication
   | 'transpose' // Transpose dimensions
   | 'softmax' // Softmax normalization
-  | 'log_softmax'; // Log-softmax normalization
+  | 'log_softmax' // Log-softmax normalization
+  | 'sum' // Sum reduction
+  | 'mean'; // Mean reduction
 
 /**
  * Base interface for all storage transformations
