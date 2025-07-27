@@ -127,10 +127,10 @@ async function main(): Promise<void> {
   // ============================================================================
   console.log('\n\n6. Creating Special Tensors:');
 
-  const zeros_matrix = await zeros([2, 3], { device: cpu, dtype: float32 });
+  const zeros_matrix = await zeros([2, 3] as const, { device: cpu, dtype: float32 });
   console.log(await zeros_matrix.format());
 
-  const ones_vector = await ones([4], { device: cpu, dtype: int32 });
+  const ones_vector = await ones([4] as const, { device: cpu, dtype: int32 });
   console.log(await ones_vector.format());
 
   const identity = await eye(3, { device: cpu, dtype: float32 });
@@ -144,8 +144,16 @@ async function main(): Promise<void> {
   // 3D tensor (like a batch of images)
   const tensor_3d = await tensor(
     [
-      [[1, 2], [3, 4], [5, 6]],
-      [[7, 8], [9, 10], [11, 12]],
+      [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+      ],
+      [
+        [7, 8],
+        [9, 10],
+        [11, 12],
+      ],
     ] as const,
     { device: cpu, dtype: float32 },
   );
@@ -156,12 +164,24 @@ async function main(): Promise<void> {
   const tensor_4d = await tensor(
     [
       [
-        [[1, 2, 3], [4, 5, 6]],
-        [[7, 8, 9], [10, 11, 12]],
+        [
+          [1, 2, 3],
+          [4, 5, 6],
+        ],
+        [
+          [7, 8, 9],
+          [10, 11, 12],
+        ],
       ],
       [
-        [[13, 14, 15], [16, 17, 18]],
-        [[19, 20, 21], [22, 23, 24]],
+        [
+          [13, 14, 15],
+          [16, 17, 18],
+        ],
+        [
+          [19, 20, 21],
+          [22, 23, 24],
+        ],
       ],
     ] as const,
     { device: cpu, dtype: float32 },

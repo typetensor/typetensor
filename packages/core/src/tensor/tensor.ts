@@ -53,6 +53,310 @@ import { toFloatDType, toPromotedDType } from '../dtype';
 import type { Mod } from 'ts-arithmetic';
 
 /**
+ * A Promise that supports method chaining for tensor operations
+ *
+ * Extends Promise<Tensor<S>> so it's completely backward compatible,
+ * but adds chainable methods that allow fluid operation composition.
+ *
+ * @example
+ * // Both syntaxes work:
+ * const result1 = await (await a.add(b)).mul(c);  // Traditional
+ * const result2 = await a.add(b).mul(c);          // Chainable
+ */
+class ChainablePromise<S extends AnyStorageTransformation> extends Promise<Tensor<S>> {
+  constructor(
+    executor: (
+      resolve: (value: Tensor<S> | PromiseLike<Tensor<S>>) => void,
+      reject: (reason?: unknown) => void,
+    ) => void,
+  ) {
+    super(executor);
+  }
+
+  // =============================================================================
+  // Unary Operations (Chainable)
+  // =============================================================================
+
+  neg(): ChainablePromise<Neg<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.neg())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  abs(): ChainablePromise<Abs<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.abs())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  sin(): ChainablePromise<Sin<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.sin())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  cos(): ChainablePromise<Cos<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.cos())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  exp(): ChainablePromise<Exp<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.exp())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  log(): ChainablePromise<Log<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.log())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  sqrt(): ChainablePromise<Sqrt<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.sqrt())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  square(): ChainablePromise<Square<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.square())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  // =============================================================================
+  // Binary Operations (Chainable)
+  // =============================================================================
+
+  add<T extends AnyStorageTransformation>(
+    other: CanBroadcast<S['__output']['__shape'], T['__output']['__shape']> extends true
+      ? Tensor<T> | ChainablePromise<T>
+      : `[TypeTensor ❌] Cannot add tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}]. Shapes must be compatible for broadcasting.`,
+  ): ChainablePromise<Add<S['__output'], T['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      Promise.all([
+        this,
+        other instanceof ChainablePromise ? other : Promise.resolve(other as Tensor<T>),
+      ])
+        .then(([tensor, otherTensor]) => tensor.add(otherTensor as any))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  sub<T extends AnyStorageTransformation>(
+    other: CanBroadcast<S['__output']['__shape'], T['__output']['__shape']> extends true
+      ? Tensor<T> | ChainablePromise<T>
+      : `[TypeTensor ❌] Cannot subtract tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}]. Shapes must be compatible for broadcasting.`,
+  ): ChainablePromise<Sub<S['__output'], T['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      Promise.all([
+        this,
+        other instanceof ChainablePromise ? other : Promise.resolve(other as Tensor<T>),
+      ])
+        .then(([tensor, otherTensor]) => tensor.sub(otherTensor as any))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  mul<T extends AnyStorageTransformation>(
+    other: CanBroadcast<S['__output']['__shape'], T['__output']['__shape']> extends true
+      ? Tensor<T> | ChainablePromise<T>
+      : `[TypeTensor ❌] Cannot multiply tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}]. Shapes must be compatible for broadcasting.`,
+  ): ChainablePromise<Mul<S['__output'], T['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      Promise.all([
+        this,
+        other instanceof ChainablePromise ? other : Promise.resolve(other as Tensor<T>),
+      ])
+        .then(([tensor, otherTensor]) => tensor.mul(otherTensor as any))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  div<T extends AnyStorageTransformation>(
+    other: CanBroadcast<S['__output']['__shape'], T['__output']['__shape']> extends true
+      ? Tensor<T> | ChainablePromise<T>
+      : `[TypeTensor ❌] Cannot divide tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}]. Shapes must be compatible for broadcasting.`,
+  ): ChainablePromise<Div<S['__output'], T['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      Promise.all([
+        this,
+        other instanceof ChainablePromise ? other : Promise.resolve(other as Tensor<T>),
+      ])
+        .then(([tensor, otherTensor]) => tensor.div(otherTensor as any))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  // =============================================================================
+  // View Operations (Chainable)
+  // =============================================================================
+
+  flatten(): ChainablePromise<Flatten<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.flatten())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  slice<Indices extends readonly SliceIndex[]>(
+    indices: Indices,
+  ): ChainablePromise<SliceOp<S['__output'], Indices>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.slice(indices))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  // =============================================================================
+  // Matrix Operations (Chainable)
+  // =============================================================================
+
+  matmul<T extends AnyStorageTransformation>(
+    other: CanMatmul<S['__output']['__shape'], T['__output']['__shape']> extends true
+      ? Tensor<T> | ChainablePromise<T>
+      : `[TypeTensor ❌] Cannot multiply tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}] for matrix multiplication`,
+  ): ChainablePromise<MatmulOp<S['__output'], T['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      Promise.all([
+        this,
+        other instanceof ChainablePromise ? other : Promise.resolve(other as Tensor<T>),
+      ])
+        .then(([tensor, otherTensor]) => tensor.matmul(otherTensor as any))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  // =============================================================================
+  // Softmax Operations (Chainable)
+  // =============================================================================
+
+  softmax<Axis extends number>(
+    axis: ValidateDim<Axis, S['__output']['__shape']> extends DimensionError<string>
+      ? `[TypeTensor ❌] Invalid axis ${Axis} for tensor with shape [${ShapeToString<S['__output']['__shape']>}]. Use axis in range [-${S['__output']['__shape']['length']}, ${S['__output']['__shape']['length']})`
+      : Axis,
+  ): ChainablePromise<SoftmaxOp<S['__output'], Axis>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.softmax(axis))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  logSoftmax<Axis extends number>(
+    axis: ValidateDim<Axis, S['__output']['__shape']> extends DimensionError<string>
+      ? `[TypeTensor ❌] Invalid axis ${Axis} for tensor with shape [${ShapeToString<S['__output']['__shape']>}]. Use axis in range [-${S['__output']['__shape']['length']}, ${S['__output']['__shape']['length']})`
+      : Axis,
+  ): ChainablePromise<LogSoftmaxOp<S['__output'], Axis>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.logSoftmax(axis))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  // =============================================================================
+  // Reduction Operations (Chainable)
+  // =============================================================================
+
+  sum<Axes extends readonly number[] | undefined = undefined, KeepDims extends boolean = false>(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for sum reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): ChainablePromise<SumOp<S['__output'], Axes, KeepDims>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.sum(axes, keepdims))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  mean<Axes extends readonly number[] | undefined = undefined, KeepDims extends boolean = false>(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for mean reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): ChainablePromise<MeanOp<S['__output'], Axes, KeepDims>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.mean(axes, keepdims))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  max<Axes extends readonly number[] | undefined = undefined, KeepDims extends boolean = false>(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for max reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): ChainablePromise<MaxOp<S['__output'], Axes, KeepDims>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.max(axes, keepdims))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  min<Axes extends readonly number[] | undefined = undefined, KeepDims extends boolean = false>(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for min reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): ChainablePromise<MinOp<S['__output'], Axes, KeepDims>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.min(axes, keepdims))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  // =============================================================================
+  // Utility Operations (Chainable)
+  // =============================================================================
+
+  to(device: Device): ChainablePromise<S> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.to(device))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  clone(): ChainablePromise<S> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.clone())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+}
+
+/**
  * Validation type for reshape operations
  * Provides clear error messages for invalid reshape attempts
  */
@@ -224,29 +528,37 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    *
    * @returns New tensor with negated values
    */
-  async neg(): Promise<Tensor<Neg<S['__output']>>> {
-    // Build the transformation with proper output metadata
-    const negOp: Neg<S['__output']> = {
-      __op: 'neg',
-      __output: {
-        __dtype: this.storage.__dtype,
-        __shape: this.storage.__shape,
-        __strides: this.storage.__strides,
-        __size: this.storage.__size,
-        __layout: {
-          c_contiguous: true,
-          f_contiguous: false,
-          is_view: false,
-          writeable: true,
-          aligned: true,
-        },
-        __offset: 0,
-      } as Neg<S['__output']>['__output'],
-      __inputs: [this.storage] as const,
-    };
+  neg(): ChainablePromise<Neg<S['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Build the transformation with proper output metadata
+          const negOp: Neg<S['__output']> = {
+            __op: 'neg',
+            __output: {
+              __dtype: this.storage.__dtype,
+              __shape: this.storage.__shape,
+              __strides: this.storage.__strides,
+              __size: this.storage.__size,
+              __layout: {
+                c_contiguous: true,
+                f_contiguous: false,
+                is_view: false,
+                writeable: true,
+                aligned: true,
+              },
+              __offset: 0,
+            } as Neg<S['__output']>['__output'],
+            __inputs: [this.storage] as const,
+          };
 
-    const resultData = await this.data.device.execute(negOp, [this.data]);
-    return new Tensor(negOp, resultData);
+          const resultData = await this.data.device.execute(negOp, [this.data]);
+          resolve(new Tensor(negOp, resultData));
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   /**
@@ -404,53 +716,64 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    * @throws {Error} If tensors are on different devices
    * @throws {Error} If shapes cannot broadcast
    */
-  async add<T extends AnyStorageTransformation>(
+  add<T extends AnyStorageTransformation>(
     other: CanBroadcast<S['__output']['__shape'], T['__output']['__shape']> extends true
-      ? Tensor<T>
+      ? Tensor<T> | ChainablePromise<T>
       : `[TypeTensor ❌] Cannot add tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}]. Shapes must be compatible for broadcasting.`,
-  ): Promise<Tensor<Add<S['__output'], T['__output']>>> {
-    if (!(other instanceof Tensor)) {
-      throw new Error('Expected a Tensor instance');
-    }
+  ): ChainablePromise<Add<S['__output'], T['__output']>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Resolve the other tensor if it's a ChainablePromise
+          const otherTensor = other instanceof ChainablePromise ? await other : other;
 
-    if (other.device.id !== this.device.id) {
-      // NOTE: the as string is a workaround, typescript properly infers the type as string... but eslint does not
-      throw new Error(
-        `Tensors must be on same device: ${this.device.id as string} vs ${other.device.id as string}`,
-      );
-    }
+          if (!(otherTensor instanceof Tensor)) {
+            throw new Error('Expected a Tensor instance');
+          }
 
-    // Validate shapes can broadcast with helpful error messages
-    assertShapesCompatible(this.shape, other.shape, 'element-wise addition');
+          if (otherTensor.device.id !== this.device.id) {
+            // NOTE: the as string is a workaround, typescript properly infers the type as string... but eslint does not
+            throw new Error(
+              `Tensors must be on same device: ${this.device.id as string} vs ${otherTensor.device.id as string}`,
+            );
+          }
 
-    // Compute broadcast shape and promoted dtype
-    const outputShape = broadcastShapes(this.shape, other.shape);
-    const outputStrides = computeStrides(outputShape);
-    const outputSize = computeSize(outputShape);
-    const promotedDtype = toPromotedDType(this.dtype, other.dtype);
+          // Validate shapes can broadcast with helpful error messages
+          assertShapesCompatible(this.shape, otherTensor.shape, 'element-wise addition');
 
-    // Build the add operation with proper output metadata
-    const addOp = {
-      __op: 'add' as const,
-      __output: {
-        __dtype: promotedDtype,
-        __shape: outputShape,
-        __strides: outputStrides,
-        __size: outputSize,
-        __layout: {
-          c_contiguous: true,
-          f_contiguous: false,
-          is_view: false,
-          writeable: true,
-          aligned: true,
-        },
-        __offset: 0,
-      } as Add<S['__output'], T['__output']>['__output'],
-      __inputs: [this.storage, other.storage] as const,
-    } as Add<S['__output'], T['__output']>;
+          // Compute broadcast shape and promoted dtype
+          const outputShape = broadcastShapes(this.shape, otherTensor.shape);
+          const outputStrides = computeStrides(outputShape);
+          const outputSize = computeSize(outputShape);
+          const promotedDtype = toPromotedDType(this.dtype, otherTensor.dtype);
 
-    const resultData = await this.data.device.execute(addOp, [this.data, other.data]);
-    return new Tensor(addOp, resultData);
+          // Build the add operation with proper output metadata
+          const addOp = {
+            __op: 'add' as const,
+            __output: {
+              __dtype: promotedDtype,
+              __shape: outputShape,
+              __strides: outputStrides,
+              __size: outputSize,
+              __layout: {
+                c_contiguous: true,
+                f_contiguous: false,
+                is_view: false,
+                writeable: true,
+                aligned: true,
+              },
+              __offset: 0,
+            } as Add<S['__output'], T['__output']>['__output'],
+            __inputs: [this.storage, otherTensor.storage] as const,
+          } as Add<S['__output'], T['__output']>;
+
+          const resultData = await this.data.device.execute(addOp, [this.data, otherTensor.data]);
+          resolve(new Tensor(addOp, resultData));
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   /**

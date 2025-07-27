@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   console.log('\nReshaped to 3x2:', await reshaped1.toArray());
 
   // Reshape to 1D (flatten)
-  const flattened = matrix.flatten();
+  const flattened = await matrix.flatten();
   console.log('\nFlattened to 1D:', await flattened.toArray());
 
   // Reshape to 6x1 column vector
@@ -170,7 +170,7 @@ async function main(): Promise<void> {
   console.log('\nAfter slice([0]):', await sliced.toArray());
   console.log('Shape:', sliced.shape); // [3, 2]
 
-  const reshaped = sliced.reshape([2, 3] as const);
+  const reshaped = await sliced.reshape([2, 3] as const);
   console.log('\nAfter reshape([2, 3]):', await reshaped.toArray());
   console.log('Shape:', reshaped.shape); // [2, 3]
 
@@ -195,12 +195,12 @@ async function main(): Promise<void> {
   console.log('Shape:', matrix2d.shape);
 
   // Transpose the matrix
-  const transposed2d = matrix2d.transpose();
+  const transposed2d = await matrix2d.transpose();
   console.log('\nTransposed matrix:', await transposed2d.toArray());
   console.log('Shape:', transposed2d.shape); // [3, 2]
 
   // Using T property (shorthand for transpose)
-  const transposedT = matrix2d.T;
+  const transposedT = await matrix2d.T;
   console.log('\nUsing .T property:', await transposedT.toArray());
 
   // Transpose 3D tensor (swaps last two dimensions)
