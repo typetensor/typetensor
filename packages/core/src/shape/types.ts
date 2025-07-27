@@ -971,3 +971,210 @@ type SlicedShapeHelper<
           : never
         : never
       : never;
+
+// =============================================================================
+// Dimension Validation and Normalization
+// =============================================================================
+
+/**
+ * Error type for dimension validation
+ *
+ * @example
+ * type Error = DimensionError<"Invalid dimension -3 for axis 0 of shape [2, 3]">
+ */
+export interface DimensionError<Message extends string> {
+  readonly __error: 'DimensionError';
+  readonly message: Message;
+}
+
+/**
+ * Normalize a dimension index to handle negative indexing
+ * Negative indices count from the end: -1 = last dimension, -2 = second to last, etc.
+ *
+ * @example
+ * type Normalized1 = NormalizeDim<-1, 3> // 2 (last dimension of rank-3 tensor)
+ * type Normalized2 = NormalizeDim<-2, 3> // 1 (second to last dimension)
+ * type Normalized3 = NormalizeDim<1, 3> // 1 (positive index unchanged)
+ * type Error1 = NormalizeDim<-5, 3> // DimensionError (out of bounds)
+ * type Error2 = NormalizeDim<4, 3> // DimensionError (out of bounds)
+ */
+export type NormalizeDim<Dim extends number, Rank extends number> = 
+  `${Dim}` extends `-${infer AbsStr}`
+    ? AbsStr extends `${infer Abs extends number}`
+      ? Abs extends number
+        ? Compare<Abs, Rank> extends 1
+          ? DimensionError<`Invalid dimension ${Dim} for tensor with ${Rank} dimensions (must be >= -${Rank})`>
+          : Subtract<Rank, Abs>
+        : DimensionError<`Invalid dimension ${Dim} for tensor with ${Rank} dimensions`>
+      : DimensionError<`Invalid dimension ${Dim} for tensor with ${Rank} dimensions`>
+    : Compare<Dim, Rank> extends -1
+      ? Dim
+      : DimensionError<`Invalid dimension ${Dim} for tensor with ${Rank} dimensions (must be < ${Rank})`>;
+
+/**
+ * Validate a dimension index for a given tensor rank
+ * Returns the normalized dimension or a DimensionError
+ *
+ * @example
+ * type Valid1 = ValidateDim<-1, [2, 3, 4]> // 2 (valid negative index)
+ * type Valid2 = ValidateDim<1, [2, 3, 4]> // 1 (valid positive index)
+ * type Invalid1 = ValidateDim<-5, [2, 3, 4]> // DimensionError (out of bounds)
+ * type Invalid2 = ValidateDim<3, [2, 3, 4]> // DimensionError (out of bounds)
+ */
+export type ValidateDim<Dim extends number, S extends Shape> = 
+  S extends Shape 
+    ? NormalizeDim<Dim, S['length']>
+    : DimensionError<`Cannot validate dimension for non-shape type`>;
+
+// =============================================================================
+// Reduction Operations
+// =============================================================================
+
+/**
+ * Validate that all axes in an array are valid for the given shape
+ * Returns the normalized axes or a DimensionError
+ *
+ * @example
+ * type Valid = ValidateAxes<[0, -1], [2, 3, 4]> // [0, 2] (normalized)
+ * type Invalid = ValidateAxes<[0, 5], [2, 3, 4]> // DimensionError (axis 5 out of bounds)
+ */
+export type ValidateAxes<Axes extends readonly number[], S extends Shape> = 
+  ValidateAxesHelper<Axes, S, []>;
+
+type ValidateAxesHelper<
+  Axes extends readonly number[], 
+  S extends Shape, 
+  Acc extends readonly number[]
+> = Axes extends readonly [infer First, ...infer Rest]
+  ? First extends number
+    ? Rest extends readonly number[]
+      ? ValidateDim<First, S> extends DimensionError<string>
+        ? ValidateDim<First, S> // Propagate error
+        : ValidateDim<First, S> extends number
+          ? ValidateAxesHelper<Rest, S, readonly [...Acc, ValidateDim<First, S>]>
+          : DimensionError<`Failed to validate axis ${First}`>
+      : readonly [...Acc, ValidateDim<First, S>] // Last element
+    : DimensionError<`Invalid axis type: expected number, got ${First & string}`>
+  : Acc; // Empty array, return accumulated result
+
+/**
+ * Compute the output shape after reduction along specified axes
+ * 
+ * @param InputShape - Original tensor shape
+ * @param Axes - Axes to reduce (must be normalized/validated)
+ * @param KeepDims - Whether to keep reduced dimensions as size 1
+ * 
+ * @example
+ * type Reduced1 = ReduceShape<[2, 3, 4], [1], false> // [2, 4] (remove axis 1)
+ * type Reduced2 = ReduceShape<[2, 3, 4], [1], true>  // [2, 1, 4] (keep axis 1 as size 1)
+ * type Reduced3 = ReduceShape<[2, 3, 4], [0, 2], false> // [3] (remove axes 0 and 2)
+ */
+export type ReduceShape<
+  InputShape extends Shape,
+  Axes extends readonly number[],
+  KeepDims extends boolean = false
+> = KeepDims extends true
+  ? ReduceShapeKeepDims<InputShape, Axes>
+  : ReduceShapeRemoveDims<InputShape, Axes>;
+
+/**
+ * Helper: Compute reduction shape with keepdims=true (set reduced dims to 1)
+ */
+type ReduceShapeKeepDims<
+  InputShape extends Shape,
+  Axes extends readonly number[]
+> = ReduceShapeKeepDimsHelper<InputShape, Axes, 0, []>;
+
+type ReduceShapeKeepDimsHelper<
+  InputShape extends Shape,
+  Axes extends readonly number[],
+  CurrentIndex extends number,
+  Acc extends Shape
+> = InputShape extends readonly [infer First, ...infer Rest]
+  ? First extends number
+    ? Rest extends Shape
+      ? IsInArray<CurrentIndex, Axes> extends true
+        ? ReduceShapeKeepDimsHelper<Rest, Axes, Increment<CurrentIndex>, readonly [...Acc, 1]>
+        : ReduceShapeKeepDimsHelper<Rest, Axes, Increment<CurrentIndex>, readonly [...Acc, First]>
+      : readonly [...Acc, First] // Last element
+    : Acc
+  : Acc;
+
+/**
+ * Helper: Compute reduction shape with keepdims=false (remove reduced dims)
+ */
+type ReduceShapeRemoveDims<
+  InputShape extends Shape,
+  Axes extends readonly number[]
+> = ReduceShapeRemoveDimsHelper<InputShape, Axes, 0, []>;
+
+type ReduceShapeRemoveDimsHelper<
+  InputShape extends Shape,
+  Axes extends readonly number[],
+  CurrentIndex extends number,
+  Acc extends Shape
+> = InputShape extends readonly [infer First, ...infer Rest]
+  ? First extends number
+    ? Rest extends Shape
+      ? IsInArray<CurrentIndex, Axes> extends true
+        ? ReduceShapeRemoveDimsHelper<Rest, Axes, Increment<CurrentIndex>, Acc> // Skip this dimension
+        : ReduceShapeRemoveDimsHelper<Rest, Axes, Increment<CurrentIndex>, readonly [...Acc, First]>
+      : IsInArray<CurrentIndex, Axes> extends true
+        ? Acc // Last element, skip if in axes
+        : readonly [...Acc, First] // Last element, keep if not in axes
+    : Acc
+  : Acc;
+
+/**
+ * Check if a value is present in a readonly array
+ */
+type IsInArray<Value, Array extends readonly unknown[]> = Array extends readonly [infer First, ...infer Rest]
+  ? Value extends First
+    ? true
+    : IsInArray<Value, Rest>
+  : false;
+
+/**
+ * Validate reduction operation parameters
+ * Returns true if valid, or a descriptive error message
+ * 
+ * @example
+ * type Valid = ValidateReduction<[2, 3, 4], [1], false> // true
+ * type Invalid = ValidateReduction<[2, 3, 4], [5], false> // DimensionError
+ */
+export type ValidateReduction<
+  InputShape extends Shape,
+  Axes extends readonly number[] | undefined
+> = Axes extends undefined
+  ? true // No axes means reduce all dimensions (return scalar or [1,1,1...])
+  : Axes extends readonly number[]
+    ? ValidateAxes<Axes, InputShape> extends DimensionError<string>
+      ? ValidateAxes<Axes, InputShape> // Propagate validation error
+      : ValidateAxes<Axes, InputShape> extends readonly number[]
+        ? CheckDuplicateAxes<ValidateAxes<Axes, InputShape>> extends DimensionError<string>
+          ? CheckDuplicateAxes<ValidateAxes<Axes, InputShape>>
+          : true
+        : DimensionError<`Failed to validate axes`>
+    : DimensionError<`Invalid axes type: expected readonly number[] or undefined`>;
+
+/**
+ * Check for duplicate axes after normalization
+ */
+type CheckDuplicateAxes<Axes extends readonly number[]> = 
+  HasDuplicates<Axes> extends true
+    ? DimensionError<`Duplicate axes found in reduction. Each axis can only appear once.`>
+    : Axes;
+
+/**
+ * Check if an array has duplicate values
+ */
+type HasDuplicates<Array extends readonly unknown[]> = HasDuplicatesHelper<Array, []>;
+
+type HasDuplicatesHelper<
+  Array extends readonly unknown[],
+  Seen extends readonly unknown[]
+> = Array extends readonly [infer First, ...infer Rest]
+  ? IsInArray<First, Seen> extends true
+    ? true // Found duplicate
+    : HasDuplicatesHelper<Rest, readonly [...Seen, First]>
+  : false; // No duplicates found

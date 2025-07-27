@@ -1,0 +1,48 @@
+{
+  "name": "@typetensor/test-utils",
+  "version": "0.1.0",
+  "description": "Internal test utilities for TypedTensor backend packages (development only)",
+  "license": "MIT",
+  "author": "Thomas Santerre <thomas@santerre.xyz>",
+  "homepage": "https://github.com/typetensor/typetensor/tree/main/packages/test-utils#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typetensor/typetensor.git",
+    "directory": "packages/test-utils"
+  },
+  "bugs": {
+    "url": "https://github.com/typetensor/typetensor/issues"
+  },
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@typetensor/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.9.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "bun test"
+  }
+}

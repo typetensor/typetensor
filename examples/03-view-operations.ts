@@ -1,5 +1,5 @@
 /**
- * TypeTensor: View Operations (Reshape, View, Slice)
+ * TypeTensor: View Operations (Reshape, View, Slice, Transpose, Permute)
  *
  * This example demonstrates tensor view operations that create different
  * views of the same data with compile-time shape validation.
@@ -173,6 +173,119 @@ async function main(): Promise<void> {
   const reshaped = sliced.reshape([2, 3] as const);
   console.log('\nAfter reshape([2, 3]):', await reshaped.toArray());
   console.log('Shape:', reshaped.shape); // [2, 3]
+
+  // =============================================================================
+  // Transpose Operations
+  // =============================================================================
+  console.log('\n\n5. TRANSPOSE OPERATIONS');
+  console.log('-'.repeat(30));
+
+  // Create a 2D matrix for transpose
+  const matrix2d = await tensor(
+    [
+      [1, 2, 3],
+      [4, 5, 6],
+    ] as const,
+    {
+      dtype: float32,
+      device: cpu,
+    },
+  );
+  console.log('Original 2x3 matrix:', await matrix2d.toArray());
+  console.log('Shape:', matrix2d.shape);
+
+  // Transpose the matrix
+  const transposed2d = matrix2d.transpose();
+  console.log('\nTransposed matrix:', await transposed2d.toArray());
+  console.log('Shape:', transposed2d.shape); // [3, 2]
+
+  // Using T property (shorthand for transpose)
+  const transposedT = matrix2d.T;
+  console.log('\nUsing .T property:', await transposedT.toArray());
+
+  // Transpose 3D tensor (swaps last two dimensions)
+  const tensor3dForTranspose = await tensor(
+    [
+      [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+      ],
+      [
+        [7, 8],
+        [9, 10],
+        [11, 12],
+      ],
+    ] as const,
+    {
+      dtype: float32,
+      device: cpu,
+    },
+  );
+  console.log('\nOriginal 2x3x2 tensor:', await tensor3dForTranspose.toArray());
+  console.log('Shape:', tensor3dForTranspose.shape);
+
+  const transposed3d = tensor3dForTranspose.transpose();
+  console.log('\nTransposed 3D tensor:', await transposed3d.toArray());
+  console.log('Shape:', transposed3d.shape); // [2, 2, 3]
+
+  // =============================================================================
+  // Permute Operations
+  // =============================================================================
+  console.log('\n\n6. PERMUTE OPERATIONS');
+  console.log('-'.repeat(30));
+
+  // Create a 3D tensor for permutation examples
+  const tensor3dForPermute = await tensor(
+    [
+      [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+      ],
+      [
+        [7, 8],
+        [9, 10],
+        [11, 12],
+      ],
+    ] as const,
+    {
+      dtype: float32,
+      device: cpu,
+    },
+  );
+  console.log('Original tensor shape:', tensor3dForPermute.shape); // [2, 3, 2]
+
+  // Permute to [3, 2, 2] - move dimension 1 to front
+  const permuted1 = tensor3dForPermute.permute([1, 0, 2] as const);
+  console.log('\nPermute([1, 0, 2]):', await permuted1.toArray());
+  console.log('Shape:', permuted1.shape); // [3, 2, 2]
+
+  // Permute to [2, 2, 3] - move last dimension to middle
+  const permuted2 = tensor3dForPermute.permute([0, 2, 1] as const);
+  console.log('\nPermute([0, 2, 1]):', await permuted2.toArray());
+  console.log('Shape:', permuted2.shape); // [2, 2, 3]
+
+  // Permute to [2, 2, 3] - reverse all dimensions
+  const permuted3 = tensor3dForPermute.permute([2, 1, 0] as const);
+  console.log('\nPermute([2, 1, 0]):', await permuted3.toArray());
+  console.log('Shape:', permuted3.shape); // [2, 3, 2]
+
+  // Example: NHWC to NCHW conversion (common in deep learning)
+  // Create a simulated image tensor [batch=1, height=4, width=4, channels=3]
+  const nhwc = await zeros([1, 4, 4, 3] as const, {
+    dtype: float32,
+    device: cpu,
+  });
+  console.log('\nNHWC tensor shape (batch, height, width, channels):', nhwc.shape);
+
+  // Convert to NCHW format
+  const nchw = nhwc.permute([0, 3, 1, 2] as const);
+  console.log('NCHW tensor shape (batch, channels, height, width):', nchw.shape); // [1, 3, 4, 4]
+
+  // Identity permutation (no change)
+  const identity = tensor3dForPermute.permute([0, 1, 2] as const);
+  console.log('\nIdentity permutation shape:', identity.shape); // [2, 3, 2]
 
   console.log('\n✅ All view operations completed successfully!');
 }

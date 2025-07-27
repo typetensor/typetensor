@@ -15,14 +15,25 @@ import type {
   ShapeToString,
   SliceIndex,
   Permute,
+  CanMatmul,
+  ValidateDim,
+  DimensionError,
 } from '../shape/types';
 import type { Neg, Abs, Sin, Cos, Exp, Log, Sqrt, Square } from '../storage/unary';
 import type { Add, Sub, Mul, Div } from '../storage/binary';
 import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from '../storage/view';
+import type { MatmulOp } from '../storage/matmul';
+import type { SoftmaxOp, LogSoftmaxOp } from '../storage/softmax';
 import type { DTypeValue } from '../dtype/types';
 import type { NestedArray } from './types';
 import { bufferToNestedArray } from './types';
-import { formatShape, broadcastShapes, assertShapesCompatible } from '../shape';
+import {
+  formatShape,
+  broadcastShapes,
+  assertShapesCompatible,
+  assertMatmulCompatible,
+  matmulShape,
+} from '../shape';
 import {
   computeStrides,
   computeSize,
@@ -692,11 +703,65 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
   /**
    * Flatten tensor to 1D
    *
-   * @returns 1D view of the tensor
+   * Creates a 1D view if the tensor is contiguous, otherwise creates a copy
+   * with the correct data layout. This matches PyTorch's flatten() behavior.
+   *
+   * @returns 1D tensor with flattened data
    */
-  flatten(): Tensor<Flatten<S['__output']>> {
+  async flatten(): Promise<Tensor<Flatten<S['__output']>>> {
     const totalSize = this.size;
-    return this._reshapeUnsafe([totalSize] as const) as Tensor<Flatten<S['__output']>>;
+
+    // If tensor is contiguous, we can safely create a view (same as PyTorch)
+    if (this.layout.c_contiguous === true) {
+      return this._reshapeUnsafe([totalSize] as const) as Tensor<Flatten<S['__output']>>;
+    }
+
+    // If tensor is not contiguous (e.g., after transpose), we need to create a copy
+    // with data in the logical view order (same as PyTorch)
+    const contiguousCopy = await this._createContiguousCopy();
+    return contiguousCopy._reshapeUnsafe([totalSize] as const) as Tensor<Flatten<S['__output']>>;
+  }
+
+  /**
+   * Create a contiguous copy of the tensor with data in logical order
+   *
+   * This reads the tensor data in logical order (respecting strides/views)
+   * and creates a new C-contiguous tensor with that data.
+   */
+  private async _createContiguousCopy(): Promise<Tensor<S>> {
+    // Get the logical view data (this respects strides correctly)
+    const logicalData = await this.toArray();
+
+    // Flatten the nested array to get data in logical order
+    const flatData = this._flattenNestedArray(logicalData);
+
+    // Create a new C-contiguous tensor from the logical data
+    const { tensor: tensorFn } = await import('./creation');
+    return (await tensorFn(flatData as any, {
+      device: this.device,
+      dtype: this.dtype,
+      shape: this.shape,
+    })) as Tensor<S>;
+  }
+
+  /**
+   * Recursively flatten a nested array to 1D
+   */
+  private _flattenNestedArray(arr: any): any[] {
+    const result: any[] = [];
+
+    function flatten(item: any): void {
+      if (Array.isArray(item)) {
+        for (const subItem of item) {
+          flatten(subItem);
+        }
+      } else {
+        result.push(item);
+      }
+    }
+
+    flatten(arr);
+    return result;
   }
 
   /**
@@ -960,6 +1025,8 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           aligned: this.storage.__layout.aligned,
         },
         __offset: this.storage.__offset,
+        // Include the permutation axes as metadata
+        __permuteAxes: normalizedAxes as unknown as Axes,
       } as PermuteOp<S['__output'], Axes>['__output'],
       __inputs: [this.storage] as const,
     } as PermuteOp<S['__output'], Axes>;
@@ -1007,7 +1074,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     NestedArray<DTypeValue<S['__output']['__dtype']>, S['__output']['__shape']>
   > {
     const buffer = await this.data.device.readData(this.data);
-    return bufferToNestedArray(buffer, this.shape, this.dtype);
+    return bufferToNestedArray(buffer, this.shape, this.dtype, this.strides, this.storage.__offset);
   }
 
   /**
@@ -1226,5 +1293,244 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const newData = this.data.device.createData(buffer.byteLength);
     await this.data.device.writeData(newData, buffer);
     return new Tensor(this.transform, newData);
+  }
+
+  // =============================================================================
+  // Matrix Multiplication
+  // =============================================================================
+
+  /**
+   * Matrix multiplication
+   *
+   * Performs matrix multiplication following NumPy/PyTorch conventions:
+   * - 1D × 1D → scalar (dot product)
+   * - 1D × 2D → 1D (vector-matrix multiply)
+   * - 2D × 1D → 1D (matrix-vector multiply)
+   * - 2D × 2D → 2D (matrix-matrix multiply)
+   * - ND × ND → ND (batched matrix multiply)
+   *
+   * @param other - Tensor to multiply with
+   * @returns New tensor with matrix product
+   * @throws {Error} If tensors are on different devices
+   * @throws {Error} If shapes are not compatible for matrix multiplication
+   *
+   * @example
+   * // Matrix multiplication
+   * const a = await tensor([[1, 2], [3, 4]]);     // shape: [2, 2]
+   * const b = await tensor([[5, 6], [7, 8]]);     // shape: [2, 2]
+   * const c = await a.matmul(b);                  // shape: [2, 2]
+   *
+   * @example
+   * // Vector dot product
+   * const x = await tensor([1, 2, 3]);            // shape: [3]
+   * const y = await tensor([4, 5, 6]);            // shape: [3]
+   * const dot = await x.matmul(y);               // shape: [] (scalar)
+   *
+   * @example
+   * // Batch matrix multiplication
+   * const batch1 = await tensor([
+   *   [[1, 2], [3, 4]],
+   *   [[5, 6], [7, 8]]
+   * ]);                                           // shape: [2, 2, 2]
+   * const batch2 = await tensor([
+   *   [[1, 0], [0, 1]],
+   *   [[2, 0], [0, 2]]
+   * ]);                                           // shape: [2, 2, 2]
+   * const result = await batch1.matmul(batch2);   // shape: [2, 2, 2]
+   */
+  async matmul<T extends AnyStorageTransformation>(
+    other: CanMatmul<S['__output']['__shape'], T['__output']['__shape']> extends true
+      ? Tensor<T>
+      : `[TypeTensor ❌] Cannot multiply tensors with shapes [${ShapeToString<S['__output']['__shape']>}] and [${ShapeToString<T['__output']['__shape']>}] for matrix multiplication`,
+  ): Promise<Tensor<MatmulOp<S['__output'], T['__output']>>> {
+    if (!(other instanceof Tensor)) {
+      throw new Error('Expected a Tensor instance');
+    }
+
+    if (other.device.id !== this.device.id) {
+      throw new Error(
+        `Tensors must be on same device: ${this.device.id as string} vs ${other.device.id as string}`,
+      );
+    }
+
+    // Validate shapes can be matrix multiplied with helpful error messages
+    assertMatmulCompatible(this.shape, other.shape);
+
+    // Compute output shape
+    const outputShape = matmulShape(this.shape, other.shape);
+    if (!outputShape) {
+      throw new Error(
+        `Cannot perform matrix multiplication on shapes ${formatShape(this.shape)} and ${formatShape(other.shape)}`,
+      );
+    }
+
+    const outputStrides = computeStrides(outputShape);
+    const outputSize = computeSize(outputShape);
+    const promotedDtype = toPromotedDType(this.dtype, other.dtype);
+
+    // Build the matmul operation with proper output metadata
+    const matmulOp = {
+      __op: 'matmul' as const,
+      __output: {
+        __dtype: promotedDtype,
+        __shape: outputShape,
+        __strides: outputStrides,
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      } as MatmulOp<S['__output'], T['__output']>['__output'],
+      __inputs: [this.storage, other.storage] as const,
+    } as MatmulOp<S['__output'], T['__output']>;
+
+    const resultData = await this.data.device.execute(matmulOp, [this.data, other.data]);
+    return new Tensor(matmulOp, resultData);
+  }
+
+  // =============================================================================
+  // Softmax Operations
+  // =============================================================================
+
+  /**
+   * Apply softmax function along the specified axis
+   *
+   * Computes softmax(x) = exp(x) / sum(exp(x)) along the given axis.
+   * This is commonly used for converting logits to probabilities.
+   *
+   * @param axis - The axis along which to apply softmax (supports negative indexing)
+   * @returns New tensor with softmax applied
+   *
+   * @example
+   * // Classification logits -> probabilities
+   * const logits = await tensor([[1, 2, 3], [4, 5, 6]]);  // shape: [2, 3]
+   * const probs = await logits.softmax(-1);                // shape: [2, 3], softmax over classes
+   *
+   * @example
+   * // Attention weights
+   * const scores = await tensor([[[1, 2], [3, 4]]]);      // shape: [1, 2, 2]
+   * const weights = await scores.softmax(-1);             // shape: [1, 2, 2], softmax over key sequence
+   */
+  async softmax<Axis extends number>(
+    axis: ValidateDim<Axis, S['__output']['__shape']> extends DimensionError<string>
+      ? `[TypeTensor ❌] Invalid axis ${Axis} for tensor with shape [${ShapeToString<S['__output']['__shape']>}]. Use axis in range [-${S['__output']['__shape']['length']}, ${S['__output']['__shape']['length']})`
+      : Axis,
+  ): Promise<Tensor<SoftmaxOp<S['__output'], Axis>>> {
+    // Validate axis parameter
+    if (typeof axis !== 'number' || !Number.isInteger(axis)) {
+      throw new Error('Axis must be an integer');
+    }
+
+    const rank = this.shape.length;
+    const normalizedAxis = axis < 0 ? rank + axis : axis;
+
+    if (normalizedAxis < 0 || normalizedAxis >= rank) {
+      throw new Error(
+        `Axis ${axis} out of bounds for tensor with ${rank} dimensions. Valid range: [-${rank}, ${rank})`,
+      );
+    }
+
+    // Convert to float dtype for softmax computation
+    const outputDtype = toFloatDType(this.dtype);
+    const outputStrides = computeStrides(this.shape);
+    const outputSize = computeSize(this.shape);
+
+    // Build the softmax operation with proper output metadata
+    const softmaxOp = {
+      __op: 'softmax' as const,
+      __output: {
+        __dtype: outputDtype,
+        __shape: this.shape,
+        __strides: outputStrides,
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      } as SoftmaxOp<S['__output'], Axis>['__output'],
+      __inputs: [this.storage] as const,
+      __softmaxAxis: normalizedAxis,
+    } as SoftmaxOp<S['__output'], Axis>;
+
+    const resultData = await this.data.device.execute(softmaxOp, [this.data]);
+    return new Tensor(softmaxOp, resultData);
+  }
+
+  /**
+   * Apply log-softmax function along the specified axis
+   *
+   * Computes log(softmax(x)) = log(exp(x) / sum(exp(x))) = x - log(sum(exp(x)))
+   * This is numerically more stable than computing log(softmax(x)) separately
+   * and is commonly used in cross-entropy loss computation.
+   *
+   * @param axis - The axis along which to apply log-softmax (supports negative indexing)
+   * @returns New tensor with log-softmax applied
+   *
+   * @example
+   * // Classification with log probabilities for numerical stability
+   * const logits = await tensor([[1, 2, 3], [4, 5, 6]]);     // shape: [2, 3]
+   * const logProbs = await logits.logSoftmax(-1);            // shape: [2, 3]
+   *
+   * @example
+   * // Suitable for cross-entropy loss computation
+   * const predictions = await model.forward(input);
+   * const logProbs = await predictions.logSoftmax(-1);
+   * const loss = await crossEntropyLoss(logProbs, targets);
+   */
+  async logSoftmax<Axis extends number>(
+    axis: ValidateDim<Axis, S['__output']['__shape']> extends DimensionError<string>
+      ? `[TypeTensor ❌] Invalid axis ${Axis} for tensor with shape [${ShapeToString<S['__output']['__shape']>}]. Use axis in range [-${S['__output']['__shape']['length']}, ${S['__output']['__shape']['length']})`
+      : Axis,
+  ): Promise<Tensor<LogSoftmaxOp<S['__output'], Axis>>> {
+    // Validate axis parameter
+    if (typeof axis !== 'number' || !Number.isInteger(axis)) {
+      throw new Error('Axis must be an integer');
+    }
+
+    const rank = this.shape.length;
+    const normalizedAxis = axis < 0 ? rank + axis : axis;
+
+    if (normalizedAxis < 0 || normalizedAxis >= rank) {
+      throw new Error(
+        `Axis ${axis} out of bounds for tensor with ${rank} dimensions. Valid range: [-${rank}, ${rank})`,
+      );
+    }
+
+    // Convert to float dtype for log-softmax computation
+    const outputDtype = toFloatDType(this.dtype);
+    const outputStrides = computeStrides(this.shape);
+    const outputSize = computeSize(this.shape);
+
+    // Build the log-softmax operation with proper output metadata
+    const logSoftmaxOp = {
+      __op: 'log_softmax' as const,
+      __output: {
+        __dtype: outputDtype,
+        __shape: this.shape,
+        __strides: outputStrides,
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      } as LogSoftmaxOp<S['__output'], Axis>['__output'],
+      __inputs: [this.storage] as const,
+      __logSoftmaxAxis: normalizedAxis,
+    } as LogSoftmaxOp<S['__output'], Axis>;
+
+    const resultData = await this.data.device.execute(logSoftmaxOp, [this.data]);
+    return new Tensor(logSoftmaxOp, resultData);
   }
 }

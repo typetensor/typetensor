@@ -79,6 +79,7 @@ export type {
   IsMatMulCompatible,
   HasMatchingInnerDims,
   MatMulShape,
+  CanMatmul,
 
   // Error types
   ShapeError,
@@ -98,6 +99,16 @@ export type {
   // Utility types
   TupleOf,
   SymbolicDim,
+
+  // Dimension validation
+  DimensionError,
+  NormalizeDim,
+  ValidateDim,
+
+  // Reduction operations
+  ValidateAxes,
+  ReduceShape,
+  ValidateReduction,
 } from './types';
 
 // Runtime exports
@@ -138,3 +149,6 @@ export {
 
 // Symbolic shape exports
 export { resolveSymbolicShape, LayerShapeResolver } from './symbolic';
+
+// Matrix multiplication exports
+export { canMatmul, matmulShape, assertMatmulCompatible } from './runtime';

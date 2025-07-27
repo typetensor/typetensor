@@ -31,6 +31,7 @@ export class CPUDevice implements Device {
     | 'create' | 'neg' | 'abs' | 'sin' | 'cos' | 'exp' | 'log' | 'sqrt' | 'square' // Unary ops
     | 'add' | 'sub' | 'mul' | 'div'                                                // Binary ops  
     | 'reshape' | 'view' | 'slice' | 'flatten'                                     // View ops
+    | 'matmul'                                                                      // Matrix ops
   > = true;
 
   /**

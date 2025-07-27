@@ -13,6 +13,8 @@ import {
   hasSymbolicDimensions,
   assertValidShape,
   assertShapesCompatible,
+  assertMatmulCompatible,
+  canMatmul,
   createShape,
   reshape,
   SCALAR_SHAPE,
@@ -521,6 +523,256 @@ describe('Edge Cases and Error Handling', () => {
 
       expect(strides1).toBe(strides2); // Same reference
       expect(strides1).toEqual([12, 4, 1]);
+    });
+  });
+});
+
+// =============================================================================
+// Matrix Multiplication Tests
+// =============================================================================
+
+describe('Matrix Multiplication Shape Validation', () => {
+  describe('assertMatmulCompatible', () => {
+    describe('Valid cases', () => {
+      it('should pass for 1D × 1D with matching dimensions', () => {
+        expect(() => assertMatmulCompatible([3], [3])).not.toThrow();
+        expect(() => assertMatmulCompatible([5], [5])).not.toThrow();
+      });
+
+      it('should pass for 1D × 2D', () => {
+        expect(() => assertMatmulCompatible([3], [3, 4])).not.toThrow();
+        expect(() => assertMatmulCompatible([5], [5, 2])).not.toThrow();
+      });
+
+      it('should pass for 2D × 1D', () => {
+        expect(() => assertMatmulCompatible([2, 3], [3])).not.toThrow();
+        expect(() => assertMatmulCompatible([4, 5], [5])).not.toThrow();
+      });
+
+      it('should pass for 2D × 2D', () => {
+        expect(() => assertMatmulCompatible([2, 3], [3, 4])).not.toThrow();
+        expect(() => assertMatmulCompatible([10, 5], [5, 7])).not.toThrow();
+      });
+
+      it('should pass for exact batch dimensions', () => {
+        expect(() => assertMatmulCompatible([2, 3, 4], [2, 4, 5])).not.toThrow();
+        expect(() => assertMatmulCompatible([1, 2, 3, 4], [1, 2, 4, 5])).not.toThrow();
+      });
+
+      it('should pass for batch broadcasting - dimension 1 can broadcast', () => {
+        expect(() => assertMatmulCompatible([1, 2, 3], [2, 3, 4])).not.toThrow();
+        expect(() => assertMatmulCompatible([2, 2, 3], [1, 3, 4])).not.toThrow();
+        expect(() => assertMatmulCompatible([1, 1, 2, 3], [5, 3, 3, 4])).not.toThrow();
+      });
+
+      it('should pass for different batch ranks (implicit 1s)', () => {
+        expect(() => assertMatmulCompatible([2, 3], [1, 3, 4])).not.toThrow();
+        expect(() => assertMatmulCompatible([1, 2, 3], [3, 4])).not.toThrow();
+        // [2, 2, 3] × [5, 3, 4] should fail because batch dims can't broadcast (2 vs 5)
+        // Let's test a valid case instead: [2, 2, 3] × [1, 3, 4] 
+        expect(() => assertMatmulCompatible([2, 2, 3], [1, 3, 4])).not.toThrow();
+      });
+    });
+
+    describe('Invalid cases', () => {
+      it('should throw for scalar inputs', () => {
+        expect(() => assertMatmulCompatible([], [2])).toThrow(
+          'Cannot multiply scalar tensors'
+        );
+        expect(() => assertMatmulCompatible([2], [])).toThrow(
+          'Cannot multiply scalar tensors'
+        );
+        expect(() => assertMatmulCompatible([], [])).toThrow(
+          'Cannot multiply scalar tensors'
+        );
+      });
+
+      it('should throw for mismatched inner dimensions', () => {
+        expect(() => assertMatmulCompatible([3], [4])).toThrow(
+          'last dimension of the first tensor (3)'
+        );
+        expect(() => assertMatmulCompatible([2, 3], [4, 5])).toThrow(
+          'last dimension of the first tensor (3)'
+        );
+        expect(() => assertMatmulCompatible([2, 3], [5])).toThrow(
+          'last dimension of the first tensor (3)'
+        );
+      });
+
+      it('should throw for incompatible batch dimensions', () => {
+        expect(() => assertMatmulCompatible([2, 3, 4], [3, 4, 5])).toThrow(
+          'Cannot broadcast batch dimensions'
+        );
+        expect(() => assertMatmulCompatible([2, 3, 4], [5, 4, 5])).toThrow(
+          'incompatible batch dimension 0: 2 vs 5'
+        );
+        expect(() => assertMatmulCompatible([1, 3, 2, 3], [2, 5, 3, 4])).toThrow(
+          'incompatible batch dimension 1: 3 vs 5'
+        );
+        // This case from our test should also fail
+        expect(() => assertMatmulCompatible([2, 2, 3], [5, 3, 4])).toThrow(
+          'incompatible batch dimension 0: 2 vs 5'
+        );
+      });
+    });
+
+    describe('Transformer use cases', () => {
+      it('should pass for attention mechanism shapes', () => {
+        // Q: [batch, seq_len, d_model] × K^T: [batch, d_model, seq_len] 
+        expect(() => assertMatmulCompatible([32, 128, 512], [32, 512, 128])).not.toThrow();
+        
+        // Attention weights × V: [batch, seq_len, seq_len] × [batch, seq_len, d_model]
+        expect(() => assertMatmulCompatible([32, 128, 128], [32, 128, 512])).not.toThrow();
+        
+        // Multi-head: [batch, heads, seq_len, d_k] × [batch, heads, d_k, seq_len]
+        expect(() => assertMatmulCompatible([32, 8, 128, 64], [32, 8, 64, 128])).not.toThrow();
+      });
+
+      it('should pass for linear layer shapes', () => {
+        // Input × Weight: [batch, seq_len, d_in] × [d_in, d_out]
+        expect(() => assertMatmulCompatible([32, 128, 512], [512, 2048])).not.toThrow();
+        
+        // With bias broadcasting: [batch, seq_len, d_out] × [1, 1, d_out] 
+        expect(() => assertMatmulCompatible([32, 128, 2048], [1, 2048, 1])).not.toThrow();
+      });
+
+      it('should pass for batch matrix multiplication with broadcasting', () => {
+        // Different batch sizes that can broadcast
+        expect(() => assertMatmulCompatible([1, 3, 4], [8, 4, 5])).not.toThrow();
+        expect(() => assertMatmulCompatible([8, 3, 4], [1, 4, 5])).not.toThrow();
+      });
+    });
+  });
+
+  describe('canMatmul', () => {
+    describe('Valid cases', () => {
+      it('should return true for valid matrix multiplication shapes', () => {
+        expect(canMatmul([3], [3])).toBe(true);
+        expect(canMatmul([2, 3], [3, 4])).toBe(true);
+        expect(canMatmul([1, 2, 3], [2, 3, 4])).toBe(true);
+      });
+    });
+
+    describe('Invalid cases', () => {
+      it('should return false for invalid shapes', () => {
+        expect(canMatmul([], [2])).toBe(false);
+        expect(canMatmul([3], [4])).toBe(false);
+        expect(canMatmul([2, 3], [4, 5])).toBe(false);
+      });
+    });
+  });
+
+  describe('RuntimeShape.matmulShape', () => {
+    describe('Shape computation', () => {
+      it('should compute correct output shapes for 1D × 1D', () => {
+        expect(RuntimeShape.matmulShape([3], [3])).toEqual([]);
+        expect(RuntimeShape.matmulShape([5], [5])).toEqual([]);
+      });
+
+      it('should compute correct output shapes for 1D × 2D', () => {
+        expect(RuntimeShape.matmulShape([3], [3, 4])).toEqual([4]);
+        expect(RuntimeShape.matmulShape([5], [5, 2])).toEqual([2]);
+      });
+
+      it('should compute correct output shapes for 2D × 1D', () => {
+        expect(RuntimeShape.matmulShape([2, 3], [3])).toEqual([2]);
+        expect(RuntimeShape.matmulShape([4, 5], [5])).toEqual([4]);
+      });
+
+      it('should compute correct output shapes for 2D × 2D', () => {
+        expect(RuntimeShape.matmulShape([2, 3], [3, 4])).toEqual([2, 4]);
+        expect(RuntimeShape.matmulShape([10, 5], [5, 7])).toEqual([10, 7]);
+      });
+
+      it('should compute correct output shapes with batch broadcasting', () => {
+        expect(RuntimeShape.matmulShape([1, 2, 3], [2, 3, 4])).toEqual([2, 2, 4]);
+        expect(RuntimeShape.matmulShape([2, 2, 3], [1, 3, 4])).toEqual([2, 2, 4]);
+        expect(RuntimeShape.matmulShape([1, 1, 2, 3], [5, 3, 3, 4])).toEqual([5, 3, 2, 4]);
+      });
+
+      it('should handle different batch ranks', () => {
+        expect(RuntimeShape.matmulShape([2, 3], [1, 3, 4])).toEqual([1, 2, 4]);
+        expect(RuntimeShape.matmulShape([1, 2, 3], [3, 4])).toEqual([1, 2, 4]);
+        expect(RuntimeShape.matmulShape([2, 2, 3], [1, 3, 4])).toEqual([2, 2, 4]);
+        // This should return null because batch dims can't broadcast (2 vs 5)
+        expect(RuntimeShape.matmulShape([2, 2, 3], [5, 3, 4])).toBe(null);
+      });
+    });
+
+    describe('Error cases', () => {
+      it('should return null for invalid shapes', () => {
+        expect(RuntimeShape.matmulShape([], [2])).toBe(null);
+        expect(RuntimeShape.matmulShape([3], [4])).toBe(null);
+        expect(RuntimeShape.matmulShape([2, 3], [4, 5])).toBe(null);
+        expect(RuntimeShape.matmulShape([2, 3, 4], [3, 4, 5])).toBe(null);
+      });
+    });
+  });
+
+  describe('RuntimeShape.canMatMulWith', () => {
+    describe('Instance method validation', () => {
+      it('should work for valid shapes', () => {
+        const shape1 = new RuntimeShape([2, 3]);
+        const shape2 = new RuntimeShape([3, 4]);
+        expect(shape1.canMatMulWith(shape2)).toBe(true);
+      });
+
+      it('should reject invalid shapes', () => {
+        const shape1 = new RuntimeShape([2, 3]);
+        const shape2 = new RuntimeShape([4, 5]);
+        expect(shape1.canMatMulWith(shape2)).toBe(false);
+      });
+
+      it('should handle batch broadcasting correctly', () => {
+        // After fixing RuntimeShape.canMatmul, this should work
+        const shape1 = new RuntimeShape([1, 2, 3]);
+        const shape2 = new RuntimeShape([2, 3, 4]);
+        
+        expect(shape1.canMatMulWith(shape2)).toBe(true);
+      });
+
+      it('should reject incompatible batch dimensions', () => {
+        const shape1 = new RuntimeShape([2, 2, 3]);
+        const shape2 = new RuntimeShape([3, 3, 4]);
+        expect(shape1.canMatMulWith(shape2)).toBe(false);
+      });
+    });
+
+    describe('Edge cases', () => {
+      it('should handle scalars correctly', () => {
+        const scalar = new RuntimeShape([]);
+        const vector = new RuntimeShape([3]);
+        expect(scalar.canMatMulWith(vector)).toBe(false);
+        expect(vector.canMatMulWith(scalar)).toBe(false);
+      });
+
+      it('should handle mixed rank tensors', () => {
+        const matrix = new RuntimeShape([2, 3]);
+        const tensor3d = new RuntimeShape([1, 3, 4]);
+        
+        // This should work now that we fixed broadcasting
+        expect(matrix.canMatMulWith(tensor3d)).toBe(true);
+      });
+    });
+  });
+
+  describe('Specific failing case from backend tests', () => {
+    it('should handle [1, 2, 2] × [2, 2, 2] broadcasting', () => {
+      // This is the specific case that was failing
+      expect(() => assertMatmulCompatible([1, 2, 2], [2, 2, 2])).not.toThrow();
+      expect(canMatmul([1, 2, 2], [2, 2, 2])).toBe(true);
+      expect(RuntimeShape.matmulShape([1, 2, 2], [2, 2, 2])).toEqual([2, 2, 2]);
+      
+      // Test with RuntimeShape instance methods too
+      const shape1 = new RuntimeShape([1, 2, 2]);
+      const shape2 = new RuntimeShape([2, 2, 2]);
+      
+      // This should work now that we fixed canMatmul
+      expect(shape1.canMatMulWith(shape2)).toBe(true);
+      
+      // And matMul should work correctly too
+      const outputShape = shape1.matMul(shape2);
+      expect(outputShape.dims).toEqual([2, 2, 2]);
     });
   });
 });

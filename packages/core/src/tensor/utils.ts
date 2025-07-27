@@ -367,3 +367,223 @@ export function validatePermutationAxes(rank: number, axes: readonly number[]): 
 export function normalizePermutationAxes(axes: readonly number[], rank: number): number[] {
   return axes.map((axis) => (axis < 0 ? rank + axis : axis));
 }
+
+// =============================================================================
+// Matrix Multiplication Utilities
+// =============================================================================
+
+/**
+ * Assert that two shapes can be matrix multiplied
+ * 
+ * This is a more specific version for tensor operations that provides
+ * detailed error messages for debugging.
+ * 
+ * @param shapeA - First tensor shape
+ * @param shapeB - Second tensor shape
+ * @throws {Error} If shapes are incompatible
+ */
+export function assertMatmulCompatible(
+  shapeA: readonly number[],
+  shapeB: readonly number[],
+): void {
+  // Check for scalars
+  if (shapeA.length === 0 || shapeB.length === 0) {
+    throw new Error(
+      'Cannot perform matrix multiplication on scalar tensors. Both tensors must be at least 1D.',
+    );
+  }
+
+  // Get inner dimensions
+  const innerA = shapeA[shapeA.length - 1];
+  const innerB = shapeB.length === 1 ? shapeB[0] : shapeB[shapeB.length - 2];
+
+  if (innerA === undefined || innerB === undefined) {
+    throw new Error('Invalid tensor shape: missing dimensions');
+  }
+
+  // Check inner dimensions match
+  if (innerA !== innerB) {
+    throw new Error(
+      `Matrix multiplication inner dimensions must match: ${innerA} != ${innerB}. ` +
+        `Got shapes [${shapeA.join(', ')}] and [${shapeB.join(', ')}].`,
+    );
+  }
+
+  // Validate batch dimensions
+  validateBatchDimensions(shapeA, shapeB);
+}
+
+/**
+ * Compute the output shape for matrix multiplication
+ * 
+ * Handles all cases: 1D×1D (dot product), 1D×2D, 2D×1D, 2D×2D, and batched operations.
+ * 
+ * @param shapeA - First tensor shape
+ * @param shapeB - Second tensor shape
+ * @returns Output shape
+ */
+export function computeMatmulOutputShape(
+  shapeA: readonly number[],
+  shapeB: readonly number[],
+): number[] {
+  // 1D × 1D → scalar
+  if (shapeA.length === 1 && shapeB.length === 1) {
+    return [];
+  }
+
+  // Extract batch dimensions
+  const batchShape = extractBatchShape(shapeA, shapeB);
+
+  // 1D × 2D → [n]
+  if (shapeA.length === 1 && shapeB.length === 2) {
+    const n = shapeB[1];
+    if (n === undefined) throw new Error('Invalid shape dimension');
+    return [n];
+  }
+
+  // 1D × ND → [...batch, n]
+  if (shapeA.length === 1 && shapeB.length > 2) {
+    const n = shapeB[shapeB.length - 1];
+    if (n === undefined) throw new Error('Invalid shape dimension');
+    return [...batchShape, n];
+  }
+
+  // 2D × 1D → [m]
+  if (shapeA.length === 2 && shapeB.length === 1) {
+    const m = shapeA[0];
+    if (m === undefined) throw new Error('Invalid shape dimension');
+    return [m];
+  }
+
+  // ND × 1D → [...batch, m]
+  if (shapeA.length > 2 && shapeB.length === 1) {
+    const m = shapeA[shapeA.length - 2];
+    if (m === undefined) throw new Error('Invalid shape dimension');
+    return [...batchShape, m];
+  }
+
+  // General case: [...batch, m, n]
+  const m = shapeA[shapeA.length - 2];
+  const n = shapeB[shapeB.length - 1];
+  if (m === undefined || n === undefined) {
+    throw new Error('Invalid shape dimensions');
+  }
+
+  return [...batchShape, m, n];
+}
+
+/**
+ * Expand dimensions for 1D tensors in matrix multiplication
+ * 
+ * Following NumPy convention:
+ * - 1D as first operand: prepend 1 → [n] becomes [1, n]
+ * - 1D as second operand: append 1 → [n] becomes [n, 1]
+ * 
+ * @param shape - Original shape
+ * @param isFirstOperand - Whether this is the first operand in matmul
+ * @returns Expanded shape
+ */
+export function expandDimsForMatmul(
+  shape: readonly number[],
+  isFirstOperand: boolean,
+): number[] {
+  if (shape.length !== 1) {
+    return [...shape];
+  }
+
+  const n = shape[0];
+  if (n === undefined) {
+    throw new Error('Invalid 1D shape');
+  }
+
+  return isFirstOperand ? [1, n] : [n, 1];
+}
+
+/**
+ * Squeeze result dimensions after matrix multiplication
+ * 
+ * Removes dimensions that were added for 1D operands:
+ * - If both were 1D: return scalar (empty shape)
+ * - If first was 1D: remove first dimension
+ * - If second was 1D: remove last dimension
+ * 
+ * @param shape - Result shape from matmul
+ * @param operandAWas1D - Whether first operand was originally 1D
+ * @param operandBWas1D - Whether second operand was originally 1D
+ * @returns Squeezed shape
+ */
+export function squeezeMatmulResult(
+  shape: readonly number[],
+  operandAWas1D: boolean,
+  operandBWas1D: boolean,
+): number[] {
+  // Both were 1D → scalar
+  if (operandAWas1D && operandBWas1D) {
+    return [];
+  }
+
+  let result = [...shape];
+
+  // First was 1D → remove first dimension
+  if (operandAWas1D && result.length > 0 && result[0] === 1) {
+    result = result.slice(1);
+  }
+
+  // Second was 1D → remove last dimension
+  if (operandBWas1D && result.length > 0 && result[result.length - 1] === 1) {
+    result = result.slice(0, -1);
+  }
+
+  return result;
+}
+
+/**
+ * Validate that batch dimensions match for matrix multiplication
+ * 
+ * Batch dimensions must match exactly (no broadcasting in batch dims).
+ * 
+ * @param shapeA - First tensor shape
+ * @param shapeB - Second tensor shape
+ * @throws {Error} If batch dimensions don't match
+ */
+export function validateBatchDimensions(
+  shapeA: readonly number[],
+  shapeB: readonly number[],
+): void {
+  const batchDimsA = shapeA.length > 2 ? shapeA.slice(0, -2) : [];
+  const batchDimsB = shapeB.length > 2 ? shapeB.slice(0, -2) : [];
+
+  if (batchDimsA.length !== batchDimsB.length) {
+    return; // Different ranks are OK, we'll use the shorter one
+  }
+
+  for (let i = 0; i < batchDimsA.length; i++) {
+    if (batchDimsA[i] !== batchDimsB[i]) {
+      throw new Error(
+        `Batch dimension ${i} does not match: ${batchDimsA[i]} != ${batchDimsB[i]}`,
+      );
+    }
+  }
+}
+
+/**
+ * Extract common batch dimensions from two shapes
+ * 
+ * Returns the batch dimensions that are common to both tensors.
+ * For tensors with different numbers of batch dimensions, returns
+ * the dimensions from the tensor with more batch dims.
+ * 
+ * @param shapeA - First tensor shape
+ * @param shapeB - Second tensor shape
+ * @returns Batch dimensions
+ */
+export function extractBatchShape(
+  shapeA: readonly number[],
+  shapeB: readonly number[],
+): number[] {
+  const batchDimsA = shapeA.length > 2 ? shapeA.slice(0, -2) : [];
+  const batchDimsB = shapeB.length > 2 ? shapeB.slice(0, -2) : [];
+
+  // Return the longer batch dimensions (handles broadcasting-like behavior)
+  return batchDimsA.length >= batchDimsB.length ? [...batchDimsA] : [...batchDimsB];
+}

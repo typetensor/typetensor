@@ -38,6 +38,9 @@
       "dependencies": {
         "@typetensor/core": "workspace:*",
       },
+      "devDependencies": {
+        "@typetensor/test-utils": "workspace:*",
+      },
       "peerDependencies": {
         "typescript": ">=5.9.0",
       },
@@ -95,6 +98,16 @@
     "packages/core": {
       "name": "@typetensor/core",
       "version": "0.1.0",
+      "peerDependencies": {
+        "typescript": ">=5.9.0",
+      },
+    },
+    "packages/test-utils": {
+      "name": "@typetensor/test-utils",
+      "version": "0.1.0",
+      "dependencies": {
+        "@typetensor/core": "workspace:*",
+      },
       "peerDependencies": {
         "typescript": ">=5.9.0",
       },
@@ -348,6 +361,8 @@
     "@typetensor/backend-webgpu": ["@typetensor/backend-webgpu@workspace:packages/backend-webgpu"],
 
     "@typetensor/core": ["@typetensor/core@workspace:packages/core"],
+
+    "@typetensor/test-utils": ["@typetensor/test-utils@workspace:packages/test-utils"],
 
     "abbrev": ["abbrev@1.1.1", "", {}, "sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q=="],
 

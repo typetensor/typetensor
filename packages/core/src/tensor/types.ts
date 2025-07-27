@@ -203,11 +203,18 @@ export function bufferToNestedArray<D extends AnyDType, S extends Shape>(
   buffer: ArrayBuffer,
   shape: S,
   dtype: D,
+  strides?: readonly number[],
+  offset: number = 0,
 ): NestedArray<DTypeValue<D>, S> {
   const TypedArrayConstructor = dtype.__typedArray;
   const typedArray = new TypedArrayConstructor(buffer);
 
-  // Convert to regular array with proper type handling
+  // If strides are provided, use stride-aware access
+  if (strides && strides.length > 0) {
+    return buildNestedArrayWithStrides(typedArray, shape, strides, offset, dtype) as NestedArray<DTypeValue<D>, S>;
+  }
+
+  // Otherwise, use the existing C-contiguous logic
   let flat: DTypeValue<D>[];
   if (TypedArrayConstructor === BigInt64Array || TypedArrayConstructor === BigUint64Array) {
     // Handle bigint arrays
@@ -232,6 +239,73 @@ export function bufferToNestedArray<D extends AnyDType, S extends Shape>(
 
   // Reshape to nested array
   return reshapeFlatArray(flat, shape) as NestedArray<DTypeValue<D>, S>;
+}
+
+/**
+ * Build nested array using stride-based access
+ *
+ * @param typedArray - Typed array containing the data
+ * @param shape - Tensor shape
+ * @param strides - Memory strides
+ * @param offset - Starting offset in the buffer
+ * @param dtype - Data type for proper value conversion
+ * @returns Nested array with stride-aware access
+ */
+function buildNestedArrayWithStrides<D extends AnyDType>(
+  typedArray: ArrayBufferView,
+  shape: readonly number[],
+  strides: readonly number[],
+  offset: number,
+  dtype: D,
+): unknown {
+  // Helper to convert typed array value to proper type
+  function convertValue(value: any): DTypeValue<D> {
+    if (dtype.__dtype === 'bool') {
+      return (value !== 0) as DTypeValue<D>;
+    }
+    return value as DTypeValue<D>;
+  }
+
+  // Recursive function to build nested array
+  function buildLevel(
+    currentShape: readonly number[],
+    currentStrides: readonly number[],
+    currentOffset: number,
+  ): unknown {
+    if (currentShape.length === 0) {
+      // Scalar case
+      return convertValue((typedArray as any)[currentOffset]);
+    }
+
+    if (currentShape.length === 1) {
+      // 1D case - build array by stepping through memory
+      const result: unknown[] = [];
+      const dim = currentShape[0]!;
+      const stride = currentStrides[0]!;
+      for (let i = 0; i < dim; i++) {
+        const index = currentOffset + i * stride;
+        result.push(convertValue((typedArray as any)[index]));
+      }
+      return result;
+    }
+
+    // Multi-dimensional case - recurse
+    const result: unknown[] = [];
+    const dim = currentShape[0]!;
+    const stride = currentStrides[0]!;
+    for (let i = 0; i < dim; i++) {
+      result.push(
+        buildLevel(
+          currentShape.slice(1),
+          currentStrides.slice(1),
+          currentOffset + i * stride,
+        ),
+      );
+    }
+    return result;
+  }
+
+  return buildLevel(shape, strides, offset);
 }
 
 /**

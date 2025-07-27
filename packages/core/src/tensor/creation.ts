@@ -113,6 +113,7 @@ function dtypeByteSize(dtype: AnyDType): number {
   return dtype.__byteSize;
 }
 
+
 /**
  * Type-safe storage builder that ensures all type parameters align correctly
  */

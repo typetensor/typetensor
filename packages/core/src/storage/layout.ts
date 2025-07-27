@@ -108,7 +108,9 @@ export type AllOperationTypes =
   | 'flatten' // Flatten to 1D
   | 'permute' // Permute dimensions
   | 'matmul' // Matrix multiplication
-  | 'transpose'; // Transpose dimensions
+  | 'transpose' // Transpose dimensions
+  | 'softmax' // Softmax normalization
+  | 'log_softmax'; // Log-softmax normalization
 
 /**
  * Base interface for all storage transformations

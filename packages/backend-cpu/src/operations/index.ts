@@ -9,6 +9,8 @@ import { assertExhaustiveSwitch } from '@typetensor/core';
 import { executeUnaryOp } from './unary';
 import { executeBinaryOp } from './binary';
 import { executeViewOp, executeSliceOp } from './view';
+import { executeMatmulOp } from './matmul';
+import { executeSoftmaxOp, executeLogSoftmaxOp } from './softmax';
 
 /**
  * Execute a tensor operation on the CPU device
@@ -99,6 +101,60 @@ export async function executeOperation(
         throw new Error('Input is undefined');
       }
       return executeSliceOp(device, op as AnyStorageTransformation & { __op: 'slice' }, input);
+    }
+
+    // Transpose operation - view operation that swaps last two dimensions
+    case 'transpose':
+    // Permute operation - view operation that rearranges dimensions  
+    case 'permute': {
+      if (inputs.length !== 1) {
+        throw new Error(`${op.__op} operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      // Like reshape, transpose and permute are view operations
+      // Return the same data buffer with different metadata
+      return input;
+    }
+
+    // Matrix multiplication
+    case 'matmul': {
+      if (inputs.length !== 2) {
+        throw new Error(
+          `Matrix multiplication requires exactly 2 inputs, got ${inputs.length}`,
+        );
+      }
+      const inputA = inputs[0];
+      const inputB = inputs[1];
+      if (!inputA || !inputB) {
+        throw new Error('One or more inputs are undefined');
+      }
+      return executeMatmulOp(device, op, inputA, inputB, output);
+    }
+
+    // Softmax operations
+    case 'softmax': {
+      if (inputs.length !== 1) {
+        throw new Error(`Softmax operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeSoftmaxOp(device, op as AnyStorageTransformation & { __softmaxAxis: number }, input, output);
+    }
+
+    case 'log_softmax': {
+      if (inputs.length !== 1) {
+        throw new Error(`Log-softmax operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeLogSoftmaxOp(device, op as AnyStorageTransformation & { __logSoftmaxAxis: number }, input, output);
     }
 
     default:

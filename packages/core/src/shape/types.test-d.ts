@@ -49,6 +49,9 @@ import type {
   SequenceShape,
   AttentionShape,
   SlicedShape,
+  DimensionError,
+  NormalizeDim,
+  ValidateDim,
 } from './types';
 
 // =============================================================================
@@ -776,6 +779,101 @@ import type {
   expectTypeOf<TokenSequence>().toExtend<SequenceShape>();
   expectTypeOf<EmbeddingOutput>().toExtend<AttentionShape>();
   expectTypeOf<AttentionOutput>().toExtend<AttentionShape>();
+}
+
+// =============================================================================
+// Dimension Validation and Normalization
+// =============================================================================
+
+{
+  // Test NormalizeDim with positive indices (should remain unchanged)
+  expectTypeOf<NormalizeDim<0, 3>>().toEqualTypeOf<0>();
+  expectTypeOf<NormalizeDim<1, 3>>().toEqualTypeOf<1>();
+  expectTypeOf<NormalizeDim<2, 3>>().toEqualTypeOf<2>();
+  
+  // Test NormalizeDim with negative indices (should be normalized)
+  expectTypeOf<NormalizeDim<-1, 3>>().toEqualTypeOf<2>(); // Last dimension
+  expectTypeOf<NormalizeDim<-2, 3>>().toEqualTypeOf<1>(); // Second to last
+  expectTypeOf<NormalizeDim<-3, 3>>().toEqualTypeOf<0>(); // First dimension
+}
+
+{
+  // Test NormalizeDim error cases
+  type OutOfBounds1 = NormalizeDim<3, 3>; // >= rank
+  type OutOfBounds2 = NormalizeDim<-4, 3>; // < -rank
+  type OutOfBounds3 = NormalizeDim<5, 2>; // way out of bounds
+  
+  expectTypeOf<OutOfBounds1>().toMatchTypeOf<DimensionError<string>>();
+  expectTypeOf<OutOfBounds2>().toMatchTypeOf<DimensionError<string>>();
+  expectTypeOf<OutOfBounds3>().toMatchTypeOf<DimensionError<string>>();
+}
+
+{
+  // Test ValidateDim with valid positive indices
+  expectTypeOf<ValidateDim<0, [2, 3, 4]>>().toEqualTypeOf<0>();
+  expectTypeOf<ValidateDim<1, [2, 3, 4]>>().toEqualTypeOf<1>();
+  expectTypeOf<ValidateDim<2, [2, 3, 4]>>().toEqualTypeOf<2>();
+  
+  // Test ValidateDim with valid negative indices
+  expectTypeOf<ValidateDim<-1, [2, 3, 4]>>().toEqualTypeOf<2>(); // Last dimension
+  expectTypeOf<ValidateDim<-2, [2, 3, 4]>>().toEqualTypeOf<1>(); // Second to last
+  expectTypeOf<ValidateDim<-3, [2, 3, 4]>>().toEqualTypeOf<0>(); // First dimension
+}
+
+{
+  // Test ValidateDim error cases
+  type Invalid1 = ValidateDim<3, [2, 3, 4]>; // Out of bounds (>= length)
+  type Invalid2 = ValidateDim<-4, [2, 3, 4]>; // Out of bounds (< -length)
+  type Invalid3 = ValidateDim<5, [2, 3]>; // Way out of bounds
+  
+  expectTypeOf<Invalid1>().toMatchTypeOf<DimensionError<string>>();
+  expectTypeOf<Invalid2>().toMatchTypeOf<DimensionError<string>>();
+  expectTypeOf<Invalid3>().toMatchTypeOf<DimensionError<string>>();
+}
+
+{
+  // Test ValidateDim with edge cases
+  expectTypeOf<ValidateDim<0, [5]>>().toEqualTypeOf<0>(); // Single dimension tensor
+  expectTypeOf<ValidateDim<-1, [5]>>().toEqualTypeOf<0>(); // -1 on single dimension
+  
+  // Invalid cases for single dimension
+  type InvalidSingle1 = ValidateDim<1, [5]>; // Out of bounds
+  type InvalidSingle2 = ValidateDim<-2, [5]>; // Out of bounds
+  
+  expectTypeOf<InvalidSingle1>().toMatchTypeOf<DimensionError<string>>();
+  expectTypeOf<InvalidSingle2>().toMatchTypeOf<DimensionError<string>>();
+}
+
+{
+  // Test with common tensor shapes for softmax use cases
+  type BatchShape = readonly [32, 10]; // [batch_size, num_classes]
+  type AttentionShape = readonly [32, 8, 128, 128]; // [batch, heads, seq, seq]
+  type SequenceShape = readonly [32, 512, 768]; // [batch, seq_len, features]
+  
+  // Valid axis for softmax over last dimension (logits)
+  expectTypeOf<ValidateDim<-1, BatchShape>>().toEqualTypeOf<1>(); // Over classes
+  expectTypeOf<ValidateDim<1, BatchShape>>().toEqualTypeOf<1>(); // Over classes
+  
+  // Valid axis for attention softmax over sequence length
+  expectTypeOf<ValidateDim<-1, AttentionShape>>().toEqualTypeOf<3>(); // Over key sequence
+  expectTypeOf<ValidateDim<3, AttentionShape>>().toEqualTypeOf<3>(); // Over key sequence
+  expectTypeOf<ValidateDim<-2, AttentionShape>>().toEqualTypeOf<2>(); // Over query sequence
+  
+  // Valid axis for sequence-level operations
+  expectTypeOf<ValidateDim<1, SequenceShape>>().toEqualTypeOf<1>(); // Over sequence
+  expectTypeOf<ValidateDim<-1, SequenceShape>>().toEqualTypeOf<2>(); // Over features
+}
+
+{
+  // Test DimensionError structure
+  type TestError = DimensionError<'Test error message'>;
+  expectTypeOf<TestError>().toMatchTypeOf<{
+    readonly __error: 'DimensionError';
+    readonly message: string;
+  }>();
+  
+  // Ensure DimensionError is properly branded
+  expectTypeOf<TestError['__error']>().toEqualTypeOf<'DimensionError'>();
 }
 
 // =============================================================================

@@ -434,7 +434,10 @@ export type PermuteOp<Input extends AnyTensorStorage, Axes extends readonly numb
           Permute<Input['__shape'], Axes>,
           Permute<Input['__strides'], Axes>, // Reuse Permute from shape module
           TransposeLayout<Input['__layout']>
-        >,
+        > & {
+          // Store the permutation axes as metadata for device implementation
+          readonly __permuteAxes: Axes;
+        },
         readonly [Input]
       >
     : never & {

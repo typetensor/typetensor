@@ -46,6 +46,9 @@
   "dependencies": {
     "@typetensor/core": "workspace:*"
   },
+  "devDependencies": {
+    "@typetensor/test-utils": "workspace:*"
+  },
   "peerDependencies": {
     "typescript": ">=5.9.0"
   },

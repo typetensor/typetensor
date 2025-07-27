@@ -17,3 +17,9 @@ export type * from './binary';
 
 // Re-export view operations
 export type * from './view';
+
+// Re-export matrix multiplication operations
+export type * from './matmul';
+
+// Re-export softmax operations
+export type * from './softmax';
