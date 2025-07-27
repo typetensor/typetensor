@@ -18,6 +18,7 @@ import type {
   LayoutFlags,
   AnyTensorStorage,
   ComputeStrides,
+  AllOperationTypes,
 } from './layout';
 
 // =============================================================================
@@ -48,7 +49,7 @@ interface BinaryOpLayout extends LayoutFlags {
 export type BinaryOp<
   A extends AnyTensorStorage,
   B extends AnyTensorStorage,
-  Op extends string = string,
+  Op extends AllOperationTypes = AllOperationTypes,
 > =
   CanBroadcast<A['__shape'], B['__shape']> extends true
     ? StorageTransformation<

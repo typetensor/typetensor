@@ -82,17 +82,63 @@ type ComputeStridesHelper<S extends Shape, Acc extends Shape = readonly []> = S 
 // =============================================================================
 
 /**
+ * Union of all supported tensor operation types
+ * 
+ * This exhaustive list ensures that device implementations must handle
+ * all operations. Adding a new operation here will cause TypeScript
+ * errors in device implementations until they add support.
+ */
+export type AllOperationTypes = 
+  | 'create'     // Tensor creation
+  | 'neg'        // Unary negation
+  | 'abs'        // Absolute value
+  | 'sin'        // Sine
+  | 'cos'        // Cosine
+  | 'exp'        // Exponential
+  | 'log'        // Natural logarithm
+  | 'sqrt'       // Square root
+  | 'square'     // Square
+  | 'add'        // Element-wise addition
+  | 'sub'        // Element-wise subtraction
+  | 'mul'        // Element-wise multiplication
+  | 'div'        // Element-wise division
+  | 'reshape'    // Reshape view
+  | 'view'       // View with dimension inference
+  | 'slice'      // Tensor slicing
+  | 'flatten';   // Flatten to 1D
+
+/**
  * Base interface for all storage transformations
  * Transformations are lazy and only define the operation type
  */
 export interface StorageTransformation<
-  OpType extends string,
+  OpType extends AllOperationTypes,
   Output extends TensorStorage<AnyDType, Shape, Shape, LayoutFlags>,
   Inputs extends readonly TensorStorage<AnyDType, Shape, Shape, LayoutFlags>[] = readonly [],
 > {
   readonly __op: OpType;
   readonly __output: Output;
   readonly __inputs: Inputs;
+}
+
+/**
+ * Forces TypeScript to check that all operation cases are handled
+ * Use this in the default case of switch statements to ensure exhaustiveness
+ * 
+ * @param op - Should be `never` if all cases are handled
+ * @throws {Error} Always throws with operation details
+ * 
+ * @example
+ * switch (op.__op) {
+ *   case 'add': return handleAdd(op);
+ *   case 'sub': return handleSub(op);
+ *   // ... all other cases
+ *   default:
+ *     return assertExhaustiveSwitch(op.__op); // TypeScript error if cases missing
+ * }
+ */
+export function assertExhaustiveSwitch(op: never): never {
+  throw new Error(`Unhandled operation: ${String(op)}`);
 }
 
 // =============================================================================
@@ -106,9 +152,10 @@ export type AnyTensorStorage = TensorStorage<AnyDType, Shape, Shape, LayoutFlags
 
 /**
  * Type constraint for any valid StorageTransformation
+ * Now constrained to only allow known operation types
  */
 export type AnyStorageTransformation = StorageTransformation<
-  string,
+  AllOperationTypes,
   AnyTensorStorage,
   readonly AnyTensorStorage[]
 >;

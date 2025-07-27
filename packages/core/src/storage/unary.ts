@@ -12,6 +12,7 @@ import type {
   LayoutFlags,
   AnyTensorStorage,
   ComputeStrides,
+  AllOperationTypes,
 } from './layout';
 
 // =============================================================================
@@ -38,7 +39,7 @@ interface UnaryOpLayout<InputLayout extends LayoutFlags> extends LayoutFlags {
 export type UnaryOp<
   Input extends AnyTensorStorage,
   OutputDType extends AnyDType = Input['__dtype'],
-  Op extends string = string,
+  Op extends AllOperationTypes = AllOperationTypes,
 > = StorageTransformation<
   Op,
   TensorStorage<

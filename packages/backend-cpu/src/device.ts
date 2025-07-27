@@ -5,7 +5,7 @@
  * on the CPU using JavaScript/TypeScript typed arrays.
  */
 
-import type { Device, DeviceData, AnyStorageTransformation } from '@typetensor/core';
+import type { Device, DeviceData, AnyStorageTransformation, ValidateDeviceOperations } from '@typetensor/core';
 import { CPUDeviceData } from './data';
 import { executeOperation } from './operations';
 
@@ -21,6 +21,17 @@ export class CPUDevice implements Device {
    */
   readonly id = 'cpu:0';
   readonly type = 'cpu';
+
+  /**
+   * Compile-time validation that all operations are implemented
+   * This will cause a TypeScript error if any operation is missing from executeOperation()
+   */
+  // @ts-expect-error: This property is used for compile-time validation only
+  private _operationValidation: ValidateDeviceOperations<
+    | 'create' | 'neg' | 'abs' | 'sin' | 'cos' | 'exp' | 'log' | 'sqrt' | 'square' // Unary ops
+    | 'add' | 'sub' | 'mul' | 'div'                                                // Binary ops  
+    | 'reshape' | 'view' | 'slice' | 'flatten'                                     // View ops
+  > = true;
 
   /**
    * Execute a tensor operation

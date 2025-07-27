@@ -5,9 +5,10 @@
  */
 
 import type { Device, DeviceData, AnyStorageTransformation } from '@typetensor/core';
+import { assertExhaustiveSwitch } from '@typetensor/core';
 import { executeUnaryOp } from './unary';
 import { executeBinaryOp } from './binary';
-import { executeViewOp } from './view';
+import { executeViewOp, executeSliceOp } from './view';
 
 /**
  * Execute a tensor operation on the CPU device
@@ -88,7 +89,21 @@ export async function executeOperation(
       return executeViewOp(device, op, input);
     }
 
+    // Slice operation - creates a view with copied data
+    case 'slice': {
+      if (inputs.length !== 1) {
+        throw new Error(`Slice operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeSliceOp(device, op as AnyStorageTransformation & { __op: 'slice' }, input);
+    }
+
     default:
-      throw new Error(`Unsupported operation: ${op.__op}`);
+      // This will cause a TypeScript compile error if any operation case is missing
+      // The error will show which operations are not handled
+      return assertExhaustiveSwitch(op.__op);
   }
 }
