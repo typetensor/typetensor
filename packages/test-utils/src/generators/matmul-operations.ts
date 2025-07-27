@@ -86,6 +86,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should handle identity matrix multiplication', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]) @ torch.tensor([[1, 0], [0, 1]])
+        // Output: tensor([[1., 2.], [3., 4.]]) - unchanged
         const a = await tensor(
           [
             [1, 2],
@@ -110,6 +112,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should handle zero matrix multiplication', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]) @ torch.tensor([[0, 0], [0, 0]])
+        // Output: tensor([[0., 0.], [0., 0.]])
         const a = await tensor(
           [
             [1, 2],
@@ -147,6 +151,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should handle orthogonal vectors', async () => {
+        // PyTorch: torch.tensor([1, 0]) @ torch.tensor([0, 1])
+        // Output: tensor(0.0)
         const a = await tensor([1, 0] as const, { device, dtype: float32 });
         const b = await tensor([0, 1] as const, { device, dtype: float32 });
         const result = await a.matmul(b);
@@ -156,6 +162,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should handle negative values', async () => {
+        // PyTorch: torch.tensor([1, -2, 3]) @ torch.tensor([-1, 2, -3])
+        // Output: tensor(-14.0)
         const a = await tensor([1, -2, 3] as const, { device, dtype: float32 });
         const b = await tensor([-1, 2, -3] as const, { device, dtype: float32 });
         const result = await a.matmul(b);
@@ -184,6 +192,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should handle single row matrix', async () => {
+        // PyTorch: torch.tensor([2, 3, 4]) @ torch.tensor([[1], [2], [3]])
+        // Output: tensor([20.])
         const vector = await tensor([2, 3, 4] as const, { device, dtype: float32 });
         const matrix = await tensor([[1], [2], [3]] as const, { device, dtype: float32 });
         const result = await vector.matmul(matrix);
@@ -212,6 +222,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should handle single column result', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4], [5, 6]]) @ torch.tensor([2, 3])
+        // Output: tensor([8, 18, 28])
         const matrix = await tensor(
           [
             [1, 2],
@@ -315,6 +327,8 @@ export function generateMatmulOperationTests(
 
     describe('special cases', () => {
       it('should handle scalar-like 1x1 matrices', async () => {
+        // PyTorch: torch.tensor([[5]]) @ torch.tensor([[3]])
+        // Output: tensor([[15]])
         const a = await tensor([[5]] as const, { device, dtype: float32 });
         const b = await tensor([[3]] as const, { device, dtype: float32 });
         const result = await a.matmul(b);
@@ -356,6 +370,8 @@ export function generateMatmulOperationTests(
       });
 
       it('should preserve numerical precision', async () => {
+        // PyTorch: torch.tensor([[1.234567]]) @ torch.tensor([[2.345678]])
+        // Output: tensor([[2.8959]]) - float32 precision
         const a = await tensor([[1.234567]] as const, { device, dtype: float32 });
         const b = await tensor([[2.345678]] as const, { device, dtype: float32 });
         const result = await a.matmul(b);

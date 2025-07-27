@@ -39,6 +39,8 @@ export function generateSoftmaxOperationTests(
   describe(`Softmax Operations Tests (${device.type}:${device.id})`, () => {
     describe('softmax operations', () => {
       it('should compute softmax for a simple vector', async () => {
+        // PyTorch: F.softmax(torch.tensor([1.0, 2.0, 3.0]), dim=-1)
+        // Output: tensor([0.0900, 0.2447, 0.6652])
         const logits = await tensor([1.0, 2.0, 3.0] as const, { device, dtype: float32 });
         const result = await logits.softmax(-1);
 
@@ -61,6 +63,10 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should compute softmax along axis 0 for matrix', async () => {
+        // PyTorch: F.softmax(torch.tensor([[1.0, 2.0], [3.0, 4.0]]), dim=0)
+        // Output: tensor([[0.1192, 0.1192],
+        //                 [0.8808, 0.8808]])
+        // Column sums: tensor([1.0000, 1.0000])
         const logits = await tensor(
           [
             [1.0, 2.0],
@@ -88,6 +94,10 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should compute softmax along axis 1 for matrix', async () => {
+        // PyTorch: F.softmax(torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), dim=1)
+        // Output: tensor([[0.0900, 0.2447, 0.6652],
+        //                 [0.0900, 0.2447, 0.6652]])
+        // Row sums: tensor([1., 1.])
         const logits = await tensor(
           [
             [1.0, 2.0, 3.0],
@@ -115,6 +125,10 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should handle negative axis indexing', async () => {
+        // PyTorch: F.softmax(torch.tensor([[1.0, 2.0], [3.0, 4.0]]), dim=-1)
+        // Output: tensor([[0.2689, 0.7311],
+        //                 [0.2689, 0.7311]])
+        // Row sums: tensor([1., 1.])
         const logits = await tensor(
           [
             [1.0, 2.0],
@@ -137,6 +151,9 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should handle 3D tensors with batch dimension', async () => {
+        // PyTorch: 3D tensor shape torch.Size([2, 2, 3])
+        // F.softmax(tensor3d, dim=-1) normalizes along last dimension
+        // Sums along last dim: tensor([[1., 1.], [1., 1.]])
         // 2x2x3 tensor (batch=2, seq=2, vocab=3)
         const logits = await tensor(
           [
@@ -168,7 +185,9 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should handle extreme values without overflow', async () => {
-        // Large values that could cause exp overflow
+        // PyTorch: F.softmax(torch.tensor([10.0, 20.0, 30.0]), dim=-1)
+        // Output: tensor([2.0611e-09, 4.5398e-05, 9.9995e-01])
+        // Sum: 1.0 (numerical stability maintained)
         const logits = await tensor([10.0, 20.0, 30.0] as const, { device, dtype: float32 });
         const result = await logits.softmax(-1);
 
@@ -187,6 +206,8 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should handle uniform inputs', async () => {
+        // PyTorch: F.softmax(torch.tensor([5.0, 5.0, 5.0, 5.0]), dim=-1)
+        // Output: tensor([0.2500, 0.2500, 0.2500, 0.2500])
         // All same values should give uniform distribution
         const logits = await tensor([5.0, 5.0, 5.0, 5.0] as const, { device, dtype: float32 });
         const result = await logits.softmax(-1);
@@ -203,6 +224,8 @@ export function generateSoftmaxOperationTests(
 
     describe('log-softmax operations', () => {
       it('should compute log-softmax for a simple vector', async () => {
+        // PyTorch: F.log_softmax(torch.tensor([1.0, 2.0, 3.0]), dim=-1)
+        // Output: tensor([-2.4076, -1.4076, -0.4076])
         const logits = await tensor([1.0, 2.0, 3.0] as const, { device, dtype: float32 });
         const result = await logits.logSoftmax(-1);
 
@@ -212,7 +235,7 @@ export function generateSoftmaxOperationTests(
 
         const data = await result.toArray();
 
-        // PyTorch reference: torch.log_softmax([1,2,3], dim=-1) = [-2.4076, -1.4076, -0.4076]
+        // Values from PyTorch verification: [-2.4076, -1.4076, -0.4076]
         expect(data[0]).toBeCloseTo(-2.4076, 3);
         expect(data[1]).toBeCloseTo(-1.4076, 3);
         expect(data[2]).toBeCloseTo(-0.4076, 3);
@@ -231,6 +254,9 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should compute log-softmax along axis 0 for matrix', async () => {
+        // PyTorch: F.log_softmax(torch.tensor([[1.0, 2.0], [3.0, 4.0]]), dim=0)
+        // Output: tensor([[-2.1269, -2.1269],
+        //                 [-0.1269, -0.1269]])
         const logits = await tensor(
           [
             [1.0, 2.0],
@@ -244,7 +270,7 @@ export function generateSoftmaxOperationTests(
         expect(result.shape).toEqual([2, 2]);
         const data = await result.toArray();
 
-        // PyTorch reference: torch.log_softmax([[1,2],[3,4]], dim=0) = [[-2.1269, -2.1269], [-0.1269, -0.1269]]
+        // Values from PyTorch verification: [[-2.1269, -2.1269], [-0.1269, -0.1269]]
         expect(data[0][0]).toBeCloseTo(-2.1269, 3);
         expect(data[0][1]).toBeCloseTo(-2.1269, 3);
         expect(data[1][0]).toBeCloseTo(-0.1269, 3);
@@ -261,6 +287,9 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should handle negative axis indexing', async () => {
+        // PyTorch: F.log_softmax(matrix, dim=-1)
+        // Negative axis -1 refers to last dimension
+        // Values should be negative (log of probabilities)
         const logits = await tensor(
           [
             [1.0, 2.0, 3.0],
@@ -283,7 +312,9 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should provide numerical stability for large values', async () => {
-        // Large values that could cause numerical issues
+        // PyTorch: F.log_softmax(torch.tensor([100.0, 101.0, 102.0]), dim=-1)
+        // Output: tensor([-2.4076, -1.4076, -0.4076])
+        // All finite: True (numerical stability maintained)
         const logits = await tensor([100.0, 101.0, 102.0] as const, { device, dtype: float32 });
         const result = await logits.logSoftmax(-1);
 
@@ -341,12 +372,13 @@ export function generateSoftmaxOperationTests(
 
     describe('edge cases', () => {
       it('should handle single-element tensors', async () => {
+        // PyTorch: F.softmax(torch.tensor([42.0]), dim=-1) = tensor([1.])
+        //          F.log_softmax(torch.tensor([42.0]), dim=-1) = tensor([0.])
         const single = await tensor([42.0] as const, { device, dtype: float32 });
 
         const softmax = await single.softmax(-1);
         const logSoftmax = await single.logSoftmax(-1);
 
-        // PyTorch reference: torch.softmax([42.0], dim=-1) = [1.0], torch.log_softmax([42.0], dim=-1) = [0.0]
         // Both preserve shape [1], item() extracts the scalar value
         expect(softmax.shape).toEqual([1]);
         expect(logSoftmax.shape).toEqual([1]);
@@ -356,6 +388,8 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should handle zero inputs', async () => {
+        // PyTorch: F.softmax(torch.tensor([0.0, 0.0, 0.0]), dim=-1)
+        // Output: tensor([0.3333, 0.3333, 0.3333])
         const zeros = await tensor([0.0, 0.0, 0.0] as const, { device, dtype: float32 });
 
         const softmax = await zeros.softmax(-1);
@@ -402,6 +436,8 @@ export function generateSoftmaxOperationTests(
 
     describe('chaining with other operations', () => {
       it('should chain softmax with other operations', async () => {
+        // PyTorch: logits.reshape(4) -> F.softmax(..., dim=-1) -> .sum()
+        // Output: tensor(1.0) (sum of softmax probabilities)
         const logits = await tensor(
           [
             [1.0, 2.0],
@@ -418,6 +454,9 @@ export function generateSoftmaxOperationTests(
       });
 
       it('should use softmax in mathematical expressions', async () => {
+        // PyTorch: weighted_logits = logits * weights
+        //          F.softmax(weighted_logits, dim=-1)
+        // Output: tensor([0.0166, 0.0746, 0.9088]), sum: 1.0
         const logits = await tensor([1.0, 2.0, 3.0] as const, { device, dtype: float32 });
         const weights = await tensor([0.5, 1.0, 1.5] as const, { device, dtype: float32 });
 

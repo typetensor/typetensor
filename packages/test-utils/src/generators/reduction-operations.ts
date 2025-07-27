@@ -37,6 +37,8 @@ export function generateReductionOperationTests(
   describe(`Reduction Operations Tests (${device.type}:${device.id})`, () => {
     describe('sum operations', () => {
       it('should sum all elements in a scalar', async () => {
+        // PyTorch: torch.tensor(5.0).sum()
+        // Output: tensor(5.0)
         const scalar = await tensor(5, { device, dtype: float32 });
         const result = await scalar.sum();
 
@@ -47,6 +49,8 @@ export function generateReductionOperationTests(
       });
 
       it('should sum all elements in a vector', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4, 5]).sum()
+        // Output: tensor(15)
         const vector = await tensor([1, 2, 3, 4, 5] as const, { device, dtype: float32 });
         const result = await vector.sum();
 
@@ -55,6 +59,8 @@ export function generateReductionOperationTests(
       });
 
       it('should sum all elements in a matrix', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).sum()
+        // Output: tensor(21)
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -69,6 +75,8 @@ export function generateReductionOperationTests(
       });
 
       it('should sum along axis 0 (rows)', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).sum(dim=0)
+        // Output: tensor([5, 7, 9])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -84,6 +92,8 @@ export function generateReductionOperationTests(
       });
 
       it('should sum along axis 1 (columns)', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).sum(dim=1)
+        // Output: tensor([6, 15])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -99,6 +109,8 @@ export function generateReductionOperationTests(
       });
 
       it('should sum with keepDims=true', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).sum(dim=0, keepdim=True)
+        // Output: tensor([[5, 7, 9]])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -114,6 +126,9 @@ export function generateReductionOperationTests(
       });
 
       it('should handle integer sums', async () => {
+        // PyTorch: torch.tensor([10, 20, 30], dtype=torch.int32).sum()
+        // Output: tensor(60, dtype=torch.int64)
+        // Note: PyTorch promotes int32 sums to int64
         const vector = await tensor([10, 20, 30] as const, { device, dtype: int32 });
         const result = await vector.sum();
 
@@ -124,6 +139,8 @@ export function generateReductionOperationTests(
 
     describe('mean operations', () => {
       it('should compute mean of all elements in a scalar', async () => {
+        // PyTorch: torch.tensor(7.0).mean()
+        // Output: tensor(7.0)
         const scalar = await tensor(7, { device, dtype: float32 });
         const result = await scalar.mean();
 
@@ -132,6 +149,8 @@ export function generateReductionOperationTests(
       });
 
       it('should compute mean of all elements in a vector', async () => {
+        // PyTorch: torch.tensor([2, 4, 6, 8], dtype=torch.float32).mean()
+        // Output: tensor(5.0)
         const vector = await tensor([2, 4, 6, 8] as const, { device, dtype: float32 });
         const result = await vector.mean();
 
@@ -140,6 +159,8 @@ export function generateReductionOperationTests(
       });
 
       it('should compute mean of all elements in a matrix', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]], dtype=torch.float32).mean()
+        // Output: tensor(2.5)
         const matrix = await tensor(
           [
             [1, 2],
@@ -154,6 +175,8 @@ export function generateReductionOperationTests(
       });
 
       it('should compute mean along axis 0', async () => {
+        // PyTorch: torch.tensor([[1, 3], [5, 7]], dtype=torch.float32).mean(dim=0)
+        // Output: tensor([3., 5.])
         const matrix = await tensor(
           [
             [1, 3],
@@ -170,6 +193,8 @@ export function generateReductionOperationTests(
       });
 
       it('should compute mean along axis 1', async () => {
+        // PyTorch: torch.tensor([[2, 8], [4, 6]], dtype=torch.float32).mean(dim=1)
+        // Output: tensor([5., 5.])
         const matrix = await tensor(
           [
             [2, 8],
@@ -186,6 +211,8 @@ export function generateReductionOperationTests(
       });
 
       it('should compute mean with keepDims=true', async () => {
+        // PyTorch: torch.tensor([[2, 4], [6, 8]], dtype=torch.float32).mean(dim=1, keepdim=True)
+        // Output: tensor([[3.], [7.]])
         const matrix = await tensor(
           [
             [2, 4],
@@ -204,6 +231,8 @@ export function generateReductionOperationTests(
 
     describe('max operations', () => {
       it('should find max of all elements in a scalar', async () => {
+        // PyTorch: torch.tensor(42.0).max()
+        // Output: tensor(42.0)
         const scalar = await tensor(42, { device, dtype: float32 });
         const result = await scalar.max();
 
@@ -212,6 +241,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find max of all elements in a vector', async () => {
+        // PyTorch: torch.tensor([3, 7, 2, 9, 1]).max()
+        // Output: tensor(9)
         const vector = await tensor([3, 7, 2, 9, 1] as const, { device, dtype: float32 });
         const result = await vector.max();
 
@@ -220,6 +251,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find max of all elements in a matrix', async () => {
+        // PyTorch: torch.tensor([[1, 8, 3], [4, 2, 6]]).max()
+        // Output: tensor(8)
         const matrix = await tensor(
           [
             [1, 8, 3],
@@ -234,6 +267,9 @@ export function generateReductionOperationTests(
       });
 
       it('should find max along axis 0', async () => {
+        // PyTorch: torch.tensor([[1, 8, 3], [4, 2, 6]]).max(dim=0)
+        // Output: torch.return_types.max(values=tensor([4, 8, 6]), indices=tensor([1, 0, 1]))
+        // Note: PyTorch returns both values and indices for axis-wise max
         const matrix = await tensor(
           [
             [1, 8, 3],
@@ -249,6 +285,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find max along axis 1', async () => {
+        // PyTorch: torch.tensor([[1, 8, 3], [4, 2, 6]]).max(dim=1)
+        // Output: torch.return_types.max(values=tensor([8, 6]), indices=tensor([1, 2]))
         const matrix = await tensor(
           [
             [1, 8, 3],
@@ -264,6 +302,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find max with keepDims=true', async () => {
+        // PyTorch: torch.tensor([[1, 8], [4, 2]]).max(dim=0, keepdim=True)
+        // Output: torch.return_types.max(values=tensor([[4, 8]]), indices=tensor([[1, 0]]))
         const matrix = await tensor(
           [
             [1, 8],
@@ -279,6 +319,8 @@ export function generateReductionOperationTests(
       });
 
       it('should handle negative numbers', async () => {
+        // PyTorch: torch.tensor([-5, -2, -8, -1]).max()
+        // Output: tensor(-1)
         const vector = await tensor([-5, -2, -8, -1] as const, { device, dtype: float32 });
         const result = await vector.max();
 
@@ -288,6 +330,8 @@ export function generateReductionOperationTests(
 
     describe('min operations', () => {
       it('should find min of all elements in a scalar', async () => {
+        // PyTorch: torch.tensor(42.0).min()
+        // Output: tensor(42.0)
         const scalar = await tensor(42, { device, dtype: float32 });
         const result = await scalar.min();
 
@@ -296,6 +340,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find min of all elements in a vector', async () => {
+        // PyTorch: torch.tensor([3, 7, 2, 9, 1]).min()
+        // Output: tensor(1)
         const vector = await tensor([3, 7, 2, 9, 1] as const, { device, dtype: float32 });
         const result = await vector.min();
 
@@ -304,6 +350,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find min of all elements in a matrix', async () => {
+        // PyTorch: torch.tensor([[5, 8, 3], [4, 2, 6]]).min()
+        // Output: tensor(2)
         const matrix = await tensor(
           [
             [5, 8, 3],
@@ -318,6 +366,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find min along axis 0', async () => {
+        // PyTorch: torch.tensor([[5, 8, 3], [4, 2, 6]]).min(dim=0)
+        // Output: torch.return_types.min(values=tensor([4, 2, 3]), indices=tensor([1, 1, 0]))
         const matrix = await tensor(
           [
             [5, 8, 3],
@@ -333,6 +383,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find min along axis 1', async () => {
+        // PyTorch: torch.tensor([[5, 8, 3], [4, 2, 6]]).min(dim=1)
+        // Output: torch.return_types.min(values=tensor([3, 2]), indices=tensor([2, 1]))
         const matrix = await tensor(
           [
             [5, 8, 3],
@@ -348,6 +400,8 @@ export function generateReductionOperationTests(
       });
 
       it('should find min with keepDims=true', async () => {
+        // PyTorch: torch.tensor([[5, 8], [4, 2]]).min(dim=1, keepdim=True)
+        // Output: torch.return_types.min(values=tensor([[5], [2]]), indices=tensor([[0], [1]]))
         const matrix = await tensor(
           [
             [5, 8],
@@ -363,6 +417,8 @@ export function generateReductionOperationTests(
       });
 
       it('should handle negative numbers', async () => {
+        // PyTorch: torch.tensor([-5, -2, -8, -1]).min()
+        // Output: tensor(-8)
         const vector = await tensor([-5, -2, -8, -1] as const, { device, dtype: float32 });
         const result = await vector.min();
 
@@ -372,7 +428,12 @@ export function generateReductionOperationTests(
 
     describe('multi-dimensional reductions', () => {
       it('should handle 3D tensor reductions', async () => {
-        // 2x2x2 tensor
+        // PyTorch: tensor3d = torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        // Shape: torch.Size([2, 2, 2])
+        // Sum all: 36
+        // Sum axis 0: tensor([[6, 8], [10, 12]])
+        // Sum axis 1: tensor([[4, 6], [12, 14]])
+        // Sum axis 2: tensor([[3, 7], [11, 15]])
         const tensor3d = await tensor(
           [
             [
@@ -420,6 +481,8 @@ export function generateReductionOperationTests(
       });
 
       it('should handle multiple axes reduction', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).sum(dim=[0, 1])
+        // Output: tensor(21)
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -435,6 +498,9 @@ export function generateReductionOperationTests(
       });
 
       it('should handle keepDims with multiple operations', async () => {
+        // PyTorch: tensor3d.mean(dim=[0, 2], keepdim=True)
+        // Output shape: torch.Size([1, 2, 1])
+        // Values: tensor([[[3.5000], [5.5000]]])
         const tensor3d = await tensor(
           [
             [
@@ -508,6 +574,8 @@ export function generateReductionOperationTests(
 
     describe('edge cases', () => {
       it('should handle single-element tensors', async () => {
+        // PyTorch: torch.tensor([[42]], dtype=torch.float32)
+        // All operations return tensor(42.0)
         const single = await tensor([[42]] as const, { device, dtype: float32 });
 
         const sum = await single.sum();
@@ -522,6 +590,8 @@ export function generateReductionOperationTests(
       });
 
       it('should handle zero values', async () => {
+        // PyTorch: torch.tensor([0, 5, 0, 3, 0], dtype=torch.float32)
+        // sum=8.0, mean=1.6, max=5.0, min=0.0
         const withZeros = await tensor([0, 5, 0, 3, 0] as const, { device, dtype: float32 });
 
         const sum = await withZeros.sum();
@@ -536,6 +606,8 @@ export function generateReductionOperationTests(
       });
 
       it('should handle all same values', async () => {
+        // PyTorch: torch.tensor([7, 7, 7, 7], dtype=torch.float32)
+        // sum=28.0, mean=7.0, max=7.0, min=7.0
         const uniform = await tensor([7, 7, 7, 7] as const, { device, dtype: float32 });
 
         const sum = await uniform.sum();
@@ -550,6 +622,9 @@ export function generateReductionOperationTests(
       });
 
       it('should handle floating point precision', async () => {
+        // PyTorch: torch.tensor([0.1, 0.2, 0.3], dtype=torch.float32)
+        // sum=0.6000000238418579, mean=0.20000000298023224
+        // Note: float32 precision limitations
         const precise = await tensor([0.1, 0.2, 0.3] as const, { device, dtype: float32 });
 
         const sum = await precise.sum();
@@ -582,6 +657,9 @@ export function generateReductionOperationTests(
       });
 
       it('should handle negative axis values appropriately', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).sum(dim=-1)
+        // Output: tensor([6, 15])
+        // Negative axis -1 refers to the last dimension
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -605,6 +683,8 @@ export function generateReductionOperationTests(
 
     describe('chaining with other operations', () => {
       it('should chain reductions with view operations', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4, 5, 6]).reshape(2, 3).sum(dim=1)
+        // Output: tensor([6, 15])
         const vector = await tensor([1, 2, 3, 4, 5, 6] as const, { device, dtype: float32 });
 
         // Reshape to matrix, then sum along axis
@@ -616,6 +696,8 @@ export function generateReductionOperationTests(
       });
 
       it('should chain reductions with unary operations', async () => {
+        // PyTorch: torch.sqrt(torch.tensor([[1, 4], [9, 16]], dtype=torch.float32)).sum()
+        // Output: tensor(10.0)
         const matrix = await tensor(
           [
             [1, 4],
@@ -631,6 +713,8 @@ export function generateReductionOperationTests(
       });
 
       it('should use reductions in binary operations', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).sum() + torch.tensor([4, 5, 6]).sum()
+        // Output: 6 + 15 = 21
         const a = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         const b = await tensor([4, 5, 6] as const, { device, dtype: float32 });
 
