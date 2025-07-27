@@ -18,6 +18,7 @@ import type {
   TokenizeResult,
 } from './types';
 import { EinopsError, InvalidCharacterError, MalformedArrowError } from './types';
+import { parseTokens } from './parser';
 
 // =============================================================================
 // Character Classification
@@ -373,6 +374,5 @@ export function tokenize(pattern: string): TokenizeResult {
  */
 export function parse(pattern: string): import('./ast').EinopsAST {
   const { tokens } = tokenize(pattern);
-  const { parseTokens } = require('./parser');
-  return parseTokens(tokens);
+  return parseTokens(tokens, pattern);
 }

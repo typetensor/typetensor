@@ -35,6 +35,8 @@ export function generateUnaryOperationTests(
   describe(`Unary Operations Tests (${device.type}:${device.id})`, () => {
     describe('negation operations', () => {
       it('should negate scalar values', async () => {
+        // PyTorch: -torch.tensor(3.14)
+        // Output: tensor(-3.1400)
         const scalar = await tensor(3.14, { device, dtype: float32 });
         const negated = await scalar.neg();
 
@@ -48,6 +50,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should negate vector values', async () => {
+        // PyTorch: -torch.tensor([1, -2, 3, -4])
+        // Output: tensor([-1, 2, -3, 4])
         const vector = await tensor([1, -2, 3, -4] as const, { device, dtype: float32 });
         const negated = await vector.neg();
 
@@ -61,6 +65,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should negate matrix values', async () => {
+        // PyTorch: -torch.tensor([[1, -2], [-3, 4]])
+        // Output: tensor([[-1, 2], [3, -4]])
         const matrix = await tensor([
           [1, -2],
           [-3, 4]
@@ -78,6 +84,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should handle integer negation', async () => {
+        // PyTorch: -torch.tensor([1, -2, 3], dtype=torch.int32)
+        // Output: tensor([-1, 2, -3], dtype=torch.int32)
         const intTensor = await tensor([1, -2, 3] as const, { device, dtype: int32 });
         const negated = await intTensor.neg();
 
@@ -89,6 +97,8 @@ export function generateUnaryOperationTests(
 
     describe('absolute value operations', () => {
       it('should compute absolute values for scalars', async () => {
+        // PyTorch: torch.abs(torch.tensor(-3.14)) = tensor(3.1400)
+        //          torch.abs(torch.tensor(2.71)) = tensor(2.7100)
         const negative = await tensor(-3.14, { device, dtype: float32 });
         const positive = await tensor(2.71, { device, dtype: float32 });
 
@@ -100,6 +110,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute absolute values for vectors', async () => {
+        // PyTorch: torch.abs(torch.tensor([1, -2, 0, -4.5, 3.2]))
+        // Output: tensor([1.0000, 2.0000, 0.0000, 4.5000, 3.2000])
         const vector = await tensor([1, -2, 0, -4.5, 3.2] as const, { device, dtype: float32 });
         const absVector = await vector.abs();
 
@@ -115,6 +127,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute absolute values for matrices', async () => {
+        // PyTorch: torch.abs(torch.tensor([[-1.5, 2.3], [0, -4.7]]))
+        // Output: tensor([[1.5000, 2.3000],
+        //                 [0.0000, 4.7000]])
         const matrix = await tensor([
           [-1.5, 2.3],
           [0, -4.7]
@@ -131,7 +146,9 @@ export function generateUnaryOperationTests(
 
     describe('trigonometric operations', () => {
       it('should compute sine values', async () => {
-        // Test common angles: 0, π/2, π, 3π/2
+        // PyTorch: torch.sin(torch.tensor([0, π/2, π, 3π/2]))
+        // Output: tensor([0.0000e+00, 1.0000e+00, -8.7423e-08, -1.0000e+00])
+        // Note: Small floating point errors for π values
         const angles = await tensor([0, Math.PI/2, Math.PI, 3*Math.PI/2] as const, { device, dtype: float32 });
         const sines = await angles.sin();
 
@@ -145,7 +162,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute cosine values', async () => {
-        // Test common angles: 0, π/2, π, 3π/2
+        // PyTorch: torch.cos(torch.tensor([0, π/2, π, 3π/2]))
+        // Output: tensor([1.0000e+00, -4.3711e-08, -1.0000e+00, 1.1925e-08])
+        // Note: Small floating point errors for π/2 and 3π/2
         const angles = await tensor([0, Math.PI/2, Math.PI, 3*Math.PI/2] as const, { device, dtype: float32 });
         const cosines = await angles.cos();
 
@@ -159,6 +178,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should handle trigonometric functions on matrices', async () => {
+        // PyTorch: Matrix [[0, π/4], [π/2, π]]
+        // sin: [[0.0000, 0.7071], [1.0000, -8.7423e-08]]
+        // cos: [[1.0000, 0.7071], [-4.3711e-08, -1.0000]]
         const matrix = await tensor([
           [0, Math.PI/4],
           [Math.PI/2, Math.PI]
@@ -183,6 +205,8 @@ export function generateUnaryOperationTests(
 
     describe('exponential and logarithmic operations', () => {
       it('should compute exponential values', async () => {
+        // PyTorch: torch.exp(torch.tensor([0, 1, 2, -1]))
+        // Output: tensor([1.0000, 2.7183, 7.3891, 0.3679])
         const values = await tensor([0, 1, 2, -1] as const, { device, dtype: float32 });
         const exponentials = await values.exp();
 
@@ -196,6 +220,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute logarithmic values', async () => {
+        // PyTorch: torch.log(torch.tensor([1, e, e^2, 1/e]))
+        // Output: tensor([0.0000, 1.0000, 2.0000, -1.0000])
         const values = await tensor([1, Math.E, Math.E * Math.E, 1/Math.E] as const, { device, dtype: float32 });
         const logarithms = await values.log();
 
@@ -209,6 +235,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should handle exp/log on matrices', async () => {
+        // PyTorch: torch.exp(torch.tensor([[0, 1], [2, -1]]))
+        // Output: tensor([[1.0000, 2.7183],
+        //                 [7.3891, 0.3679]])
         const matrix = await tensor([
           [0, 1],
           [2, -1]
@@ -226,6 +255,8 @@ export function generateUnaryOperationTests(
 
     describe('square root operations', () => {
       it('should compute square roots for scalars', async () => {
+        // PyTorch: torch.sqrt(torch.tensor(9.0))
+        // Output: tensor(3.0)
         const scalar = await tensor(9, { device, dtype: float32 });
         const sqrt = await scalar.sqrt();
 
@@ -233,6 +264,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute square roots for vectors', async () => {
+        // PyTorch: torch.sqrt(torch.tensor([1, 4, 9, 16, 25]))
+        // Output: tensor([1., 2., 3., 4., 5.])
         const vector = await tensor([1, 4, 9, 16, 25] as const, { device, dtype: float32 });
         const sqrts = await vector.sqrt();
 
@@ -247,6 +280,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute square roots for matrices', async () => {
+        // PyTorch: torch.sqrt(torch.tensor([[1, 4], [9, 16]]))
+        // Output: tensor([[1., 2.],
+        //                 [3., 4.]])
         const matrix = await tensor([
           [1, 4],
           [9, 16]
@@ -263,6 +299,8 @@ export function generateUnaryOperationTests(
 
     describe('square operations', () => {
       it('should compute squares for scalars', async () => {
+        // PyTorch: torch.square(torch.tensor(3.0))
+        // Output: tensor(9.0)
         const scalar = await tensor(3, { device, dtype: float32 });
         const squared = await scalar.square();
 
@@ -270,6 +308,8 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute squares for vectors', async () => {
+        // PyTorch: torch.square(torch.tensor([1, -2, 3, -4, 5]))
+        // Output: tensor([1., 4., 9., 16., 25.])
         const vector = await tensor([1, -2, 3, -4, 5] as const, { device, dtype: float32 });
         const squares = await vector.square();
 
@@ -284,6 +324,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should compute squares for matrices', async () => {
+        // PyTorch: torch.square(torch.tensor([[1, -2], [3, -4]]))
+        // Output: tensor([[1., 4.],
+        //                 [9., 16.]])
         const matrix = await tensor([
           [1, -2],
           [3, -4]
@@ -352,7 +395,9 @@ export function generateUnaryOperationTests(
 
     describe('error handling', () => {
       it('should handle mathematical domain errors gracefully', async () => {
-        // Test sqrt of negative numbers
+        // PyTorch: torch.sqrt(torch.tensor([-1, -4, -9]))
+        // Output: tensor([nan, nan, nan])
+        // Note: Square root of negative numbers produces NaN
         const negativeValues = await tensor([-1, -4, -9] as const, { device, dtype: float32 });
         
         // Note: Implementation may handle this differently (NaN, error, etc.)
@@ -367,7 +412,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should handle log of non-positive numbers gracefully', async () => {
-        // Test log of zero and negative numbers
+        // PyTorch: torch.log(torch.tensor([0, -1, -5]))
+        // Output: tensor([-inf, nan, nan])
+        // log(0) = -inf, log(negative) = nan
         const problematicValues = await tensor([0, -1, -5] as const, { device, dtype: float32 });
         
         // Implementation may return -Infinity for log(0), NaN for log(negative)
@@ -382,7 +429,9 @@ export function generateUnaryOperationTests(
 
     describe('chaining operations', () => {
       it('should allow chaining unary operations', async () => {
-        // Test: square then sqrt (should return to original for positive values)
+        // PyTorch: torch.sqrt(torch.square(torch.tensor([1, 4, 9])))
+        // Output: tensor([1., 4., 9.])
+        // square then sqrt returns to original for positive values
         const original = await tensor([1, 4, 9] as const, { device, dtype: float32 });
         const chained = await (await original.square()).sqrt();
 
@@ -395,7 +444,9 @@ export function generateUnaryOperationTests(
       });
 
       it('should allow complex operation chains', async () => {
-        // Test: abs, then sqrt, then square
+        // PyTorch: torch.square(torch.sqrt(torch.abs(torch.tensor([-4, -9, -16]))))
+        // Output: tensor([4., 9., 16.])
+        // abs → sqrt → square preserves absolute values
         const original = await tensor([-4, -9, -16] as const, { device, dtype: float32 });
         const chained = await (await (await original.abs()).sqrt()).square();
 

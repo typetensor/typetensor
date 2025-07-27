@@ -36,7 +36,9 @@ export function generateViewOperationTests(
     describe('reshape operations', () => {
       it('should reshape vectors to matrices', async () => {
         // PyTorch: torch.tensor([1,2,3,4,5,6]).reshape(2, 3)
-        // NumPy: np.array([1,2,3,4,5,6]).reshape(2, 3)
+        // Output: tensor([[1, 2, 3],
+        //                 [4, 5, 6]])
+        // shape: torch.Size([2, 3])
         const vector = await tensor([1, 2, 3, 4, 5, 6] as const, { device, dtype: float32 });
         const matrix = vector.reshape([2, 3] as const);
 
@@ -58,6 +60,7 @@ export function generateViewOperationTests(
 
       it('should reshape matrices to vectors', async () => {
         // PyTorch: torch.tensor([[1,2,3],[4,5,6]]).reshape(6)
+        // Output: tensor([1, 2, 3, 4, 5, 6])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -77,7 +80,11 @@ export function generateViewOperationTests(
       });
 
       it('should reshape to higher dimensions', async () => {
-        // PyTorch: torch.arange(24).reshape(2, 3, 4)
+        // PyTorch: torch.arange(1, 25).reshape(2, 3, 4)
+        // Output shape: torch.Size([2, 3, 4])
+        // First batch: tensor([[ 1,  2,  3,  4],
+        //                      [ 5,  6,  7,  8],
+        //                      [ 9, 10, 11, 12]])
         const vector = await tensor(
           [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
@@ -101,6 +108,8 @@ export function generateViewOperationTests(
       });
 
       it('should preserve data in different reshape combinations', async () => {
+        // PyTorch: Original tensor([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
+        // Can be reshaped to [12], [2, 6], [4, 3] etc. preserving row-major order
         const original = await tensor(
           [
             [1, 2, 3, 4],
@@ -140,11 +149,8 @@ export function generateViewOperationTests(
           dtype: float32,
         });
 
-        // TESTED BEHAVIOR:
-        // PyTorch: torch.tensor(range(12)).reshape(3, 5)
-        //   -> RuntimeError: shape '[3, 5]' is invalid for input of size 12
-        // NumPy: np.arange(12).reshape(3, 5)
-        //   -> ValueError: cannot reshape array of size 12 into shape (3,5)
+        // PyTorch: torch.arange(12).reshape(3, 5)
+        // Error: RuntimeError: shape '[3, 5]' is invalid for input of size 12
 
         expect(() => {
           // @ts-expect-error - this is expected to throw at compile time but just testing that runtime also guards
@@ -161,7 +167,8 @@ export function generateViewOperationTests(
     describe('flatten operations', () => {
       it('should flatten matrices to vectors', async () => {
         // PyTorch: torch.tensor([[1,2,3],[4,5,6]]).flatten()
-        // NumPy: np.array([[1,2,3],[4,5,6]]).flatten()
+        // Output: tensor([1, 2, 3, 4, 5, 6])
+        // shape: torch.Size([6])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -184,6 +191,7 @@ export function generateViewOperationTests(
 
       it('should flatten higher dimensional tensors', async () => {
         // PyTorch: torch.tensor([[[1,2],[3,4]],[[5,6],[7,8]]]).flatten()
+        // Output: tensor([1, 2, 3, 4, 5, 6, 7, 8])
         const tensor3d = await tensor(
           [
             [
@@ -208,6 +216,8 @@ export function generateViewOperationTests(
       });
 
       it('should handle scalar flattening', async () => {
+        // PyTorch: torch.tensor(42).flatten()
+        // Output: tensor([42]), shape: torch.Size([1])
         const scalar = await tensor(42, { device, dtype: float32 });
         const flattened = await scalar.flatten();
 
@@ -220,6 +230,8 @@ export function generateViewOperationTests(
       });
 
       it('should handle vector flattening (no-op)', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4, 5]).flatten()
+        // Output: tensor([1, 2, 3, 4, 5]) - no change for 1D tensors
         const vector = await tensor([1, 2, 3, 4, 5] as const, { device, dtype: float32 });
         const flattened = await vector.flatten();
 
@@ -236,7 +248,10 @@ export function generateViewOperationTests(
     describe('transpose operations', () => {
       it('should transpose 2D matrices', async () => {
         // PyTorch: torch.tensor([[1,2,3],[4,5,6]]).T
-        // NumPy: np.array([[1,2,3],[4,5,6]]).T
+        // Output: tensor([[1, 4],
+        //                 [2, 5],
+        //                 [3, 6]])
+        // shape: torch.Size([3, 2])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -262,6 +277,10 @@ export function generateViewOperationTests(
       });
 
       it('should handle square matrix transpose', async () => {
+        // PyTorch: torch.tensor([[1,2,3],[4,5,6],[7,8,9]]).T
+        // Output: tensor([[1, 4, 7],
+        //                 [2, 5, 8],
+        //                 [3, 6, 9]])
         const square = await tensor(
           [
             [1, 2, 3],
@@ -284,6 +303,9 @@ export function generateViewOperationTests(
       });
 
       it('should handle vector transpose (no change for 1D)', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4]).T
+        // Output: tensor([1, 2, 3, 4]) - no change
+        // Note: PyTorch warns about using .T on 1D tensors
         const vector = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
         const transposed = vector.transpose();
 
@@ -296,6 +318,8 @@ export function generateViewOperationTests(
       });
 
       it('should handle scalar transpose (no-op)', async () => {
+        // PyTorch: torch.tensor(42).T
+        // Output: tensor(42) - scalars remain unchanged
         const scalar = await tensor(42, { device, dtype: float32 });
         const transposed = scalar.transpose();
 
@@ -368,13 +392,10 @@ export function generateViewOperationTests(
       });
 
       it('should chain view operations correctly', async () => {
-        // TESTED BEHAVIOR:
         // PyTorch: torch.tensor([1,2,3,4,5,6]).reshape(2,3).T.flatten()
-        //   Original: [1, 2, 3, 4, 5, 6]
-        //   After reshape(2,3): [[1, 2, 3], [4, 5, 6]]
-        //   After transpose: [[1, 4], [2, 5], [3, 6]]
-        //   After flatten: [1, 4, 2, 5, 3, 6]
-        // NumPy: np.array([1,2,3,4,5,6]).reshape(2,3).T.flatten() -> same result
+        // Step 1: reshape(2,3) -> tensor([[1, 2, 3], [4, 5, 6]])
+        // Step 2: .T -> tensor([[1, 4], [2, 5], [3, 6]])
+        // Step 3: flatten() -> tensor([1, 4, 2, 5, 3, 6])
 
         const original = await tensor([1, 2, 3, 4, 5, 6] as const, { device, dtype: float32 });
         const chained = await original
@@ -392,6 +413,8 @@ export function generateViewOperationTests(
 
     describe('slice operations', () => {
       it('should slice vectors with start and end indices', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4, 5, 6])[1:4]
+        // Output: tensor([2, 3, 4])
         const vector = await tensor([1, 2, 3, 4, 5, 6] as const, { device, dtype: float32 });
 
         // Slice [1:4] should give [2, 3, 4]
@@ -406,6 +429,10 @@ export function generateViewOperationTests(
       });
 
       it('should slice matrices along rows', async () => {
+        // PyTorch: matrix[1:3] where matrix is 4x3
+        // Output: tensor([[4, 5, 6],
+        //                 [7, 8, 9]])
+        // shape: torch.Size([2, 3])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -437,7 +464,9 @@ export function generateViewOperationTests(
           { device, dtype: float32 },
         );
 
-        // PyTorch reference: matrix[:, 1:3] = [[2, 3], [6, 7]]
+        // PyTorch: matrix[:, 1:3]
+        // Output: tensor([[2, 3],
+        //                 [6, 7]])
         const sliced = await matrix.slice([null, { start: 1, stop: 3 }]);
 
         expect(sliced.shape).toEqual([2, 2]);
@@ -450,6 +479,8 @@ export function generateViewOperationTests(
       });
 
       it('should handle 3D tensor slicing', async () => {
+        // PyTorch: tensor3d[0:2] for shape [3, 2, 2]
+        // Output shape: torch.Size([2, 2, 2])
         const tensor3d = await tensor(
           [
             [
@@ -495,7 +526,9 @@ export function generateViewOperationTests(
           { device, dtype: float32 },
         );
 
-        // PyTorch reference: matrix[1:2, 1:2] = [[5]] (preserves dimensions)
+        // PyTorch: matrix[1:2, 1:2]
+        // Output: tensor([[5]])
+        // shape: torch.Size([1, 1]) - preserves dimensions
         const sliced = await matrix.slice([{ start: 1, stop: 2 }, { start: 1, stop: 2 }]);
 
         expect(sliced.shape).toEqual([1, 1]);
@@ -530,6 +563,11 @@ export function generateViewOperationTests(
 
     describe('permute operations', () => {
       it('should permute 2D matrix dimensions', async () => {
+        // PyTorch: torch.tensor([[1,2,3],[4,5,6]]).permute(1, 0)
+        // Output: tensor([[1, 4],
+        //                 [2, 5],
+        //                 [3, 6]])
+        // shape: torch.Size([3, 2])
         const matrix = await tensor(
           [
             [1, 2, 3],
@@ -554,7 +592,13 @@ export function generateViewOperationTests(
       });
 
       it('should permute 3D tensor dimensions', async () => {
-        // Create a 2x3x4 tensor
+        // PyTorch: tensor of shape [2, 3, 4].permute(2, 0, 1)
+        // Output shape: torch.Size([4, 2, 3])
+        // Element mapping:
+        //   permuted[0,0,0] = 1 (was tensor3d[0,0,0])
+        //   permuted[1,0,0] = 2 (was tensor3d[0,0,1])
+        //   permuted[0,1,0] = 13 (was tensor3d[1,0,0])
+        //   permuted[0,0,1] = 5 (was tensor3d[0,1,0])
         const tensor3d = await tensor(
           [
             [
@@ -591,6 +635,8 @@ export function generateViewOperationTests(
       });
 
       it('should handle identity permutation', async () => {
+        // PyTorch: matrix.permute(0, 1) - identity permutation
+        // No change to data or shape
         const matrix = await tensor(
           [
             [1, 2],
@@ -610,6 +656,8 @@ export function generateViewOperationTests(
       });
 
       it('should handle vector permutation (no-op)', async () => {
+        // PyTorch: vector.permute(0) for 1D tensor
+        // No change - only one dimension to permute
         const vector = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
 
         // Vector permutation should be identity
@@ -657,7 +705,9 @@ export function generateViewOperationTests(
       });
 
       it('should work with complex permutation patterns', async () => {
-        // Create a batch x channels x height x width tensor (common in ML)
+        // PyTorch: Convert BCHW to BHWC format
+        // BCHW shape: [1, 1, 2, 2] -> BHWC shape: [1, 2, 2, 1]
+        // Data reorganized from channel-first to channel-last
         const bchw = await tensor(
           [
             [

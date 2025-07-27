@@ -39,6 +39,9 @@ export function generateDevUtilsTests(
     
     describe('toString() formatting', () => {
       it('should format scalar tensors', async () => {
+        // PyTorch: scalar = torch.tensor(42.5)
+        // print(scalar) -> tensor(42.5000)
+        // repr(scalar) -> tensor(42.5000)
         const scalar = await tensor(42.5, { device, dtype: float32 });
         const str = scalar.toString();
         
@@ -49,6 +52,8 @@ export function generateDevUtilsTests(
       });
 
       it('should format vector tensors', async () => {
+        // PyTorch: vector = torch.tensor([1, 2, 3], dtype=torch.int32)
+        // print(vector) -> tensor([1, 2, 3], dtype=torch.int32)
         const vector = await tensor([1, 2, 3] as const, { device, dtype: int32 });
         const str = vector.toString();
         
@@ -58,6 +63,9 @@ export function generateDevUtilsTests(
       });
 
       it('should format matrix tensors', async () => {
+        // PyTorch: matrix = torch.tensor([[1, 2], [3, 4]], dtype=torch.float32)
+        // print(matrix) -> tensor([[1., 2.],
+        //                          [3., 4.]])
         const matrix = await tensor([
           [1, 2],
           [3, 4]
@@ -70,6 +78,8 @@ export function generateDevUtilsTests(
       });
 
       it('should format higher dimensional tensors', async () => {
+        // PyTorch: tensor3d = torch.zeros(2, 3, 4)
+        // Output shape: torch.Size([2, 3, 4])
         const tensor3d = await zeros([2, 3, 4] as const, { device, dtype: float32 });
         const str = tensor3d.toString();
         
@@ -78,6 +88,8 @@ export function generateDevUtilsTests(
       });
 
       it('should format boolean tensors', async () => {
+        // PyTorch: boolTensor = torch.tensor([True, False])
+        // print(boolTensor) -> tensor([ True, False])
         const boolTensor = await tensor([true, false] as const, { device, dtype: bool });
         const str = boolTensor.toString();
         
@@ -87,18 +99,26 @@ export function generateDevUtilsTests(
 
     describe('toArray() data extraction', () => {
       it('should extract scalar values', async () => {
+        // PyTorch: scalar = torch.tensor(3.14159)
+        // scalar.numpy() -> array(3.14159, dtype=float32)
+        // scalar.numpy().shape -> ()
         const scalar = await tensor(3.14159, { device, dtype: float32 });
         const array = await scalar.toArray();
         expect(array).toBeCloseTo(3.14159, 5); // float32 precision
       });
 
       it('should extract vector data', async () => {
+        // PyTorch: vector = torch.tensor([1, 2, 3, 4, 5], dtype=torch.int32)
+        // vector.numpy() -> array([1, 2, 3, 4, 5], dtype=int32)
         const vector = await tensor([1, 2, 3, 4, 5] as const, { device, dtype: int32 });
         const array = await vector.toArray();
         expect(array).toEqual([1, 2, 3, 4, 5]);
       });
 
       it('should extract matrix data', async () => {
+        // PyTorch: matrix = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.float32)
+        // matrix.numpy() -> array([[1., 2., 3.],
+        //                          [4., 5., 6.]], dtype=float32)
         const matrix = await tensor([
           [1, 2, 3],
           [4, 5, 6]
@@ -111,6 +131,8 @@ export function generateDevUtilsTests(
       });
 
       it('should extract 3D tensor data', async () => {
+        // PyTorch: tensor3d = torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        // tensor3d.numpy() -> 3D numpy array with shape (2, 2, 2)
         const tensor3d = await tensor([
           [[1, 2], [3, 4]],
           [[5, 6], [7, 8]]
@@ -123,18 +145,24 @@ export function generateDevUtilsTests(
       });
 
       it('should extract boolean data', async () => {
+        // PyTorch: boolTensor = torch.tensor([True, False, True, False])
+        // boolTensor.numpy() -> array([ True, False,  True, False])
         const boolTensor = await tensor([true, false, true, false] as const, { device, dtype: bool });
         const array = await boolTensor.toArray();
         expect(array).toEqual([true, false, true, false]);
       });
 
       it('should handle empty tensors', async () => {
+        // PyTorch: empty = torch.tensor([])
+        // empty.shape -> torch.Size([0]), empty.numpy() -> array([], dtype=float32)
         const empty = await tensor([] as const, { device, dtype: float32 });
         const array = await empty.toArray();
         expect(array).toEqual([]);
       });
 
       it('should preserve data precision', async () => {
+        // PyTorch: tensor([1.23456789, -2.98765432, 0.0, 999.999], dtype=torch.float32)
+        // Note: float32 has ~7 significant decimal digits of precision
         const preciseData = [1.23456789, -2.98765432, 0.0, 999.999] as const;
         const tensor1 = await tensor(preciseData, { device, dtype: float32 });
         const extracted = await tensor1.toArray();
@@ -151,6 +179,9 @@ export function generateDevUtilsTests(
 
     describe('item() scalar extraction', () => {
       it('should extract scalar values', async () => {
+        // PyTorch: torch.tensor(42).item() -> 42 (returns Python int)
+        // torch.tensor(3.14).item() -> 3.14000... (returns Python float)
+        // torch.tensor(True).item() -> True (returns Python bool)
         const scalar1 = await tensor(42, { device, dtype: int32 });
         expect(await scalar1.item()).toBe(42);
 
@@ -162,6 +193,8 @@ export function generateDevUtilsTests(
       });
 
       it('should work with computed scalars', async () => {
+        // PyTorch: torch.ones(1).item() -> 1.0
+        // Works for any tensor with exactly one element
         const ones1x1 = await ones([1] as const, { device, dtype: float32 });
         // This would be a view/slice to make it scalar, but for now test the vector
         const array = await ones1x1.toArray();
@@ -171,6 +204,8 @@ export function generateDevUtilsTests(
 
     describe('string representation', () => {
       it('should format scalar metadata correctly', async () => {
+        // PyTorch: str(torch.tensor(42.5)) -> "tensor(42.5000)"
+        // Our format includes more metadata for debugging
         const scalar = await tensor(42.5, { device, dtype: float32 });
         const str = scalar.toString();
         
@@ -182,6 +217,7 @@ export function generateDevUtilsTests(
       });
 
       it('should format vector metadata correctly', async () => {
+        // PyTorch: repr(torch.tensor([1, 2, 3])) -> "tensor([1, 2, 3])"
         const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         const str = vector.toString();
         
@@ -193,6 +229,8 @@ export function generateDevUtilsTests(
       });
 
       it('should format matrix metadata correctly', async () => {
+        // PyTorch: repr(torch.tensor([[1, 2], [3, 4]])) -> 
+        // "tensor([[1, 2],\n         [3, 4]])"
         const matrix = await tensor([
           [1, 2],
           [3, 4]
@@ -209,6 +247,7 @@ export function generateDevUtilsTests(
 
     describe('data consistency', () => {
       it('should maintain data consistency between toArray calls', async () => {
+        // Multiple calls to numpy() should return equivalent data
         const tensor1 = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
         
         const array1 = await tensor1.toArray();
@@ -218,6 +257,7 @@ export function generateDevUtilsTests(
       });
 
       it('should maintain consistency between toString calls', async () => {
+        // String representation should be stable across calls
         const tensor1 = await tensor([[1, 2], [3, 4]] as const, { device, dtype: float32 });
         
         const str1 = tensor1.toString();
@@ -227,6 +267,7 @@ export function generateDevUtilsTests(
       });
 
       it('should provide consistent data across different access methods', async () => {
+        // Data should be consistent across different views/representations
         const originalData = [10, 20, 30] as const;
         const tensor1 = await tensor(originalData, { device, dtype: float32 });
         
@@ -240,6 +281,7 @@ export function generateDevUtilsTests(
 
     describe('error handling', () => {
       it('should handle tensor access without errors', async () => {
+        // Basic operations should be robust and error-free
         const tensor1 = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         
         // Basic operations should work reliably

@@ -35,6 +35,8 @@ export function generateTensorPropertyTests(
     
     describe('shape properties', () => {
       it('should report correct shape for scalars', async () => {
+        // PyTorch: scalar = torch.tensor(42.0)
+        // scalar.shape = torch.Size([]), scalar.ndim = 0, scalar.numel() = 1
         const scalar = await tensor(42, { device, dtype: float32 });
         expect(scalar.shape).toEqual([]);
         expect(scalar.ndim).toBe(0);
@@ -42,6 +44,8 @@ export function generateTensorPropertyTests(
       });
 
       it('should report correct shape for vectors', async () => {
+        // PyTorch: vector = torch.tensor([1, 2, 3, 4, 5])
+        // vector.shape = torch.Size([5]), vector.ndim = 1, vector.numel() = 5
         const vector = await tensor([1, 2, 3, 4, 5] as const, { device, dtype: float32 });
         expect(vector.shape).toEqual([5]);
         expect(vector.ndim).toBe(1);
@@ -49,6 +53,8 @@ export function generateTensorPropertyTests(
       });
 
       it('should report correct shape for matrices', async () => {
+        // PyTorch: matrix = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]])
+        // matrix.shape = torch.Size([4, 3]), matrix.ndim = 2, matrix.numel() = 12
         const matrix = await tensor([
           [1, 2, 3],
           [4, 5, 6],
@@ -62,6 +68,8 @@ export function generateTensorPropertyTests(
       });
 
       it('should report correct shape for higher dimensional tensors', async () => {
+        // PyTorch: tensor4d = torch.zeros(2, 3, 4, 5)
+        // tensor4d.shape = torch.Size([2, 3, 4, 5]), tensor4d.ndim = 4, tensor4d.numel() = 120
         const tensor4d = await zeros([2, 3, 4, 5] as const, { device, dtype: float32 });
         expect(tensor4d.shape).toEqual([2, 3, 4, 5]);
         expect(tensor4d.ndim).toBe(4);
@@ -71,20 +79,28 @@ export function generateTensorPropertyTests(
 
     describe('dtype properties', () => {
       it('should preserve dtype for different numeric types', async () => {
+        // PyTorch: torch.tensor(3.14)
+        // Output: tensor(3.1400), dtype: torch.float32
         const float32Tensor = await tensor(3.14, { device, dtype: float32 });
         expect(float32Tensor.dtype).toBe(float32);
         expect(float32Tensor.dtype.__dtype).toBe('float32');
 
+        // PyTorch: torch.tensor(42, dtype=torch.int32)
+        // Output: tensor(42, dtype=torch.int32)
         const int32Tensor = await tensor(42, { device, dtype: int32 });
         expect(int32Tensor.dtype).toBe(int32);
         expect(int32Tensor.dtype.__dtype).toBe('int32');
 
+        // PyTorch: torch.tensor(123, dtype=torch.int64)
+        // Output: tensor(123), dtype: torch.int64
         const int64Tensor = await tensor(123n, { device, dtype: int64 });
         expect(int64Tensor.dtype).toBe(int64);
         expect(int64Tensor.dtype.__dtype).toBe('int64');
       });
 
       it('should preserve dtype for boolean tensors', async () => {
+        // PyTorch: torch.tensor([True, False, True])
+        // Output: tensor([ True, False,  True]), dtype: torch.bool
         const boolTensor = await tensor([true, false, true] as const, { device, dtype: bool });
         expect(boolTensor.dtype).toBe(bool);
         expect(boolTensor.dtype.__dtype).toBe('bool');
@@ -102,7 +118,9 @@ export function generateTensorPropertyTests(
 
     describe('storage properties', () => {
       it('should compute correct strides for row-major layout', async () => {
-        // 2x3 matrix should have strides [3, 1] (row-major/C-order)
+        // PyTorch: matrix = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.float32)
+        // matrix.stride() = (3, 1)  # row-major/C-order
+        // matrix.is_contiguous() = True
         const matrix = await tensor([
           [1, 2, 3],
           [4, 5, 6]
@@ -115,7 +133,9 @@ export function generateTensorPropertyTests(
       });
 
       it('should compute correct strides for 3D tensors', async () => {
-        // 2x3x4 tensor should have strides [12, 4, 1]
+        // PyTorch: tensor3d = torch.zeros(2, 3, 4)
+        // tensor3d.stride() = (12, 4, 1)
+        // Shape [2, 3, 4] -> strides [3*4, 4, 1] = [12, 4, 1]
         const tensor3d = await zeros([2, 3, 4] as const, { device, dtype: float32 });
         
         expect(Array.isArray(tensor3d.strides)).toBe(true);
@@ -126,6 +146,8 @@ export function generateTensorPropertyTests(
       });
 
       it('should have zero offset for new tensors', async () => {
+        // PyTorch: tensor1 = torch.tensor([1, 2, 3])
+        // tensor1.storage_offset() = 0  # New tensors start at offset 0
         const tensor1 = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         
         // New tensors should start at offset 0
@@ -211,11 +233,15 @@ export function generateTensorPropertyTests(
 
     describe('edge cases', () => {
       it('should handle empty tensors', async () => {
+        // PyTorch: empty1d = torch.tensor([])
+        // empty1d.shape = torch.Size([0]), empty1d.numel() = 0
         const empty1d = await tensor([] as const, { device, dtype: float32 });
         expect(empty1d.shape).toEqual([0]);
         expect(empty1d.ndim).toBe(1);
         expect(empty1d.size).toBe(0);
 
+        // PyTorch: empty2d = torch.zeros(0, 5)
+        // empty2d.shape = torch.Size([0, 5]), empty2d.numel() = 0
         const empty2d = await zeros([0, 5] as const, { device, dtype: float32 });
         expect(empty2d.shape).toEqual([0, 5]);
         expect(empty2d.ndim).toBe(2);
@@ -223,6 +249,8 @@ export function generateTensorPropertyTests(
       });
 
       it('should handle large tensors', async () => {
+        // PyTorch: large = torch.zeros(100, 100)
+        // large.shape = torch.Size([100, 100]), large.numel() = 10000
         const large = await zeros([100, 100] as const, { device, dtype: float32 });
         expect(large.shape).toEqual([100, 100]);
         expect(large.ndim).toBe(2);

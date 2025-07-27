@@ -36,6 +36,9 @@ export function generateTensorCreationTests(
     
     describe('scalar creation', () => {
       it('should create scalar tensors with correct properties', async () => {
+        // PyTorch: torch.tensor(3.14)
+        // Output: tensor(3.1400)
+        // shape: torch.Size([]), dtype: torch.float32
         const floatScalar = await tensor(3.14, { device, dtype: float32 });
         
         // Verify scalar properties
@@ -52,6 +55,9 @@ export function generateTensorCreationTests(
         expect(typeof value).toBe('number');
 
         // Test other dtypes maintain their properties
+        // PyTorch: torch.tensor(42, dtype=torch.int32)
+        // Output: tensor(42, dtype=torch.int32)
+        // shape: torch.Size([]), dtype: torch.int32
         const intScalar = await tensor(42, { device, dtype: int32 });
         expect(intScalar.shape).toEqual([]);
         expect(intScalar.ndim).toBe(0);
@@ -59,6 +65,9 @@ export function generateTensorCreationTests(
         expect(intScalar.dtype).toBe(int32);
         expect(await intScalar.item()).toBe(42);
 
+        // PyTorch: torch.tensor(True)
+        // Output: tensor(True)
+        // shape: torch.Size([]), dtype: torch.bool
         const boolScalar = await tensor(true, { device, dtype: bool });
         expect(boolScalar.shape).toEqual([]);
         expect(boolScalar.dtype).toBe(bool);
@@ -66,16 +75,22 @@ export function generateTensorCreationTests(
       });
 
       it('should extract scalar values with correct types', async () => {
+        // PyTorch: torch.tensor(42.5).item()
+        // Output: 42.5
         const floatScalar = await tensor(42.5, { device, dtype: float32 });
         const floatValue = await floatScalar.item();
         expect(floatValue).toBeCloseTo(42.5, 5); // float32 precision
         expect(typeof floatValue).toBe('number');
         
+        // PyTorch: torch.tensor(-123, dtype=torch.int32).item()
+        // Output: -123
         const intScalar = await tensor(-123, { device, dtype: int32 });
         const intValue = await intScalar.item();
         expect(intValue).toBe(-123); // int32 should be exact
         expect(typeof intValue).toBe('number');
         
+        // PyTorch: torch.tensor(False).item()
+        // Output: False
         const boolScalar = await tensor(false, { device, dtype: bool });
         const boolValue = await boolScalar.item();
         expect(boolValue).toBe(false);
@@ -85,6 +100,9 @@ export function generateTensorCreationTests(
 
     describe('vector creation', () => {
       it('should create 1D tensors with data integrity', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4], dtype=torch.float32)
+        // Output: tensor([1., 2., 3., 4.])
+        // shape: torch.Size([4]), dtype: torch.float32
         const originalData = [1, 2, 3, 4] as const;
         const vec = await tensor(originalData, { device, dtype: float32 });
         
@@ -114,6 +132,9 @@ export function generateTensorCreationTests(
       });
 
       it('should handle empty vectors correctly', async () => {
+        // PyTorch: torch.tensor([])
+        // Output: tensor([])
+        // shape: torch.Size([0]), dtype: torch.float32
         const empty = await tensor([] as const, { device, dtype: float32 });
         
         // Verify empty tensor properties
@@ -134,6 +155,10 @@ export function generateTensorCreationTests(
 
     describe('matrix creation', () => {
       it('should create 2D tensors with correct layout', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.float32)
+        // Output: tensor([[1., 2., 3.],
+        //                  [4., 5., 6.]])
+        // shape: torch.Size([2, 3]), dtype: torch.float32
         const originalData = [
           [1, 2, 3],
           [4, 5, 6]
@@ -166,6 +191,9 @@ export function generateTensorCreationTests(
       });
 
       it('should create square matrices', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]], dtype=torch.int32)
+        // Output: tensor([[1, 2],
+        //                  [3, 4]], dtype=torch.int32)
         const square = await tensor([
           [1, 2],
           [3, 4]
@@ -178,6 +206,12 @@ export function generateTensorCreationTests(
 
     describe('higher dimensional tensors', () => {
       it('should create 3D tensors', async () => {
+        // PyTorch: torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=torch.float32)
+        // Output: tensor([[[1., 2.],
+        //                   [3., 4.]],
+        //                  [[5., 6.],
+        //                   [7., 8.]]])
+        // shape: torch.Size([2, 2, 2]), dtype: torch.float32
         const tensor3d = await tensor([
           [[1, 2], [3, 4]],
           [[5, 6], [7, 8]]
@@ -189,6 +223,8 @@ export function generateTensorCreationTests(
       });
 
       it('should create 4D tensors', async () => {
+        // PyTorch: torch.tensor([[[[1, 2]], [[3, 4]]], [[[5, 6]], [[7, 8]]]], dtype=torch.float32)
+        // shape: torch.Size([2, 2, 1, 2]), dtype: torch.float32
         const tensor4d = await tensor([
           [[[1, 2]], [[3, 4]]],
           [[[5, 6]], [[7, 8]]]
@@ -202,6 +238,10 @@ export function generateTensorCreationTests(
 
     describe('special tensor creation', () => {
       it('should create zero tensors with all zeros', async () => {
+        // PyTorch: torch.zeros(2, 3)
+        // Output: tensor([[0., 0., 0.],
+        //                  [0., 0., 0.]])
+        // shape: torch.Size([2, 3]), dtype: torch.float32
         const zeroMatrix = await zeros([2, 3] as const, { device, dtype: float32 });
         
         // Verify tensor structure
@@ -227,6 +267,9 @@ export function generateTensorCreationTests(
       });
 
       it('should create one tensors with all ones', async () => {
+        // PyTorch: torch.ones(4, dtype=torch.int32)
+        // Output: tensor([1, 1, 1, 1], dtype=torch.int32)
+        // shape: torch.Size([4]), dtype: torch.int32
         const oneVector = await ones([4] as const, { device, dtype: int32 });
         
         // Verify tensor structure
@@ -251,6 +294,11 @@ export function generateTensorCreationTests(
       });
 
       it('should create proper identity matrices', async () => {
+        // PyTorch: torch.eye(3)
+        // Output: tensor([[1., 0., 0.],
+        //                  [0., 1., 0.],
+        //                  [0., 0., 1.]])
+        // shape: torch.Size([3, 3]), dtype: torch.float32
         const identity = await eye(3, { device, dtype: float32 });
         
         // Verify identity matrix structure
@@ -289,10 +337,16 @@ export function generateTensorCreationTests(
       });
 
       it('should create scalar zeros and ones', async () => {
+        // PyTorch: torch.zeros(())
+        // Output: tensor(0.)
+        // shape: torch.Size([]), dtype: torch.float32
         const zeroScalar = await zeros([] as const, { device, dtype: float32 });
         expect(zeroScalar.shape).toEqual([]);
         expect(await zeroScalar.item()).toBe(0);
 
+        // PyTorch: torch.ones(())
+        // Output: tensor(1.)
+        // shape: torch.Size([]), dtype: torch.float32
         const oneScalar = await ones([] as const, { device, dtype: float32 });
         expect(oneScalar.shape).toEqual([]);
         expect(await oneScalar.item()).toBe(1);
@@ -302,8 +356,8 @@ export function generateTensorCreationTests(
     describe('error handling', () => {
 
       it('should throw on mismatched array dimensions', async () => {
-        // PyTorch: torch.tensor([[1, 2, 3], [4, 5]]) -> ValueError
-        // NumPy: np.array([[1, 2, 3], [4, 5]]) -> ValueError
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5]])
+        // Error: ValueError: expected sequence of length 3 at dim 1 (got 2)
         await expect(
           tensor([
             [1, 2, 3],
@@ -313,8 +367,8 @@ export function generateTensorCreationTests(
       });
 
       it('should throw on invalid eye matrix size', async () => {
-        // PyTorch: torch.eye(-1) -> RuntimeError: n must be greater or equal to 0
-        // NumPy: np.eye(-1) -> ValueError: negative dimensions are not allowed
+        // PyTorch: torch.eye(-1)
+        // Error: RuntimeError: n must be greater or equal to 0, got -1
         await expect(
           eye(-1, { device, dtype: float32 })
         ).rejects.toThrow('Invalid size for identity matrix: -1');

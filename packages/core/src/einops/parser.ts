@@ -87,8 +87,8 @@ export class MultipleArrowError extends ParseError {
  * @param tokens - Array of tokens from the scanner
  * @returns Complete EinopsAST with input/output patterns and metadata
  */
-export function parseTokens(tokens: readonly EinopsToken[]): EinopsAST {
-  const parser = new TokenParser(tokens);
+export function parseTokens(tokens: readonly EinopsToken[], originalPattern?: string): EinopsAST {
+  const parser = new TokenParser(tokens, originalPattern);
   return parser.parse();
 }
 
@@ -97,7 +97,10 @@ export function parseTokens(tokens: readonly EinopsToken[]): EinopsAST {
 // =============================================================================
 
 class TokenParser {
-  constructor(private readonly tokens: readonly EinopsToken[]) {}
+  constructor(
+    private readonly tokens: readonly EinopsToken[],
+    private readonly originalPattern?: string
+  ) {}
 
   /**
    * Parse the token array into a complete AST
@@ -334,13 +337,16 @@ class TokenParser {
    * Reconstruct the original pattern string from tokens
    */
   private getOriginalPattern(): string {
+    if (this.originalPattern !== undefined) {
+      return this.originalPattern;
+    }
+    
     if (this.tokens.length === 0) return '';
 
     const firstToken = this.tokens[0]!;
     const lastToken = this.tokens[this.tokens.length - 1]!;
 
-    // For now, we don't have access to the original string
-    // This would ideally be passed in or stored in tokens
+    // Fallback if pattern wasn't provided
     return `<pattern from position ${firstToken.position.start} to ${lastToken.position.end}>`;
   }
 }

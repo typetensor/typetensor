@@ -361,7 +361,7 @@ export function generateMatmulOperationTests(
         const result = await a.matmul(b);
 
         const value = await result.item();
-        expect(value).toBeCloseTo(2.895440, 3);
+        expect(value).toBeCloseTo(2.89544, 3);
       });
     });
 
@@ -370,6 +370,7 @@ export function generateMatmulOperationTests(
         const a = await tensor([[1, 2]] as const, { device, dtype: float32 });
         const b = await tensor([[3], [4], [5]] as const, { device, dtype: float32 });
 
+        // @ts-expect-error - a.matmul(b) is not a valid operation
         await expect(a.matmul(b)).rejects.toThrow(/Matrix multiplication requires/);
       });
 
@@ -377,6 +378,7 @@ export function generateMatmulOperationTests(
         const scalar = await tensor(5, { device, dtype: float32 });
         const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
 
+        // @ts-expect-error - scalar.matmul(vector) is not a valid operation
         await expect(scalar.matmul(vector)).rejects.toThrow(/scalar tensors/);
       });
 
@@ -435,6 +437,5 @@ export function generateMatmulOperationTests(
         expect(result.dtype).toBe(float32);
       });
     });
-
   });
 }

@@ -160,6 +160,26 @@ describe('Simple Axis Resolution', () => {
     
     expect(result.outputShape).toEqual([30, 10, 20]);
   });
+
+  it('should error when provided axis does not match actual dimension', () => {
+    expect(() => {
+      resolvePatternString('a b c -> a b c', [10, 20, 30], { b: 25 });
+    }).toThrow(AxisResolutionError);
+    
+    expect(() => {
+      resolvePatternString('a b c -> a b c', [10, 20, 30], { b: 25 });
+    }).toThrow("Axis 'b' expected 25 but got 20");
+  });
+
+  it('should error on any provided axis mismatch', () => {
+    expect(() => {
+      resolvePatternString('a b c -> a b c', [10, 20, 30], { a: 10, b: 25, c: 30 });
+    }).toThrow(AxisResolutionError);
+    
+    expect(() => {
+      resolvePatternString('a b c -> a b c', [10, 20, 30], { a: 10, b: 25, c: 30 });
+    }).toThrow("Axis 'b' expected 25 but got 20");
+  });
 });
 
 // =============================================================================
@@ -252,7 +272,7 @@ describe('Composite Pattern Resolution', () => {
     
     expect(() => {
       resolvePatternString('(h w) c -> h w c', [100, 3], { h: 32, w: 64 });
-    }).toThrow('Product of axes 2048 does not equal dimension 100');
+    }).toThrow('product of axes 2048 does not equal dimension 100');
   });
 
   it('should handle composite pattern rearrangement', () => {
@@ -272,6 +292,16 @@ describe('Composite Pattern Resolution', () => {
     const result = resolvePatternString('a b c -> c (b a)', [2, 3, 5]);
     
     expect(result.outputShape).toEqual([5, 6]);
+  });
+
+  it('should error when provided axis creates invalid split in composite', () => {
+    expect(() => {
+      resolvePatternString('(h w) c -> h w c', [2048, 3], { h: 30 }); // 2048/30 is not an integer
+    }).toThrow(AxisResolutionError);
+    
+    expect(() => {
+      resolvePatternString('(h w) c -> h w c', [2048, 3], { h: 30 });
+    }).toThrow('Cannot evenly split dimension');
   });
 });
 
@@ -402,9 +432,11 @@ describe('Error Handling', () => {
       expect(true).toBe(false); // Should not reach here
     } catch (error) {
       expect(error).toBeInstanceOf(AxisResolutionError);
-      expect(error.message).toContain("Unknown axis 'c'");
-      expect(error.pattern).toBe('a b -> a b c');
-      expect(error.context?.axis).toBe('c');
+      if (error instanceof AxisResolutionError) {
+        expect(error.message).toContain("Unknown axis 'c'");
+        expect(error.pattern).toBe('a b -> a b c');
+        expect(error.context?.axis).toBe('c');
+      }
     }
   });
 
@@ -414,7 +446,9 @@ describe('Error Handling', () => {
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(AxisResolutionError);
-      expect(error.context?.inputShape).toEqual([10, 20]);
+      if (error instanceof AxisResolutionError) {
+        expect(error.context?.inputShape).toEqual([10, 20]);
+      }
     }
   });
 
@@ -436,21 +470,29 @@ describe('Error Handling', () => {
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(AxisResolutionError);
-      expect(error.message).toContain('2048 does not equal dimension 100');
+      if (error instanceof AxisResolutionError) {
+        expect(error.message).toContain('2048 does not equal dimension 100');
+      }
     }
   });
 
-  it('should handle empty pattern', () => {
+  it('should error on empty pattern with non-scalar tensor', () => {
     expect(() => {
       const ast = parse(' -> ');
-      new AxisResolver().resolvePattern(ast, []);
-    }).toThrow();
+      new AxisResolver().resolvePattern(ast, [3]);
+    }).toThrow(AxisResolutionError);
+    
+    expect(() => {
+      const ast = parse(' -> ');
+      new AxisResolver().resolvePattern(ast, [3]);
+    }).toThrow('Empty pattern expects scalar (0-dimensional) tensor but got shape [3]');
   });
 
-  it('should error on pattern with only whitespace', () => {
-    expect(() => {
-      parse('   ->   ');
-    }).toThrow();
+  it('should handle pattern with only whitespace as equivalent to empty', () => {
+    const ast = parse('   ->   ');
+    const result = new AxisResolver().resolvePattern(ast, []);
+    expect(result.axisDimensions.size).toBe(0);
+    expect(result.outputShape).toEqual([]);
   });
 
   it('should provide position context in errors', () => {
@@ -459,7 +501,9 @@ describe('Error Handling', () => {
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(AxisResolutionError);
-      expect(error.pattern).toBe('a b -> a b unknown');
+      if (error instanceof AxisResolutionError) {
+        expect(error.pattern).toBe('a b -> a b unknown');
+      }
     }
   });
 

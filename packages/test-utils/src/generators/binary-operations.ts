@@ -37,6 +37,8 @@ export function generateBinaryOperationTests(
   describe(`Binary Operations Tests (${device.type}:${device.id})`, () => {
     describe('addition operations', () => {
       it('should add scalar values', async () => {
+        // PyTorch: torch.tensor(3.14) + torch.tensor(2.86)
+        // Output: tensor(6.0000)
         const a = await tensor(3.14, { device, dtype: float32 });
         const b = await tensor(2.86, { device, dtype: float32 });
         const result = await a.add(b);
@@ -48,6 +50,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should add vector values element-wise', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4]) + torch.tensor([5, 6, 7, 8])
+        // Output: tensor([6, 8, 10, 12])
         const a = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
         const b = await tensor([5, 6, 7, 8] as const, { device, dtype: float32 });
         const result = await a.add(b);
@@ -61,6 +65,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should add matrix values element-wise', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]) + torch.tensor([[5, 6], [7, 8]])
+        // Output: tensor([[6, 8],
+        //                 [10, 12]])
         const a = await tensor([
           [1, 2],
           [3, 4]
@@ -80,6 +87,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle integer addition', async () => {
+        // PyTorch: torch.tensor([1, 2, 3], dtype=torch.int32) + torch.tensor([4, 5, 6], dtype=torch.int32)
+        // Output: tensor([5, 7, 9], dtype=torch.int32)
         const a = await tensor([1, 2, 3] as const, { device, dtype: int32 });
         const b = await tensor([4, 5, 6] as const, { device, dtype: int32 });
         const result = await a.add(b);
@@ -92,6 +101,8 @@ export function generateBinaryOperationTests(
 
     describe('subtraction operations', () => {
       it('should subtract scalar values', async () => {
+        // PyTorch: torch.tensor(10.5) - torch.tensor(3.2)
+        // Output: tensor(7.3000)
         const a = await tensor(10.5, { device, dtype: float32 });
         const b = await tensor(3.2, { device, dtype: float32 });
         const result = await a.sub(b);
@@ -101,6 +112,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should subtract vector values element-wise', async () => {
+        // PyTorch: torch.tensor([10, 8, 6, 4]) - torch.tensor([1, 2, 3, 4])
+        // Output: tensor([9, 6, 3, 0])
         const a = await tensor([10, 8, 6, 4] as const, { device, dtype: float32 });
         const b = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
         const result = await a.sub(b);
@@ -111,6 +124,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should subtract matrix values element-wise', async () => {
+        // PyTorch: torch.tensor([[10, 8], [6, 4]]) - torch.tensor([[1, 2], [3, 4]])
+        // Output: tensor([[9, 6],
+        //                 [3, 0]])
         const a = await tensor([
           [10, 8],
           [6, 4]
@@ -130,6 +146,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle negative results', async () => {
+        // PyTorch: torch.tensor([1, 2]) - torch.tensor([3, 4])
+        // Output: tensor([-2, -2])
         const a = await tensor([1, 2] as const, { device, dtype: float32 });
         const b = await tensor([3, 4] as const, { device, dtype: float32 });
         const result = await a.sub(b);
@@ -141,6 +159,8 @@ export function generateBinaryOperationTests(
 
     describe('multiplication operations', () => {
       it('should multiply scalar values', async () => {
+        // PyTorch: torch.tensor(3.0) * torch.tensor(4.0)
+        // Output: tensor(12.0)
         const a = await tensor(3.0, { device, dtype: float32 });
         const b = await tensor(4.0, { device, dtype: float32 });
         const result = await a.mul(b);
@@ -150,6 +170,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should multiply vector values element-wise', async () => {
+        // PyTorch: torch.tensor([1, 2, 3, 4]) * torch.tensor([2, 3, 4, 5])
+        // Output: tensor([2, 6, 12, 20])
         const a = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
         const b = await tensor([2, 3, 4, 5] as const, { device, dtype: float32 });
         const result = await a.mul(b);
@@ -160,6 +182,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should multiply matrix values element-wise', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]) * torch.tensor([[2, 3], [4, 5]])
+        // Output: tensor([[2, 6],
+        //                 [12, 20]])
         const a = await tensor([
           [1, 2],
           [3, 4]
@@ -179,6 +204,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle zero multiplication', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]) * torch.tensor([0, 0, 0])
+        // Output: tensor([0, 0, 0])
         const a = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         const b = await tensor([0, 0, 0] as const, { device, dtype: float32 });
         const result = await a.mul(b);
@@ -188,6 +215,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle negative multiplication', async () => {
+        // PyTorch: torch.tensor([1, -2, 3]) * torch.tensor([-1, 2, -3])
+        // Output: tensor([-1, -4, -9])
         const a = await tensor([1, -2, 3] as const, { device, dtype: float32 });
         const b = await tensor([-1, 2, -3] as const, { device, dtype: float32 });
         const result = await a.mul(b);
@@ -199,6 +228,8 @@ export function generateBinaryOperationTests(
 
     describe('division operations', () => {
       it('should divide scalar values', async () => {
+        // PyTorch: torch.tensor(12.0) / torch.tensor(3.0)
+        // Output: tensor(4.0)
         const a = await tensor(12.0, { device, dtype: float32 });
         const b = await tensor(3.0, { device, dtype: float32 });
         const result = await a.div(b);
@@ -208,6 +239,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should divide vector values element-wise', async () => {
+        // PyTorch: torch.tensor([12, 15, 20, 8]) / torch.tensor([3, 5, 4, 2])
+        // Output: tensor([4., 3., 5., 4.])
         const a = await tensor([12, 15, 20, 8] as const, { device, dtype: float32 });
         const b = await tensor([3, 5, 4, 2] as const, { device, dtype: float32 });
         const result = await a.div(b);
@@ -221,6 +254,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should divide matrix values element-wise', async () => {
+        // PyTorch: torch.tensor([[12, 15], [20, 8]]) / torch.tensor([[3, 5], [4, 2]])
+        // Output: tensor([[4., 3.],
+        //                 [5., 4.]])
         const a = await tensor([
           [12, 15],
           [20, 8]
@@ -240,6 +276,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle fractional division', async () => {
+        // PyTorch: torch.tensor([1, 1, 1]) / torch.tensor([2, 3, 4])
+        // Output: tensor([0.5000, 0.3333, 0.2500])
         const a = await tensor([1, 1, 1] as const, { device, dtype: float32 });
         const b = await tensor([2, 3, 4] as const, { device, dtype: float32 });
         const result = await a.div(b);
@@ -251,6 +289,8 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle negative division', async () => {
+        // PyTorch: torch.tensor([6, -8]) / torch.tensor([-2, 4])
+        // Output: tensor([-3., -2.])
         const a = await tensor([6, -8] as const, { device, dtype: float32 });
         const b = await tensor([-2, 4] as const, { device, dtype: float32 });
         const result = await a.div(b);
@@ -263,6 +303,9 @@ export function generateBinaryOperationTests(
 
     describe('broadcasting operations', () => {
       it('should broadcast scalar with vector', async () => {
+        // PyTorch: scalar + vector and vector * scalar broadcasting
+        // torch.tensor(5) + torch.tensor([1, 2, 3]) = tensor([6, 7, 8])
+        // torch.tensor([1, 2, 3]) * torch.tensor(5) = tensor([5, 10, 15])
         const scalar = await tensor(5, { device, dtype: float32 });
         const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         
@@ -279,6 +322,10 @@ export function generateBinaryOperationTests(
       });
 
       it('should broadcast scalar with matrix', async () => {
+        // PyTorch: matrix * scalar broadcasting
+        // torch.tensor([[1, 2], [3, 4]]) * torch.tensor(2)
+        // Output: tensor([[2, 4],
+        //                 [6, 8]])
         const scalar = await tensor(2, { device, dtype: float32 });
         const matrix = await tensor([
           [1, 2],
@@ -296,6 +343,11 @@ export function generateBinaryOperationTests(
       });
 
       it('should broadcast vector with matrix (row broadcasting)', async () => {
+        // PyTorch: Row broadcasting - vector broadcasts across rows
+        // matrix + vector where vector shape [2] broadcasts to [3, 2]
+        // Output: tensor([[11, 22],
+        //                 [13, 24],
+        //                 [15, 26]])
         const vector = await tensor([10, 20] as const, { device, dtype: float32 });
         const matrix = await tensor([
           [1, 2],
@@ -315,6 +367,11 @@ export function generateBinaryOperationTests(
       });
 
       it('should broadcast vector with matrix (column broadcasting)', async () => {
+        // PyTorch: Column broadcasting - reshape to [3, 1] then broadcast
+        // vector.reshape(3, 1) + matrix broadcasts to [3, 2]
+        // Output: tensor([[101, 102],
+        //                 [203, 204],
+        //                 [305, 306]])
         const vector = await tensor([100, 200, 300] as const, { device, dtype: float32 });
         const matrix = await tensor([
           [1, 2],
@@ -336,7 +393,10 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle compatible shape broadcasting', async () => {
-        // Test broadcasting between [2, 1] and [1, 3] -> [2, 3]
+        // PyTorch: Broadcasting [2, 1] + [1, 3] -> [2, 3]
+        // A: [[1], [2]], B: [[10, 20, 30]]
+        // Output: tensor([[11, 21, 31],
+        //                 [12, 22, 32]])
         const a = await tensor([[1], [2]] as const, { device, dtype: float32 });
         const b = await tensor([[10, 20, 30]] as const, { device, dtype: float32 });
         
@@ -416,6 +476,9 @@ export function generateBinaryOperationTests(
 
     describe('error handling', () => {
       it('should handle division by zero gracefully', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]) / torch.tensor([1, 0, 3])
+        // Output: tensor([1., inf, 1.])
+        // Division by zero produces infinity in PyTorch
         const a = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         const b = await tensor([1, 0, 3] as const, { device, dtype: float32 });
         
@@ -455,6 +518,9 @@ export function generateBinaryOperationTests(
 
     describe('chaining operations', () => {
       it('should allow chaining binary operations', async () => {
+        // PyTorch: (torch.tensor([2, 4, 6]) + torch.tensor([1, 2, 3])) * torch.tensor([3, 3, 3])
+        // Step 1: [2, 4, 6] + [1, 2, 3] = [3, 6, 9]
+        // Step 2: [3, 6, 9] * [3, 3, 3] = [9, 18, 27]
         const a = await tensor([2, 4, 6] as const, { device, dtype: float32 });
         const b = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         const c = await tensor([3, 3, 3] as const, { device, dtype: float32 });
@@ -468,6 +534,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should allow complex operation chains', async () => {
+        // PyTorch: (torch.tensor([8, 12, 16]) / torch.tensor([2, 3, 4])) - torch.tensor([1, 1, 1])
+        // Step 1: [8, 12, 16] / [2, 3, 4] = [4., 4., 4.]
+        // Step 2: [4, 4, 4] - [1, 1, 1] = [3., 3., 3.]
         const a = await tensor([8, 12, 16] as const, { device, dtype: float32 });
         const b = await tensor([2, 3, 4] as const, { device, dtype: float32 });
         const c = await tensor([1, 1, 1] as const, { device, dtype: float32 });
@@ -483,6 +552,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should combine with unary operations', async () => {
+        // PyTorch: torch.sqrt(torch.tensor([1, 4, 9])) + torch.tensor([1, 2, 3])
+        // Step 1: sqrt([1, 4, 9]) = [1., 2., 3.]
+        // Step 2: [1, 2, 3] + [1, 2, 3] = [2., 4., 6.]
         const a = await tensor([1, 4, 9] as const, { device, dtype: float32 });
         const b = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         
@@ -499,6 +571,9 @@ export function generateBinaryOperationTests(
 
     describe('dtype compatibility', () => {
       it('should handle same dtype operations', async () => {
+        // PyTorch: torch.tensor([1, 2, 3], dtype=torch.int32) + torch.tensor([4, 5, 6], dtype=torch.int32)
+        // Output: tensor([5, 7, 9], dtype=torch.int32)
+        // Same dtypes preserve the dtype
         const a = await tensor([1, 2, 3] as const, { device, dtype: int32 });
         const b = await tensor([4, 5, 6] as const, { device, dtype: int32 });
         
@@ -510,6 +585,9 @@ export function generateBinaryOperationTests(
       });
 
       it('should handle mixed precision operations appropriately', async () => {
+        // PyTorch: torch.tensor([1.5, 2.5], dtype=torch.float32) + torch.tensor([1, 2], dtype=torch.int32)
+        // Output: tensor([2.5000, 4.5000], dtype=torch.float32)
+        // PyTorch promotes int32 to float32 for mixed operations
         const float32Tensor = await tensor([1.5, 2.5] as const, { device, dtype: float32 });
         const int32Tensor = await tensor([1, 2] as const, { device, dtype: int32 });
         
