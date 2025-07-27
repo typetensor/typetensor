@@ -112,7 +112,9 @@ export type AllOperationTypes =
   | 'softmax' // Softmax normalization
   | 'log_softmax' // Log-softmax normalization
   | 'sum' // Sum reduction
-  | 'mean'; // Mean reduction
+  | 'mean' // Mean reduction
+  | 'max' // Max reduction
+  | 'min'; // Min reduction'
 
 /**
  * Base interface for all storage transformations

@@ -11,7 +11,7 @@ import { executeBinaryOp } from './binary';
 import { executeViewOp, executeSliceOp } from './view';
 import { executeMatmulOp } from './matmul';
 import { executeSoftmaxOp, executeLogSoftmaxOp } from './softmax';
-import { executeSumOp, executeMeanOp } from './reduction';
+import { executeSumOp, executeMeanOp, executeMaxOp, executeMinOp } from './reduction';
 
 /**
  * Execute a tensor operation on the CPU device
@@ -205,9 +205,47 @@ export async function executeOperation(
       );
     }
 
+    case 'max': {
+      if (inputs.length !== 1) {
+        throw new Error(`Max operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeMaxOp(
+        device,
+        op as AnyStorageTransformation & {
+          __maxAxes: readonly number[] | undefined;
+          __keepDims: boolean;
+        },
+        input,
+        output,
+      );
+    }
+
+    case 'min': {
+      if (inputs.length !== 1) {
+        throw new Error(`Min operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeMinOp(
+        device,
+        op as AnyStorageTransformation & {
+          __minAxes: readonly number[] | undefined;
+          __keepDims: boolean;
+        },
+        input,
+        output,
+      );
+    }
+
     default:
       // This will cause a TypeScript compile error if any operation case is missing
       // The error will show which operations are not handled
-      return assertExhaustiveSwitch(op.__op);
+      return assertExhaustiveSwitch(op.__op as never);
   }
 }

@@ -128,6 +128,106 @@ export async function executeMeanOp(
 }
 
 /**
+ * Execute max reduction operation
+ *
+ * @param device - CPU device instance
+ * @param op - Max operation descriptor with metadata
+ * @param input - Input tensor data
+ * @param output - Optional pre-allocated output buffer
+ * @returns Result tensor data containing maximum values
+ */
+export async function executeMaxOp(
+  device: Device,
+  op: AnyStorageTransformation & {
+    __maxAxes: readonly number[] | undefined;
+    __keepDims: boolean;
+  },
+  input: DeviceData,
+  output?: DeviceData,
+): Promise<DeviceData> {
+  const inputStorage = op.__inputs[0];
+  if (!inputStorage) {
+    throw new Error('Max operation requires input storage');
+  }
+  const inputShape = inputStorage.__shape;
+  const outputShape = op.__output.__shape;
+  const axes = op.__maxAxes;
+
+  // Create output buffer if not provided
+  const result = output || device.createData(op.__output.__size * op.__output.__dtype.__byteSize);
+  const resultData = result as CPUDeviceData;
+  const inputData = input as CPUDeviceData;
+
+  // Get typed array views
+  const inputView = createTypedArray(inputData.buffer, inputStorage.__dtype);
+  const outputView = createTypedArray(resultData.buffer, op.__output.__dtype);
+
+  // Handle different reduction cases
+  if (axes === undefined) {
+    // Global max - max of all elements
+    performGlobalMax(inputView, outputView);
+  } else if (axes.length === 0) {
+    // Empty axes - copy input to output
+    performCopy(inputView, outputView);
+  } else {
+    // Reduction along specific axes
+    performAxisMaxMin(inputView, outputView, inputShape, outputShape, axes, true);
+  }
+
+  return result;
+}
+
+/**
+ * Execute min reduction operation
+ *
+ * @param device - CPU device instance
+ * @param op - Min operation descriptor with metadata
+ * @param input - Input tensor data
+ * @param output - Optional pre-allocated output buffer
+ * @returns Result tensor data containing minimum values
+ */
+export async function executeMinOp(
+  device: Device,
+  op: AnyStorageTransformation & {
+    __minAxes: readonly number[] | undefined;
+    __keepDims: boolean;
+  },
+  input: DeviceData,
+  output?: DeviceData,
+): Promise<DeviceData> {
+  const inputStorage = op.__inputs[0];
+  if (!inputStorage) {
+    throw new Error('Min operation requires input storage');
+  }
+  const inputShape = inputStorage.__shape;
+  const outputShape = op.__output.__shape;
+  const axes = op.__minAxes;
+
+  // Create output buffer if not provided
+  const result = output || device.createData(op.__output.__size * op.__output.__dtype.__byteSize);
+  const resultData = result as CPUDeviceData;
+  const inputData = input as CPUDeviceData;
+
+  // Get typed array views
+  const inputView = createTypedArray(inputData.buffer, inputStorage.__dtype);
+  const outputView = createTypedArray(resultData.buffer, op.__output.__dtype);
+
+  // Handle different reduction cases
+  if (axes === undefined) {
+    // Global min - min of all elements
+    performGlobalMin(inputView, outputView);
+  } else if (axes.length === 0) {
+    // Empty axes - copy input to output
+    performCopy(inputView, outputView);
+  } else {
+    // Reduction along specific axes
+    performAxisMaxMin(inputView, outputView, inputShape, outputShape, axes, false);
+  }
+
+  return result;
+}
+
+/**
  * Perform global sum reduction
  */
 function performGlobalSum(
@@ -175,6 +275,145 @@ function performCopy(
     const val = inputView[i];
     if (val !== undefined) {
       outputView[i] = val;
+    }
+  }
+}
+
+/**
+ * Perform global max reduction
+ */
+function performGlobalMax(
+  inputView: ArrayLike<number | bigint>,
+  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+): void {
+  if (inputView.length === 0) {
+    throw new Error('Cannot compute max of empty tensor');
+  }
+  
+  let max = inputView[0];
+  if (max === undefined) {
+    throw new Error('Invalid input data');
+  }
+  
+  for (let i = 1; i < inputView.length; i++) {
+    const val = inputView[i];
+    if (val !== undefined) {
+      if (typeof max === 'bigint' || typeof val === 'bigint') {
+        max = BigInt(max) > BigInt(val) ? max : val;
+      } else {
+        max = Number(max) > Number(val) ? max : val;
+      }
+    }
+  }
+  outputView[0] = max;
+}
+
+/**
+ * Perform global min reduction
+ */
+function performGlobalMin(
+  inputView: ArrayLike<number | bigint>,
+  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+): void {
+  if (inputView.length === 0) {
+    throw new Error('Cannot compute min of empty tensor');
+  }
+  
+  let min = inputView[0];
+  if (min === undefined) {
+    throw new Error('Invalid input data');
+  }
+  
+  for (let i = 1; i < inputView.length; i++) {
+    const val = inputView[i];
+    if (val !== undefined) {
+      if (typeof min === 'bigint' || typeof val === 'bigint') {
+        min = BigInt(min) < BigInt(val) ? min : val;
+      } else {
+        min = Number(min) < Number(val) ? min : val;
+      }
+    }
+  }
+  outputView[0] = min;
+}
+
+/**
+ * Perform max/min reduction along specific axes
+ *
+ * @param inputView - Input typed array view
+ * @param outputView - Output typed array view
+ * @param inputShape - Input tensor shape
+ * @param outputShape - Output tensor shape
+ * @param axes - Axes to reduce along
+ * @param isMax - Whether to compute max (true) or min (false)
+ */
+function performAxisMaxMin(
+  inputView: ArrayLike<number | bigint>,
+  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  inputShape: readonly number[],
+  outputShape: readonly number[],
+  axes: readonly number[],
+  isMax: boolean,
+): void {
+  // Normalize negative axes
+  const normalizedAxes = axes.map(axis => axis < 0 ? inputShape.length + axis : axis);
+  const axisSet = new Set(normalizedAxes);
+
+  // Initialize output to first valid values (will be overwritten)
+  // For max/min we need to find the first element from each output position
+  // and use that as the initial value
+  const outputStrides = computeStrides(outputShape);
+  const inputStrides = computeStrides(inputShape);
+  
+  // Initialize with first encountered values for each output position
+  const initialized = new Set<number>();
+  const inputSize = inputView.length;
+  
+  for (let flatIdx = 0; flatIdx < inputSize; flatIdx++) {
+    // Convert flat index to multi-dimensional coordinates
+    const inputCoords = flatIndexToCoords(flatIdx, inputStrides);
+    
+    // Map to output coordinates by removing reduced dimensions
+    const outputCoords: number[] = [];
+    for (let dim = 0; dim < inputCoords.length; dim++) {
+      if (!axisSet.has(dim)) {
+        const coord = inputCoords[dim];
+        if (coord !== undefined) {
+          outputCoords.push(coord);
+        }
+      }
+    }
+
+    // Convert output coordinates to flat index
+    const outputIdx = coordsToFlatIndex(outputCoords, outputStrides);
+    
+    const inputVal = inputView[flatIdx];
+    if (inputVal !== undefined) {
+      if (!initialized.has(outputIdx)) {
+        // First value for this output position
+        outputView[outputIdx] = inputVal;
+        initialized.add(outputIdx);
+      } else {
+        // Compare with existing value
+        const currentVal = outputView[outputIdx];
+        if (currentVal !== undefined) {
+          let shouldUpdate: boolean;
+          
+          if (typeof currentVal === 'bigint' || typeof inputVal === 'bigint') {
+            const current = BigInt(currentVal);
+            const input = BigInt(inputVal);
+            shouldUpdate = isMax ? input > current : input < current;
+          } else {
+            const current = Number(currentVal);
+            const input = Number(inputVal);
+            shouldUpdate = isMax ? input > current : input < current;
+          }
+          
+          if (shouldUpdate) {
+            outputView[outputIdx] = inputVal;
+          }
+        }
+      }
     }
   }
 }

@@ -248,6 +248,40 @@ export type Mean<
   KeepDims extends boolean = false
 > = MeanOp<T, Axes, KeepDims>;
 
+/**
+ * Type-level max function for use in other type computations
+ * 
+ * @template T - Input tensor storage type
+ * @template Axes - Axes to reduce along
+ * @template KeepDims - Whether to keep reduced dimensions
+ * 
+ * @example
+ * type Input = TensorStorage<Float32, [2, 3, 4], [12, 4, 1], DefaultLayoutFlags>;
+ * type BatchMax = Max<Input, [0]>; // Max over batch dimension
+ */
+export type Max<
+  T extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined = undefined,
+  KeepDims extends boolean = false
+> = MaxOp<T, Axes, KeepDims>;
+
+/**
+ * Type-level min function for use in other type computations
+ * 
+ * @template T - Input tensor storage type
+ * @template Axes - Axes to reduce along
+ * @template KeepDims - Whether to keep reduced dimensions
+ * 
+ * @example
+ * type Input = TensorStorage<Int32, [32, 128], [128, 1], DefaultLayoutFlags>;
+ * type FeatureMin = Min<Input, [-1], true>; // Min over features, keep dim
+ */
+export type Min<
+  T extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined = undefined,
+  KeepDims extends boolean = false
+> = MinOp<T, Axes, KeepDims>;
+
 // =============================================================================
 // Convenience Types for Common Use Cases
 // =============================================================================
@@ -287,3 +321,39 @@ export type SumBatch<T extends AnyTensorStorage> = Sum<T, readonly [0], false>;
  * Removes the first dimension
  */
 export type MeanBatch<T extends AnyTensorStorage> = Mean<T, readonly [0], false>;
+
+/**
+ * Max over all dimensions (global max)
+ * Returns scalar result
+ */
+export type GlobalMax<T extends AnyTensorStorage> = Max<T, undefined, false>;
+
+/**
+ * Min over all dimensions (global min)
+ * Returns scalar result
+ */
+export type GlobalMin<T extends AnyTensorStorage> = Min<T, undefined, false>;
+
+/**
+ * Max over the last dimension (most common for features)
+ * Removes the last dimension
+ */
+export type MaxLastDim<T extends AnyTensorStorage> = Max<T, readonly [-1], false>;
+
+/**
+ * Min over the last dimension (most common for features)
+ * Removes the last dimension
+ */
+export type MinLastDim<T extends AnyTensorStorage> = Min<T, readonly [-1], false>;
+
+/**
+ * Max over the first dimension (batch reduction)
+ * Removes the first dimension
+ */
+export type MaxBatch<T extends AnyTensorStorage> = Max<T, readonly [0], false>;
+
+/**
+ * Min over the first dimension (batch reduction)
+ * Removes the first dimension
+ */
+export type MinBatch<T extends AnyTensorStorage> = Min<T, readonly [0], false>;
