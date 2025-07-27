@@ -4,14 +4,14 @@
   "description": "WebAssembly backend for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",
-  "homepage": "https://github.com/tomsanbear/tensor-ts/tree/main/packages/backend-wasm#readme",
+  "homepage": "https://github.com/typetensor/typetensor/tree/main/packages/backend-wasm#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tomsanbear/tensor-ts.git",
+    "url": "git+https://github.com/typetensor/typetensor.git",
     "directory": "packages/backend-wasm"
   },
   "bugs": {
-    "url": "https://github.com/tomsanbear/tensor-ts/issues"
+    "url": "https://github.com/typetensor/typetensor/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -7,7 +7,7 @@
  */
 
 import type { Multiply, Subtract, Compare, Add } from 'ts-arithmetic';
-import type { Ceil, Max, Clamp, Abs } from '../arithmetic';
+import type { Ceil, Max, Min, Abs } from '../arithmetic';
 
 // =============================================================================
 // Basic Shape Types
@@ -788,17 +788,19 @@ export type SliceIndex = number | SliceSpec | null;
 /**
  * Normalize a potentially negative index to a positive index
  * Negative indices count from the end: -1 = last element, -2 = second to last, etc.
- * 
+ *
  * @example
  * type Idx1 = NormalizeIndex<-1, 10> // 9
  * type Idx2 = NormalizeIndex<-5, 10> // 5
  * type Idx3 = NormalizeIndex<5, 10> // 5
  * type Idx4 = NormalizeIndex<-15, 10> // 0 (clamped)
  */
-type NormalizeIndex<Index extends number, Dim extends number> = 
-  `${Index}` extends `-${infer AbsValue extends number}`
-    ? Max<0, Subtract<Dim, AbsValue>> // Negative: dim - abs(index), clamped to 0
-    : Index; // Positive: use as-is
+type NormalizeIndex<
+  Index extends number,
+  Dim extends number,
+> = `${Index}` extends `-${infer AbsValue extends number}`
+  ? Max<0, Subtract<Dim, AbsValue>> // Negative: dim - abs(index), clamped to 0
+  : Index; // Positive: use as-is
 
 /**
  * Compute the size of a sliced dimension
@@ -811,37 +813,92 @@ type NormalizeIndex<Index extends number, Dim extends number> =
 type ComputeSlicedDimSize<Dim extends number, Index extends SliceSpec | null> = Index extends null
   ? Dim // Full slice preserves dimension
   : Index extends SliceSpec
-    ? Index['stop'] extends number
-      ? Index['start'] extends number
-        ? Index['step'] extends number
-          ? Index['step'] extends 0
-            ? never // Zero step is invalid
-            : Max<0, Ceil<Subtract<
-                Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim>, 
-                Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>
-              >, Index['step']>>
-          : Max<0, Subtract<
-              Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim>, 
-              Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>
-            >> // Default step = 1
-        : Index['step'] extends number
-          ? Index['step'] extends 0
-            ? never // Zero step is invalid
-            : Ceil<Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim>, Index['step']> // Default start = 0
-          : Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim> // Default start = 0, step = 1
-      : // No stop provided
-        Index['start'] extends number
-        ? Index['step'] extends number
-          ? Index['step'] extends 0
-            ? never // Zero step is invalid
-            : Max<0, Ceil<Subtract<Dim, Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>>, Index['step']>> // stop defaults to Dim
-          : Max<0, Subtract<Dim, Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>>> // stop defaults to Dim, step = 1
-        : Index['step'] extends number
-          ? Index['step'] extends 0
-            ? never // Zero step is invalid
-            : Ceil<Dim, Index['step']> // start = 0, stop = Dim
-          : Dim // No start, stop, or step - full slice
+    ? Index['step'] extends number
+      ? Index['step'] extends 0
+        ? never // Zero step is invalid
+        : Compare<Index['step'], 0> extends -1
+          ? ComputeNegativeStepSize<Dim, Index> // Negative step
+          : ComputePositiveStepSize<Dim, Index> // Positive step
+      : ComputePositiveStepSize<Dim, Index> // Default step = 1
     : never;
+
+/**
+ * Compute size for positive step slices
+ */
+type ComputePositiveStepSize<
+  Dim extends number,
+  Index extends SliceSpec,
+> = Index['stop'] extends number
+  ? Index['start'] extends number
+    ? Index['step'] extends number
+      ? Max<
+          0,
+          Ceil<
+            Subtract<
+              Min<Max<0, NormalizeIndex<Index['stop'], Dim>>, Dim>,
+              Max<0, NormalizeIndex<Index['start'], Dim>>
+            >,
+            Index['step']
+          >
+        >
+      : Max<
+          0,
+          Subtract<
+            Min<Max<0, NormalizeIndex<Index['stop'], Dim>>, Dim>,
+            Max<0, NormalizeIndex<Index['start'], Dim>>
+          >
+        > // Default step = 1
+    : Index['step'] extends number
+      ? Ceil<Min<Max<0, NormalizeIndex<Index['stop'], Dim>>, Dim>, Index['step']> // Default start = 0
+      : Min<Max<0, NormalizeIndex<Index['stop'], Dim>>, Dim> // Default start = 0, step = 1
+  : // No stop provided
+    Index['start'] extends number
+    ? Index['step'] extends number
+      ? Max<0, Ceil<Subtract<Dim, Max<0, NormalizeIndex<Index['start'], Dim>>>, Index['step']>> // stop defaults to Dim
+      : Max<0, Subtract<Dim, Max<0, NormalizeIndex<Index['start'], Dim>>>> // stop defaults to Dim, step = 1
+    : Index['step'] extends number
+      ? Ceil<Dim, Index['step']> // start = 0, stop = Dim
+      : Dim; // No start, stop, or step - full slice
+
+/**
+ * Compute size for negative step slices
+ * For negative steps: size = ceil((start - stop) / abs(step))
+ * Default start = dim - 1, default stop = -1 (before index 0)
+ */
+type ComputeNegativeStepSize<
+  Dim extends number,
+  Index extends SliceSpec,
+> = Index['start'] extends number
+  ? Index['stop'] extends number
+    ? Max<
+        0,
+        Ceil<
+          Subtract<
+            Min<Max<0, NormalizeIndex<Index['start'], Dim>>, Subtract<Dim, 1>>,
+            Max<0, NormalizeIndex<Index['stop'], Dim>>
+          >,
+          Abs<Index['step'] extends number ? Index['step'] : -1>
+        >
+      >
+    : // No stop: defaults to -1 (before index 0), so we count to index 0
+      Max<
+        0,
+        Ceil<
+          Add<Min<Max<0, NormalizeIndex<Index['start'], Dim>>, Subtract<Dim, 1>>, 1>,
+          Abs<Index['step'] extends number ? Index['step'] : -1>
+        >
+      >
+  : Index['stop'] extends number
+    ? // No start: defaults to dim - 1
+      Max<
+        0,
+        Ceil<
+          Subtract<Subtract<Dim, 1>, Max<0, NormalizeIndex<Index['stop'], Dim>>>,
+          Abs<Index['step'] extends number ? Index['step'] : -1>
+        >
+      >
+    : // Neither start nor stop: full reverse
+      Ceil<Dim, Abs<Index['step'] extends number ? Index['step'] : -1>>;
 
 /**
  * Compute the shape after slicing operations

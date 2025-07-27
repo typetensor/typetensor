@@ -558,6 +558,21 @@ type ReadOnlyTensor = TensorStorage<Float32, readonly [3, 4], readonly [4, 1], R
   // Elements: 18,16,14,12,10,8,6 = 7 elements
   type ReverseStep = SliceOp<Tensor1D, readonly [{ start: 18; stop: 4; step: -2 }]>;
   expectTypeOf<ShapeOf<OutputOf<ReverseStep>>>().toEqualTypeOf<readonly [7]>();
+
+  // Additional tests: negative step with out-of-bounds
+  type NegStepOOB = SliceOp<Tensor1D, readonly [{ start: 25; stop: 5; step: -1 }]>;
+  // start=25 clamps to 19, [19:5:-1] = 14 elements
+  expectTypeOf<ShapeOf<OutputOf<NegStepOOB>>>().toEqualTypeOf<readonly [14]>();
+
+  // Negative step with negative indices
+  type NegStepNegIdx = SliceOp<Tensor1D, readonly [{ start: -2; stop: -10; step: -1 }]>;
+  // start=-2→18, stop=-10→10, [18:10:-1] = 8 elements
+  expectTypeOf<ShapeOf<OutputOf<NegStepNegIdx>>>().toEqualTypeOf<readonly [8]>();
+
+  // Default bounds with negative step
+  type NegStepDefaults = SliceOp<Tensor1D, readonly [{ step: -2 }]>;
+  // [19::-2] = every 2nd element from end to start = 10 elements
+  expectTypeOf<ShapeOf<OutputOf<NegStepDefaults>>>().toEqualTypeOf<readonly [10]>();
 }
 
 // Test 11: Out of bounds indices
