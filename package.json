@@ -1,0 +1,57 @@
+{
+  "name": "typetensor",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Type-safe tensor operations for TypeScript",
+  "license": "MIT",
+  "author": "Thomas Santerre <thomas@santerre.xyz>",
+  "homepage": "https://github.com/tomsanbear/tensor-ts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tomsanbear/tensor-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tomsanbear/tensor-ts/issues"
+  },
+  "workspaces": [
+    "packages/*",
+    "examples"
+  ],
+  "devDependencies": {
+    "@changesets/cli": "^2.29.5",
+    "@eslint/js": "^9.17.0",
+    "@swc/core": "^1.13.2",
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.21.0",
+    "@typescript-eslint/parser": "^8.21.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.2",
+    "expect-type": "^1.1.0",
+    "license-checker": "^25.0.1",
+    "ml-matrix": "^6.12.1",
+    "prettier": "^3.4.2",
+    "ts-arithmetic": "^0.1.1",
+    "tsup": "^8.5.0",
+    "turbo": "^2.3.3",
+    "typescript": "beta",
+    "typescript-eslint": "^8.21.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "clean": "turbo run clean",
+    "lint": "turbo run lint",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:types": "bun test **/*.test-d.ts",
+    "test:runtime": "bun test **/*.test.ts",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "license:summary": "license-checker --summary --excludePrivatePackages",
+    "prerelease": "bun run lint && bun run typecheck && bun run test",
+    "release": "turbo run build && changeset publish",
+    "version": "changeset version"
+  },
+  "packageManager": "bun@1.2.18"
+}

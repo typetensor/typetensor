@@ -1,0 +1,10 @@
+{
+  "name": "typetensor-examples",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@typetensor/core": "file:../packages/core",
+    "@typetensor/backend-cpu": "file:../packages/backend-cpu"
+  }
+}

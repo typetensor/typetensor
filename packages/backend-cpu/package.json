@@ -1,0 +1,61 @@
+{
+  "name": "@typetensor/backend-cpu",
+  "version": "0.1.0",
+  "description": "CPU backend for TypedTensor",
+  "license": "MIT",
+  "author": "Thomas Santerre <thomas@santerre.xyz>",
+  "homepage": "https://github.com/tomsanbear/tensor-ts/tree/main/packages/backend-cpu#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tomsanbear/tensor-ts.git",
+    "directory": "packages/backend-cpu"
+  },
+  "bugs": {
+    "url": "https://github.com/tomsanbear/tensor-ts/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "typetensor-dev": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "bun": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "typetensor-dev": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "bun": "./dist/*.js",
+      "import": "./dist/*.js",
+      "require": "./dist/*.cjs",
+      "default": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@typetensor/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.9.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "bun test",
+    "prepublishOnly": "bun run clean && bun run build"
+  }
+}
