@@ -35,6 +35,7 @@ import type {
   CanReshape,
   IsMatMulCompatible,
   MatMulShape,
+  CanMatmul,
   ShapeError,
   ShapeMismatchError,
   IncompatibleShapes,
@@ -208,6 +209,179 @@ import type {
 
   // Incompatible should be never
   expectTypeOf<MatMulShape<[2, 3], [4, 5]>>().toEqualTypeOf<never>();
+}
+
+// =============================================================================
+// CanMatmul Tests - Enhanced error messages
+// =============================================================================
+{
+  // Valid cases should return true
+  expectTypeOf<CanMatmul<[2, 3], [3, 4]>>().toEqualTypeOf<true>();
+  expectTypeOf<CanMatmul<[10], [10, 5]>>().toEqualTypeOf<true>();
+  expectTypeOf<CanMatmul<[5, 2, 3], [5, 3, 4]>>().toEqualTypeOf<true>();
+  
+  // Invalid cases should return ShapeError
+  type Error1 = CanMatmul<[2, 3], [4, 5]>;
+  type Error2 = CanMatmul<[2, 3], [2, 4]>;
+  expectTypeOf<Error1>().toMatchTypeOf<ShapeError<string, unknown>>();
+  expectTypeOf<Error2>().toMatchTypeOf<ShapeError<string, unknown>>();
+}
+
+// Edge cases for matmul
+{
+  // Scalar tensors cannot be multiplied
+  expectTypeOf<IsMatMulCompatible<[], []>>().toEqualTypeOf<false>();
+  expectTypeOf<IsMatMulCompatible<[], [3, 4]>>().toEqualTypeOf<false>();
+  expectTypeOf<IsMatMulCompatible<[2, 3], []>>().toEqualTypeOf<false>();
+  
+  // 1D with 1D - dot product
+  expectTypeOf<IsMatMulCompatible<[5], [5]>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<[5], [5]>>().toEqualTypeOf<readonly []>(); // scalar result
+  
+  // Mismatched 1D
+  expectTypeOf<IsMatMulCompatible<[3], [4]>>().toEqualTypeOf<false>();
+}
+
+// Batch matmul tests
+{
+  // Same batch dimensions
+  expectTypeOf<IsMatMulCompatible<[10, 2, 3], [10, 3, 4]>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<[10, 2, 3], [10, 3, 4]>>().toEqualTypeOf<readonly [10, 2, 4]>();
+  
+  // Multiple batch dimensions
+  expectTypeOf<IsMatMulCompatible<[5, 10, 2, 3], [5, 10, 3, 4]>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<[5, 10, 2, 3], [5, 10, 3, 4]>>().toEqualTypeOf<readonly [5, 10, 2, 4]>();
+  
+  // Note: Current implementation doesn't handle batch broadcasting
+  // This would need enhancement if we want [2, 3] × [5, 3, 4] → [5, 2, 4]
+}
+
+// Complex shape scenarios
+{
+  // Transformer attention: Q×K^T
+  type Q = readonly [32, 8, 128, 64]; // [batch, heads, seq_len, head_dim]
+  // K would be same shape, but we're using K_T directly
+  type K_T = readonly [32, 8, 64, 128]; // transposed last two dims
+  
+  expectTypeOf<IsMatMulCompatible<Q, K_T>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<Q, K_T>>().toEqualTypeOf<readonly [32, 8, 128, 128]>();
+  
+  // Attention weights × V
+  type Weights = readonly [32, 8, 128, 128];
+  type V = readonly [32, 8, 128, 64];
+  
+  expectTypeOf<IsMatMulCompatible<Weights, V>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<Weights, V>>().toEqualTypeOf<readonly [32, 8, 128, 64]>();
+}
+
+// 1D edge cases
+{
+  // 1D × ND: vector must match second-to-last dimension of matrix
+  expectTypeOf<MatMulShape<[4], [3, 4, 5]>>().toEqualTypeOf<readonly [3, 5]>();
+  expectTypeOf<MatMulShape<[3], [10, 3, 4]>>().toEqualTypeOf<readonly [10, 4]>();
+  
+  // 2D × 1D
+  expectTypeOf<MatMulShape<[2, 3], [3]>>().toEqualTypeOf<readonly [2]>();
+  expectTypeOf<MatMulShape<[5, 2, 3], [3]>>().toEqualTypeOf<readonly [5, 2]>();
+}
+
+// Basic linear layer transformations (no batch dimension)
+{
+  // Weight matrix multiplication
+  expectTypeOf<IsMatMulCompatible<[768, 3072], [3072, 768]>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<[768, 3072], [3072, 768]>>().toEqualTypeOf<readonly [768, 768]>();
+  
+  // Embedding matrix
+  expectTypeOf<IsMatMulCompatible<[50000, 768], [768, 512]>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<[50000, 768], [768, 512]>>().toEqualTypeOf<readonly [50000, 512]>();
+}
+
+// Variable batch size support
+{
+  type VariableBatch = readonly [number, 512, 768];
+  type Weights = readonly [768, 768];
+  
+  // This should work with any batch size
+  expectTypeOf<IsMatMulCompatible<VariableBatch, Weights>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<VariableBatch, Weights>>().toEqualTypeOf<readonly [number, 512, 768]>();
+}
+
+// Cross-attention (encoder-decoder) with different sequence lengths
+{
+  type EncoderOutput = readonly [32, 256, 768]; // [batch, encoder_seq_len, d_model]
+  type DecoderQuery = readonly [32, 128, 768];  // [batch, decoder_seq_len, d_model]
+  type ProjectionWeight = readonly [768, 768];  // weight matrix for Q/K/V projections
+  
+  // Project encoder output to K/V
+  expectTypeOf<IsMatMulCompatible<EncoderOutput, ProjectionWeight>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<EncoderOutput, ProjectionWeight>>().toEqualTypeOf<readonly [32, 256, 768]>();
+  
+  // Project decoder query to Q
+  expectTypeOf<IsMatMulCompatible<DecoderQuery, ProjectionWeight>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<DecoderQuery, ProjectionWeight>>().toEqualTypeOf<readonly [32, 128, 768]>();
+  
+  // After reshaping to multi-head format
+  type DecoderQ = readonly [32, 12, 128, 64];   // [batch, heads, decoder_len, d_head]
+  type EncoderKV_T = readonly [32, 12, 64, 256]; // transposed for attention
+  
+  // Cross-attention scores: Q @ K^T
+  expectTypeOf<IsMatMulCompatible<DecoderQ, EncoderKV_T>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<DecoderQ, EncoderKV_T>>().toEqualTypeOf<readonly [32, 12, 128, 256]>();
+  
+  // Attention output: scores @ V
+  type AttentionWeights = readonly [32, 12, 128, 256];
+  type EncoderV = readonly [32, 12, 256, 64];
+  expectTypeOf<IsMatMulCompatible<AttentionWeights, EncoderV>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<AttentionWeights, EncoderV>>().toEqualTypeOf<readonly [32, 12, 128, 64]>();
+}
+
+// Complete transformer layer shapes
+{
+  // Input
+  type Input = readonly [16, 512, 768]; // [batch, seq_len, d_model]
+  
+  // Multi-head attention projections
+  type QKVWeight = readonly [768, 2304]; // [d_model, 3 * n_heads * d_head]
+  expectTypeOf<MatMulShape<Input, QKVWeight>>().toEqualTypeOf<readonly [16, 512, 2304]>();
+  
+  // FFN first layer
+  type FFN1Weight = readonly [768, 3072]; // [d_model, 4 * d_model]
+  expectTypeOf<MatMulShape<Input, FFN1Weight>>().toEqualTypeOf<readonly [16, 512, 3072]>();
+  
+  // FFN second layer  
+  type FFN2Weight = readonly [3072, 768]; // [4 * d_model, d_model]
+  type FFNHidden = readonly [16, 512, 3072];
+  expectTypeOf<MatMulShape<FFNHidden, FFN2Weight>>().toEqualTypeOf<readonly [16, 512, 768]>();
+  
+  // Final output projection to vocabulary
+  type OutputWeight = readonly [768, 50257]; // [d_model, vocab_size] 
+  expectTypeOf<MatMulShape<Input, OutputWeight>>().toEqualTypeOf<readonly [16, 512, 50257]>();
+}
+
+// Edge cases common in transformers
+{
+  // Single token generation (beam size 1)
+  type SingleToken = readonly [1, 1, 768];
+  type ProjectionWeight = readonly [768, 768];
+  expectTypeOf<MatMulShape<SingleToken, ProjectionWeight>>().toEqualTypeOf<readonly [1, 1, 768]>();
+  
+  // Batched single token generation (e.g., beam search)
+  type BatchedTokens = readonly [4, 1, 768];  // beam size 4
+  expectTypeOf<MatMulShape<BatchedTokens, ProjectionWeight>>().toEqualTypeOf<readonly [4, 1, 768]>();
+  
+  // KV-cache optimization: single position update
+  type NewKV = readonly [1, 1, 12, 64];  // [batch=1, pos=1, heads, d_head]
+  type ExistingCache = readonly [1, 12, 511, 64]; // [batch, heads, cached_positions, d_head]
+  // Note: These would be concatenated along seq dimension, not matmul'd
+  // But let's verify they're valid transformer cache shapes
+  expectTypeOf<NewKV[2]>().toEqualTypeOf<12>(); // num_heads
+  expectTypeOf<ExistingCache[2]>().toEqualTypeOf<511>(); // cached sequence length
+  
+  // Flash attention chunking
+  type ChunkedQ = readonly [32, 12, 16, 64];  // queries in chunks of 16
+  type FullKV_T = readonly [32, 12, 64, 128]; // full KV sequence
+  expectTypeOf<IsMatMulCompatible<ChunkedQ, FullKV_T>>().toEqualTypeOf<true>();
+  expectTypeOf<MatMulShape<ChunkedQ, FullKV_T>>().toEqualTypeOf<readonly [32, 12, 16, 128]>();
 }
 
 // =============================================================================

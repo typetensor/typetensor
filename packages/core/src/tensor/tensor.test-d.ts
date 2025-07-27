@@ -10,7 +10,7 @@ import type { Tensor } from './tensor';
 import type { TensorStorage, CreateOp } from '../storage/layout';
 import type { Neg, Abs } from '../storage/unary';
 import type { Add } from '../storage/binary';
-import type { ReshapeOp, Flatten, View, SliceOp } from '../storage/view';
+import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from '../storage/view';
 import type { NestedArray, InferShape, TensorOptions, DTypeValue } from './types';
 import type { Float32, Int32, Bool, Int64, AnyDType } from '../dtype/types';
 import type { Shape, CanReshape } from '../shape/types';
@@ -413,9 +413,7 @@ expectTypeOf(sliceNullResult).toMatchTypeOf<
 expectTypeOf(sliceNullResult.shape).toEqualTypeOf<readonly [10, 20]>(); // Shape unchanged
 
 // Test 5: Partial indexing (fewer indices than dimensions)
-declare const slicePartialResult: Awaited<
-  ReturnType<typeof slice3DTensor.slice<readonly [5]>>
->;
+declare const slicePartialResult: Awaited<ReturnType<typeof slice3DTensor.slice<readonly [5]>>>;
 expectTypeOf(slicePartialResult).toMatchTypeOf<
   Tensor<SliceOp<TensorStorage<Float32, readonly [8, 12, 16]>, readonly [5]>>
 >();
@@ -479,3 +477,153 @@ type ExpectedSliceType = Tensor<
   SliceOp<TensorStorage<Float32, readonly [8, 12, 16]>, readonly [5, { start: 2; stop: 8 }, null]>
 >;
 expectTypeOf(sliceReturnType).toMatchTypeOf<ExpectedSliceType>();
+
+// =============================================================================
+// Transpose Operation Type Tests
+// =============================================================================
+
+// Test 1: 2D transpose
+declare const transpose2DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [3, 4]>>>;
+const transposeResult2D = transpose2DTensor.transpose();
+expectTypeOf(transposeResult2D).toMatchTypeOf<
+  Tensor<TransposeOp<TensorStorage<Float32, readonly [3, 4]>>>
+>();
+expectTypeOf(transposeResult2D.shape).toEqualTypeOf<readonly [4, 3]>();
+expectTypeOf(transposeResult2D.dtype).toEqualTypeOf<Float32>();
+
+// Test 2: 3D transpose (swaps last two dimensions)
+declare const transpose3DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [2, 3, 4]>>>;
+const transposeResult3D = transpose3DTensor.transpose();
+expectTypeOf(transposeResult3D).toMatchTypeOf<
+  Tensor<TransposeOp<TensorStorage<Float32, readonly [2, 3, 4]>>>
+>();
+expectTypeOf(transposeResult3D.shape).toEqualTypeOf<readonly [2, 4, 3]>();
+
+// Test 3: 4D transpose
+declare const transpose4DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [5, 6, 7, 8]>>>;
+const transposeResult4D = transpose4DTensor.transpose();
+expectTypeOf(transposeResult4D.shape).toEqualTypeOf<readonly [5, 6, 8, 7]>();
+
+// Test 4: 1D tensor (no change)
+declare const transpose1DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10]>>>;
+const transposeResult1D = transpose1DTensor.transpose();
+expectTypeOf(transposeResult1D).toMatchTypeOf<
+  Tensor<TransposeOp<TensorStorage<Float32, readonly [10]>>>
+>();
+expectTypeOf(transposeResult1D.shape).toEqualTypeOf<readonly [10]>();
+
+// Test 5: Scalar (no change)
+declare const transposeScalarTensor: Tensor<CreateOp<TensorStorage<Float32, readonly []>>>;
+const transposeResultScalar = transposeScalarTensor.transpose();
+expectTypeOf(transposeResultScalar.shape).toEqualTypeOf<readonly []>();
+
+// Test 6: T property
+const transposeResultT = transpose2DTensor.T;
+expectTypeOf(transposeResultT).toMatchTypeOf<
+  Tensor<TransposeOp<TensorStorage<Float32, readonly [3, 4]>>>
+>();
+expectTypeOf(transposeResultT.shape).toEqualTypeOf<readonly [4, 3]>();
+
+// Test 7: Preserves dtype
+declare const transposeIntTensor: Tensor<CreateOp<TensorStorage<Int32, readonly [5, 6]>>>;
+const transposeIntResult = transposeIntTensor.transpose();
+expectTypeOf(transposeIntResult.dtype).toEqualTypeOf<Int32>();
+expectTypeOf(transposeIntResult.shape).toEqualTypeOf<readonly [6, 5]>();
+
+// Test 8: Different dtypes
+declare const transposeBigintTensor: Tensor<CreateOp<TensorStorage<Int64, readonly [3, 4]>>>;
+const transposeBigintResult = transposeBigintTensor.transpose();
+expectTypeOf(transposeBigintResult.dtype).toEqualTypeOf<Int64>();
+
+declare const transposeBoolTensor: Tensor<CreateOp<TensorStorage<Bool, readonly [2, 3]>>>;
+const transposeBoolResult = transposeBoolTensor.transpose();
+expectTypeOf(transposeBoolResult.dtype).toEqualTypeOf<Bool>();
+
+// Test 9: Layout properties
+expectTypeOf(transposeResult2D.layout.is_view).toEqualTypeOf<true>();
+expectTypeOf(transposeResult2D.layout.c_contiguous).toEqualTypeOf<false>();
+expectTypeOf(transposeResult2D.layout.f_contiguous).toEqualTypeOf<false>();
+
+// =============================================================================
+// Permute Operation Type Tests
+// =============================================================================
+
+// Test 1: 3D permutation
+declare const permute3DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [2, 3, 4]>>>;
+const permuteResult1 = permute3DTensor.permute([2, 0, 1] as const);
+expectTypeOf(permuteResult1).toMatchTypeOf<
+  Tensor<PermuteOp<TensorStorage<Float32, readonly [2, 3, 4]>, readonly [2, 0, 1]>>
+>();
+expectTypeOf(permuteResult1.shape).toEqualTypeOf<readonly [4, 2, 3]>();
+expectTypeOf(permuteResult1.dtype).toEqualTypeOf<Float32>();
+
+// Test 2: Identity permutation
+const permuteIdentity = permute3DTensor.permute([0, 1, 2] as const);
+expectTypeOf(permuteIdentity).toMatchTypeOf<
+  Tensor<PermuteOp<TensorStorage<Float32, readonly [2, 3, 4]>, readonly [0, 1, 2]>>
+>();
+expectTypeOf(permuteIdentity.shape).toEqualTypeOf<readonly [2, 3, 4]>();
+
+// Test 3: 2D transpose via permute
+declare const permute2DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10, 20]>>>;
+const permute2DResult = permute2DTensor.permute([1, 0] as const);
+expectTypeOf(permute2DResult).toMatchTypeOf<
+  Tensor<PermuteOp<TensorStorage<Float32, readonly [10, 20]>, readonly [1, 0]>>
+>();
+expectTypeOf(permute2DResult.shape).toEqualTypeOf<readonly [20, 10]>();
+
+// Test 4: NHWC to NCHW conversion
+declare const nhwcTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [32, 224, 224, 3]>>>;
+const nchwTensor = nhwcTensor.permute([0, 3, 1, 2] as const);
+expectTypeOf(nchwTensor).toMatchTypeOf<
+  Tensor<PermuteOp<TensorStorage<Float32, readonly [32, 224, 224, 3]>, readonly [0, 3, 1, 2]>>
+>();
+expectTypeOf(nchwTensor.shape).toEqualTypeOf<readonly [32, 3, 224, 224]>();
+
+// Test 5: 4D permutation variations
+declare const permute4DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [2, 3, 4, 5]>>>;
+
+// Reverse all dimensions
+const permuteReverse = permute4DTensor.permute([3, 2, 1, 0] as const);
+expectTypeOf(permuteReverse.shape).toEqualTypeOf<readonly [5, 4, 3, 2]>();
+
+// Rotate dimensions
+const permuteRotate = permute4DTensor.permute([1, 2, 3, 0] as const);
+expectTypeOf(permuteRotate.shape).toEqualTypeOf<readonly [3, 4, 5, 2]>();
+
+// Test 6: Preserves dtype
+declare const permuteInt64Tensor: Tensor<CreateOp<TensorStorage<Int64, readonly [5, 6, 7]>>>;
+const permuteInt64Result = permuteInt64Tensor.permute([2, 1, 0] as const);
+expectTypeOf(permuteInt64Result.dtype).toEqualTypeOf<Int64>();
+expectTypeOf(permuteInt64Result.shape).toEqualTypeOf<readonly [7, 6, 5]>();
+
+// Test 7: Layout properties
+expectTypeOf(permuteResult1.layout.is_view).toEqualTypeOf<true>();
+expectTypeOf(permuteResult1.layout.c_contiguous).toEqualTypeOf<false>();
+expectTypeOf(permuteResult1.layout.f_contiguous).toEqualTypeOf<false>();
+
+// Test 8: 1D permutation
+declare const permute1DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10]>>>;
+const permute1DResult = permute1DTensor.permute([0] as const);
+expectTypeOf(permute1DResult.shape).toEqualTypeOf<readonly [10]>();
+
+// Test 9: Different permutation patterns
+const permutePattern1 = permute3DTensor.permute([1, 0, 2] as const);
+expectTypeOf(permutePattern1.shape).toEqualTypeOf<readonly [3, 2, 4]>();
+
+const permutePattern2 = permute3DTensor.permute([1, 2, 0] as const);
+expectTypeOf(permutePattern2.shape).toEqualTypeOf<readonly [3, 4, 2]>();
+
+const permutePattern3 = permute3DTensor.permute([2, 1, 0] as const);
+expectTypeOf(permutePattern3.shape).toEqualTypeOf<readonly [4, 3, 2]>();
+
+// Test 10: Type-level validation
+// The following should fail at compile time if uncommented:
+// @ts-expect-error - axes length must match rank
+const invalidPerm1 = permute3DTensor.permute([0, 1] as const);
+
+// @ts-expect-error - duplicate axes
+const invalidPerm2 = permute3DTensor.permute([0, 0, 1] as const);
+
+// @ts-expect-error - out of bounds axis
+const invalidPerm3 = permute3DTensor.permute([0, 1, 3] as const);

@@ -7,15 +7,35 @@
 
 import type { AnyStorageTransformation, ComputeStrides } from '../storage/layout';
 import type { DeviceData, Device } from '../device/types';
-import type { Shape, CanReshape, Product, CanBroadcast, ShapeToString, SliceIndex } from '../shape/types';
+import type {
+  Shape,
+  CanReshape,
+  Product,
+  CanBroadcast,
+  ShapeToString,
+  SliceIndex,
+  Permute,
+} from '../shape/types';
 import type { Neg, Abs, Sin, Cos, Exp, Log, Sqrt, Square } from '../storage/unary';
 import type { Add, Sub, Mul, Div } from '../storage/binary';
-import type { ReshapeOp, Flatten, View, SliceOp } from '../storage/view';
+import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from '../storage/view';
 import type { DTypeValue } from '../dtype/types';
 import type { NestedArray } from './types';
 import { bufferToNestedArray } from './types';
 import { formatShape, broadcastShapes, assertShapesCompatible } from '../shape';
-import { computeStrides, computeSize, computeSlicedShape, computeSlicedStrides, validateSliceIndices } from './utils';
+import {
+  computeStrides,
+  computeSize,
+  computeSlicedShape,
+  computeSlicedStrides,
+  validateSliceIndices,
+  computeTransposedShape,
+  computeTransposedStrides,
+  computePermutedShape,
+  computePermutedStrides,
+  validatePermutationAxes,
+  normalizePermutationAxes,
+} from './utils';
 import { toFloatDType, toPromotedDType } from '../dtype';
 import type { Mod } from 'ts-arithmetic';
 
@@ -817,6 +837,134 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     // Execute on device - slicing needs device support for proper memory handling
     const resultData = await this.data.device.execute(sliceOp, [this.data]);
     return new Tensor(sliceOp, resultData);
+  }
+
+  /**
+   * Transpose tensor by swapping the last two dimensions
+   *
+   * For tensors with rank < 2, returns a view of the original tensor unchanged.
+   * For higher rank tensors, swaps the last two dimensions.
+   *
+   * @returns View of transposed tensor
+   *
+   * @example
+   * const a = await tensor([[1, 2, 3], [4, 5, 6]]); // Shape: [2, 3]
+   * const b = a.transpose(); // Shape: [3, 2]
+   * // [[1, 4],
+   * //  [2, 5],
+   * //  [3, 6]]
+   *
+   * const c = await tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]); // Shape: [2, 2, 2]
+   * const d = c.transpose(); // Shape: [2, 2, 2] (swaps last two dims)
+   */
+  transpose(): Tensor<TransposeOp<S['__output']>> {
+    if (this.ndim < 2) {
+      // For scalars and 1D tensors, return unchanged
+      const transposeOp = {
+        __op: 'transpose' as const,
+        __output: {
+          ...this.storage,
+          __layout: {
+            ...this.storage.__layout,
+            is_view: true,
+          },
+        } as TransposeOp<S['__output']>['__output'],
+        __inputs: [this.storage] as const,
+      } as TransposeOp<S['__output']>;
+
+      return new Tensor(transposeOp, this.data) as Tensor<TransposeOp<S['__output']>>;
+    }
+
+    // Compute transposed shape and strides
+    const transposedShape = computeTransposedShape(this.shape);
+    const transposedStrides = computeTransposedStrides(this.shape, this.strides);
+
+    const transposeOp = {
+      __op: 'transpose' as const,
+      __output: {
+        __dtype: this.storage.__dtype,
+        __shape: transposedShape,
+        __strides: transposedStrides,
+        __size: this.storage.__size,
+        __layout: {
+          c_contiguous: false,
+          f_contiguous: false,
+          is_view: true,
+          writeable: this.storage.__layout.writeable,
+          aligned: this.storage.__layout.aligned,
+        },
+        __offset: this.storage.__offset,
+      } as TransposeOp<S['__output']>['__output'],
+      __inputs: [this.storage] as const,
+    } as TransposeOp<S['__output']>;
+
+    return new Tensor(transposeOp, this.data) as Tensor<TransposeOp<S['__output']>>;
+  }
+
+  /**
+   * Shorthand for transpose()
+   *
+   * @returns View of transposed tensor
+   *
+   * @example
+   * const a = await tensor([[1, 2, 3], [4, 5, 6]]);
+   * const b = a.T; // Same as a.transpose()
+   */
+  get T(): Tensor<TransposeOp<S['__output']>> {
+    return this.transpose();
+  }
+
+  /**
+   * Permute tensor dimensions according to specified axes
+   *
+   * Returns a view of the tensor with dimensions rearranged according to
+   * the axes array. Each dimension index must appear exactly once.
+   *
+   * @param axes - New order of dimensions (must use 'as const')
+   * @returns View with permuted dimensions
+   *
+   * @example
+   * const a = await tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]); // Shape: [2, 2, 2]
+   * const b = a.permute([2, 0, 1] as const); // Shape: [2, 2, 2]
+   * const c = a.permute([1, 2, 0] as const); // Shape: [2, 2, 2]
+   *
+   * // For a tensor with shape [batch, height, width, channels]:
+   * const img = await tensor(imageData); // Shape: [32, 224, 224, 3]
+   * const channelsFirst = img.permute([0, 3, 1, 2] as const); // Shape: [32, 3, 224, 224]
+   */
+  permute<Axes extends readonly number[]>(
+    axes: Axes & (Axes['length'] extends S['__output']['__shape']['length'] ? Axes : never),
+  ): Tensor<PermuteOp<S['__output'], Axes>> {
+    // Validate axes at runtime
+    validatePermutationAxes(this.ndim, axes);
+
+    // Normalize negative indices
+    const normalizedAxes = normalizePermutationAxes(axes, this.ndim);
+
+    // Compute permuted shape and strides
+    const permutedShape = computePermutedShape(this.shape, normalizedAxes);
+    const permutedStrides = computePermutedStrides(this.strides, normalizedAxes);
+
+    const permuteOp = {
+      __op: 'permute' as const,
+      __output: {
+        __dtype: this.storage.__dtype,
+        __shape: permutedShape as unknown as Permute<S['__output']['__shape'], Axes>,
+        __strides: permutedStrides as unknown as Permute<S['__output']['__strides'], Axes>,
+        __size: this.storage.__size,
+        __layout: {
+          c_contiguous: false,
+          f_contiguous: false,
+          is_view: true,
+          writeable: this.storage.__layout.writeable,
+          aligned: this.storage.__layout.aligned,
+        },
+        __offset: this.storage.__offset,
+      } as PermuteOp<S['__output'], Axes>['__output'],
+      __inputs: [this.storage] as const,
+    } as PermuteOp<S['__output'], Axes>;
+
+    return new Tensor(permuteOp, this.data) as Tensor<PermuteOp<S['__output'], Axes>>;
   }
 
   // =============================================================================

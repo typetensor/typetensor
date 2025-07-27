@@ -13,8 +13,9 @@ import type {
   SlicedShape,
   SliceSpec,
   SliceIndex,
+  Permute,
 } from '../shape/types';
-import type { Divide, Mod, Multiply } from 'ts-arithmetic';
+import type { Divide, Mod, Multiply, Compare } from 'ts-arithmetic';
 import type {
   TensorStorage,
   StorageTransformation,
@@ -347,3 +348,164 @@ export type SliceOp<Input extends AnyTensorStorage, Indices extends readonly Sli
         },
         readonly [Input]
       >;
+
+// =============================================================================
+// Transpose and Permute Operations
+// =============================================================================
+
+/**
+ * Compute layout after transpose/permute operations
+ * These operations generally break contiguity
+ */
+interface TransposeLayout<InputLayout extends LayoutFlags> extends LayoutFlags {
+  readonly c_contiguous: false; // Generally breaks C-contiguity
+  readonly f_contiguous: false; // Generally breaks F-contiguity
+  readonly is_view: true; // Always a view
+  readonly writeable: InputLayout['writeable'];
+  readonly aligned: InputLayout['aligned'];
+}
+
+/**
+ * Transpose operation storage transformation
+ *
+ * Default behavior: swaps the last two dimensions (matrix transpose)
+ * For <2D tensors: returns the tensor unchanged
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 3, 4]>; // Shape: [2, 3, 4]
+ * type B = TransposeOp<A>; // Shape: [2, 4, 3]
+ *
+ * type C = TensorStorage<Float32, [5]>; // 1D tensor
+ * type D = TransposeOp<C>; // Shape: [5] (unchanged)
+ */
+export type TransposeOp<Input extends AnyTensorStorage> = Input['__shape']['length'] extends 0 | 1
+  ? StorageTransformation<'transpose', Input, readonly [Input]> // Return unchanged
+  : Input['__shape'] extends readonly [...infer BatchDims, infer SecondLast, infer Last]
+    ? SecondLast extends number
+      ? Last extends number
+        ? BatchDims extends Shape
+          ? StorageTransformation<
+              'transpose',
+              TensorStorage<
+                Input['__dtype'],
+                readonly [...BatchDims, Last, SecondLast],
+                ComputeTransposedStrides<Input['__strides'], Input['__shape']['length']>,
+                TransposeLayout<Input['__layout']>
+              >,
+              readonly [Input]
+            >
+          : never
+        : never
+      : never
+    : never;
+
+/**
+ * Helper: Compute strides after default transpose (swap last two dims)
+ */
+type ComputeTransposedStrides<Strides extends Shape, Rank extends number> = Rank extends 0 | 1
+  ? Strides // No change for scalars or 1D
+  : Strides extends readonly [...infer Init, infer SecondLast, infer Last]
+    ? Init extends Shape
+      ? SecondLast extends number
+        ? Last extends number
+          ? readonly [...Init, Last, SecondLast]
+          : never
+        : never
+      : never
+    : never;
+
+/**
+ * Permute operation storage transformation
+ *
+ * Rearranges tensor dimensions according to the specified axes order.
+ * Each axis index must appear exactly once.
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 3, 4]>; // Shape: [2, 3, 4]
+ * type B = PermuteOp<A, [2, 0, 1]>; // Shape: [4, 2, 3]
+ * type C = PermuteOp<A, [1, 0, 2]>; // Shape: [3, 2, 4]
+ */
+export type PermuteOp<Input extends AnyTensorStorage, Axes extends readonly number[]> =
+  IsValidPermutation<Input['__shape'], Axes> extends true
+    ? StorageTransformation<
+        'permute',
+        TensorStorage<
+          Input['__dtype'],
+          Permute<Input['__shape'], Axes>,
+          Permute<Input['__strides'], Axes>, // Reuse Permute from shape module
+          TransposeLayout<Input['__layout']>
+        >,
+        readonly [Input]
+      >
+    : never & {
+        __error: `Invalid permutation axes for tensor of rank ${Input['__shape']['length']}`;
+        __hint: 'Axes must contain each dimension index exactly once';
+      };
+
+/**
+ * Helper: Validate permutation axes
+ */
+type IsValidPermutation<
+  S extends Shape,
+  Axes extends readonly number[],
+> = Axes['length'] extends S['length']
+  ? HasUniqueElements<Axes> extends true
+    ? AreAxesInRange<Axes, S['length']> extends true
+      ? true
+      : false
+    : false
+  : false;
+
+/**
+ * Helper: Check if all elements are unique
+ */
+type HasUniqueElements<T extends readonly number[]> = T extends readonly []
+  ? true
+  : T extends readonly [infer Head, ...infer Tail]
+    ? Head extends number
+      ? Tail extends readonly number[]
+        ? Contains<Tail, Head> extends true
+          ? false
+          : HasUniqueElements<Tail>
+        : false
+      : false
+    : false;
+
+/**
+ * Helper: Check if array contains element
+ */
+type Contains<T extends readonly number[], E extends number> = T extends readonly []
+  ? false
+  : T extends readonly [infer Head, ...infer Tail]
+    ? Head extends E
+      ? true
+      : Tail extends readonly number[]
+        ? Contains<Tail, E>
+        : false
+    : false;
+
+/**
+ * Helper: Check if all axes are in valid range [0, rank)
+ */
+type AreAxesInRange<Axes extends readonly number[], Rank extends number> = Axes extends readonly []
+  ? true
+  : Axes extends readonly [infer Head, ...infer Tail]
+    ? Head extends number
+      ? IsInRange<Head, Rank> extends true
+        ? Tail extends readonly number[]
+          ? AreAxesInRange<Tail, Rank>
+          : false
+        : false
+      : false
+    : false;
+
+/**
+ * Helper: Check if number is in range [0, N)
+ */
+type IsInRange<X extends number, N extends number> = X extends number
+  ? `${X}` extends `-${string}`
+    ? false // Negative numbers not allowed
+    : Compare<X, N> extends -1
+      ? true
+      : false
+  : false;

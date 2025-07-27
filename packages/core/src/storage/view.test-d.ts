@@ -11,7 +11,7 @@ import type {
   OutputOf,
   LayoutOf,
 } from './layout';
-import type { ReshapeOp, Flatten, View, SliceOp } from './view';
+import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from './view';
 import type { Float32, Int32, Float64 } from '../dtype/types';
 import { expectTypeOf } from 'expect-type';
 
@@ -713,4 +713,128 @@ type ReadOnlyTensor = TensorStorage<Float32, readonly [3, 4], readonly [4, 1], R
   type Complex2 = SliceOp<Tensor4D, readonly [{ start: 15 }, 0]>;
   // start=15 > dim=10, so clamps to [10:10] = 0, then removes second dim
   expectTypeOf<ShapeOf<OutputOf<Complex2>>>().toEqualTypeOf<readonly [0, 30, 40]>();
+}
+
+// =============================================================================
+// TransposeOp Tests
+// =============================================================================
+
+// Test 1: 2D transpose
+{
+  type Transpose2D = TransposeOp<Float32Matrix2D>;
+  expectTypeOf<ShapeOf<OutputOf<Transpose2D>>>().toEqualTypeOf<readonly [4, 3]>();
+  expectTypeOf<DTypeOf<OutputOf<Transpose2D>>>().toEqualTypeOf<Float32>();
+}
+
+// Test 2: 3D transpose (swaps last two)
+{
+  type Transpose3D = TransposeOp<Float32Tensor3D>;
+  expectTypeOf<ShapeOf<OutputOf<Transpose3D>>>().toEqualTypeOf<readonly [2, 4, 3]>();
+}
+
+// Test 3: 1D tensor (no change)
+{
+  type Vec1D = TensorStorage<Float32, readonly [10]>;
+  type Transpose1D = TransposeOp<Vec1D>;
+  expectTypeOf<ShapeOf<OutputOf<Transpose1D>>>().toEqualTypeOf<readonly [10]>();
+}
+
+// Test 4: Scalar (no change)
+{
+  type TransposeScalar = TransposeOp<Float32Scalar>;
+  expectTypeOf<ShapeOf<OutputOf<TransposeScalar>>>().toEqualTypeOf<readonly []>();
+}
+
+// Test 5: 4D transpose
+{
+  type Transpose4D = TransposeOp<Float32Tensor4D>;
+  expectTypeOf<ShapeOf<OutputOf<Transpose4D>>>().toEqualTypeOf<readonly [2, 3, 5, 4]>();
+}
+
+// Test 6: Layout changes
+{
+  type Transpose2D = TransposeOp<Float32Matrix2D>;
+  expectTypeOf<LayoutOf<OutputOf<Transpose2D>>['is_view']>().toEqualTypeOf<true>();
+  expectTypeOf<LayoutOf<OutputOf<Transpose2D>>['c_contiguous']>().toEqualTypeOf<false>();
+  expectTypeOf<LayoutOf<OutputOf<Transpose2D>>['f_contiguous']>().toEqualTypeOf<false>();
+}
+
+// Test 7: Different dtypes
+{
+  type TransposeInt = TransposeOp<Int32Matrix>;
+  expectTypeOf<DTypeOf<OutputOf<TransposeInt>>>().toEqualTypeOf<Int32>();
+  expectTypeOf<ShapeOf<OutputOf<TransposeInt>>>().toEqualTypeOf<readonly [4, 3]>();
+}
+
+// =============================================================================
+// PermuteOp Tests
+// =============================================================================
+
+// Test 1: Basic 3D permutation
+{
+  type Permute3D_201 = PermuteOp<Float32Tensor3D, readonly [2, 0, 1]>;
+  expectTypeOf<ShapeOf<OutputOf<Permute3D_201>>>().toEqualTypeOf<readonly [4, 2, 3]>();
+  expectTypeOf<DTypeOf<OutputOf<Permute3D_201>>>().toEqualTypeOf<Float32>();
+}
+
+// Test 2: Identity permutation
+{
+  type PermuteIdentity = PermuteOp<Float32Tensor3D, readonly [0, 1, 2]>;
+  expectTypeOf<ShapeOf<OutputOf<PermuteIdentity>>>().toEqualTypeOf<readonly [2, 3, 4]>();
+}
+
+// Test 3: 2D permutation (transpose)
+{
+  type Permute2D = PermuteOp<Float32Matrix2D, readonly [1, 0]>;
+  expectTypeOf<ShapeOf<OutputOf<Permute2D>>>().toEqualTypeOf<readonly [4, 3]>();
+}
+
+// Test 4: NHWC to NCHW conversion
+{
+  type NHWC = TensorStorage<Float32, readonly [32, 224, 224, 3]>;
+  type NCHW = PermuteOp<NHWC, readonly [0, 3, 1, 2]>;
+  expectTypeOf<ShapeOf<OutputOf<NCHW>>>().toEqualTypeOf<readonly [32, 3, 224, 224]>();
+}
+
+// Test 5: 4D permutation variations
+{
+  type Tensor4D = TensorStorage<Float32, readonly [2, 3, 4, 5]>;
+  
+  // Reverse all dimensions
+  type PermuteReverse = PermuteOp<Tensor4D, readonly [3, 2, 1, 0]>;
+  expectTypeOf<ShapeOf<OutputOf<PermuteReverse>>>().toEqualTypeOf<readonly [5, 4, 3, 2]>();
+  
+  // Rotate dimensions
+  type PermuteRotate = PermuteOp<Tensor4D, readonly [1, 2, 3, 0]>;
+  expectTypeOf<ShapeOf<OutputOf<PermuteRotate>>>().toEqualTypeOf<readonly [3, 4, 5, 2]>();
+}
+
+// Test 6: Layout properties
+{
+  type Permuted = PermuteOp<Float32Tensor3D, readonly [2, 0, 1]>;
+  expectTypeOf<LayoutOf<OutputOf<Permuted>>['is_view']>().toEqualTypeOf<true>();
+  expectTypeOf<LayoutOf<OutputOf<Permuted>>['c_contiguous']>().toEqualTypeOf<false>();
+  expectTypeOf<LayoutOf<OutputOf<Permuted>>['f_contiguous']>().toEqualTypeOf<false>();
+}
+
+// Test 7: Different dtypes
+{
+  type PermuteFloat64 = PermuteOp<Float64Tensor, readonly [1, 2, 0]>;
+  expectTypeOf<DTypeOf<OutputOf<PermuteFloat64>>>().toEqualTypeOf<Float64>();
+  expectTypeOf<ShapeOf<OutputOf<PermuteFloat64>>>().toEqualTypeOf<readonly [3, 4, 2]>();
+}
+
+// Test 8: Invalid permutations should fail
+{
+  // @ts-expect-error - duplicate axis
+  type InvalidPerm1 = PermuteOp<Float32Tensor3D, readonly [0, 0, 1]>;
+  
+  // @ts-expect-error - wrong length
+  type InvalidPerm2 = PermuteOp<Float32Tensor3D, readonly [0, 1]>;
+  
+  // @ts-expect-error - out of range
+  type InvalidPerm3 = PermuteOp<Float32Tensor3D, readonly [0, 1, 3]>;
+  
+  // @ts-expect-error - negative indices not allowed in type system
+  type InvalidPerm4 = PermuteOp<Float32Tensor3D, readonly [-1, 0, 1]>;
 }

@@ -568,6 +568,34 @@ export type CanReshape<From extends Shape, To extends Shape> =
 export type IsMatMulCompatible<A extends Shape, B extends Shape> = HasMatchingInnerDims<A, B>;
 
 /**
+ * Validate if two shapes can be matrix multiplied with detailed error messages
+ *
+ * Returns true for compatible shapes, or a ShapeError for incompatible ones.
+ * This provides better developer experience than IsMatMulCompatible which returns boolean.
+ *
+ * @example
+ * type Valid = CanMatmul<[2, 3], [3, 4]> // true
+ * type Invalid = CanMatmul<[2, 3], [4, 5]> // ShapeError with detailed message
+ */
+export type CanMatmul<A extends Shape, B extends Shape> =
+  IsMatMulCompatible<A, B> extends true
+    ? true
+    : A extends readonly []
+      ? ShapeError<
+          `Cannot multiply scalar tensors. Matrix multiplication requires at least 1D tensors.`,
+          { shapeA: A; shapeB: B }
+        >
+      : B extends readonly []
+        ? ShapeError<
+            `Cannot multiply with scalar tensor. Matrix multiplication requires at least 1D tensors.`,
+            { shapeA: A; shapeB: B }
+          >
+        : ShapeError<
+            `Cannot multiply tensors with shapes [${ShapeToString<A>}] and [${ShapeToString<B>}]. Matrix multiplication requires the last dimension of the first tensor (${LastDim<A> & number}) to match the ${B extends readonly [unknown] ? 'dimension' : 'second-to-last dimension'} of the second tensor (${B extends readonly [unknown] ? B[0] & number : SecondToLast<B> & number}).`,
+            { shapeA: A; shapeB: B }
+          >;
+
+/**
  * Check if inner dimensions match for matrix multiplication
  * A's last dimension must equal B's second-to-last dimension
  *

@@ -83,29 +83,32 @@ type ComputeStridesHelper<S extends Shape, Acc extends Shape = readonly []> = S 
 
 /**
  * Union of all supported tensor operation types
- * 
+ *
  * This exhaustive list ensures that device implementations must handle
  * all operations. Adding a new operation here will cause TypeScript
  * errors in device implementations until they add support.
  */
-export type AllOperationTypes = 
-  | 'create'     // Tensor creation
-  | 'neg'        // Unary negation
-  | 'abs'        // Absolute value
-  | 'sin'        // Sine
-  | 'cos'        // Cosine
-  | 'exp'        // Exponential
-  | 'log'        // Natural logarithm
-  | 'sqrt'       // Square root
-  | 'square'     // Square
-  | 'add'        // Element-wise addition
-  | 'sub'        // Element-wise subtraction
-  | 'mul'        // Element-wise multiplication
-  | 'div'        // Element-wise division
-  | 'reshape'    // Reshape view
-  | 'view'       // View with dimension inference
-  | 'slice'      // Tensor slicing
-  | 'flatten';   // Flatten to 1D
+export type AllOperationTypes =
+  | 'create' // Tensor creation
+  | 'neg' // Unary negation
+  | 'abs' // Absolute value
+  | 'sin' // Sine
+  | 'cos' // Cosine
+  | 'exp' // Exponential
+  | 'log' // Natural logarithm
+  | 'sqrt' // Square root
+  | 'square' // Square
+  | 'add' // Element-wise addition
+  | 'sub' // Element-wise subtraction
+  | 'mul' // Element-wise multiplication
+  | 'div' // Element-wise division
+  | 'reshape' // Reshape view
+  | 'view' // View with dimension inference
+  | 'slice' // Tensor slicing
+  | 'flatten' // Flatten to 1D
+  | 'permute' // Permute dimensions
+  | 'matmul' // Matrix multiplication
+  | 'transpose'; // Transpose dimensions
 
 /**
  * Base interface for all storage transformations
@@ -124,10 +127,10 @@ export interface StorageTransformation<
 /**
  * Forces TypeScript to check that all operation cases are handled
  * Use this in the default case of switch statements to ensure exhaustiveness
- * 
+ *
  * @param op - Should be `never` if all cases are handled
  * @throws {Error} Always throws with operation details
- * 
+ *
  * @example
  * switch (op.__op) {
  *   case 'add': return handleAdd(op);
