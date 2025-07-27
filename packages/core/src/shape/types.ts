@@ -6,7 +6,8 @@
  * and inference for tensor operations.
  */
 
-import type { Multiply as TSMultiply } from 'ts-arithmetic';
+import type { Multiply, Subtract, Compare, Add } from 'ts-arithmetic';
+import type { Ceil, Max, Clamp, Abs } from '../arithmetic';
 
 // =============================================================================
 // Basic Shape Types
@@ -82,12 +83,6 @@ export type Product<T extends Shape> = T extends readonly []
         : never
       : never
     : never;
-
-/**
- * Type-level multiplication using ts-arithmetic for precise calculations
- * Supports arbitrary precision arithmetic up to 1e+21 without recursion limits
- */
-type Multiply<A extends number, B extends number> = TSMultiply<A, B>;
 
 /**
  * Get the length (rank) of a shape
@@ -253,40 +248,6 @@ type DropHelper<T extends Shape, N extends number> = N extends 0
       ? DropHelper<Rest, Subtract<N, 1>>
       : readonly []
     : readonly [];
-
-/**
- * Type-level subtraction (limited to small numbers)
- */
-type Subtract<A extends number, B extends number> = [
-  never,
-  0,
-  1,
-  2,
-  3,
-  4,
-  5,
-  6,
-  7,
-  8,
-  9,
-  10,
-][A extends 0 ? never : A] extends infer Result
-  ? Result extends number
-    ? B extends 0
-      ? A
-      : B extends 1
-        ? A extends 1
-          ? 0
-          : A extends 2
-            ? 1
-            : A extends 3
-              ? 2
-              : A extends 4
-                ? 3
-                : number
-        : number
-    : never
-  : never;
 
 /**
  * Permute dimensions according to an axis order
@@ -802,3 +763,126 @@ export type SequenceShape = readonly [number, number]; // [batch, sequence_lengt
  * Attention shape for transformers
  */
 export type AttentionShape = readonly [number, number, number]; // [batch, sequence_length, features]
+
+// =============================================================================
+// Slicing Operations
+// =============================================================================
+
+/**
+ * Slice specification for a single dimension
+ */
+export interface SliceSpec {
+  readonly start?: number;
+  readonly stop?: number;
+  readonly step?: number;
+}
+
+/**
+ * Slice index can be:
+ * - number: for indexing (removes dimension)
+ * - SliceSpec: for slicing (computes new dimension size)
+ * - null: for full slice (preserves dimension)
+ */
+export type SliceIndex = number | SliceSpec | null;
+
+/**
+ * Normalize a potentially negative index to a positive index
+ * Negative indices count from the end: -1 = last element, -2 = second to last, etc.
+ * 
+ * @example
+ * type Idx1 = NormalizeIndex<-1, 10> // 9
+ * type Idx2 = NormalizeIndex<-5, 10> // 5
+ * type Idx3 = NormalizeIndex<5, 10> // 5
+ * type Idx4 = NormalizeIndex<-15, 10> // 0 (clamped)
+ */
+type NormalizeIndex<Index extends number, Dim extends number> = 
+  `${Index}` extends `-${infer AbsValue extends number}`
+    ? Max<0, Subtract<Dim, AbsValue>> // Negative: dim - abs(index), clamped to 0
+    : Index; // Positive: use as-is
+
+/**
+ * Compute the size of a sliced dimension
+ *
+ * @example
+ * type Size1 = ComputeSlicedDimSize<10, { start: 0, stop: 5 }> // 5
+ * type Size2 = ComputeSlicedDimSize<10, { start: 2, stop: 8, step: 2 }> // 3
+ * type Size3 = ComputeSlicedDimSize<10, null> // 10
+ */
+type ComputeSlicedDimSize<Dim extends number, Index extends SliceSpec | null> = Index extends null
+  ? Dim // Full slice preserves dimension
+  : Index extends SliceSpec
+    ? Index['stop'] extends number
+      ? Index['start'] extends number
+        ? Index['step'] extends number
+          ? Index['step'] extends 0
+            ? never // Zero step is invalid
+            : Max<0, Ceil<Subtract<
+                Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim>, 
+                Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>
+              >, Index['step']>>
+          : Max<0, Subtract<
+              Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim>, 
+              Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>
+            >> // Default step = 1
+        : Index['step'] extends number
+          ? Index['step'] extends 0
+            ? never // Zero step is invalid
+            : Ceil<Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim>, Index['step']> // Default start = 0
+          : Clamp<NormalizeIndex<Index['stop'], Dim>, 0, Dim> // Default start = 0, step = 1
+      : // No stop provided
+        Index['start'] extends number
+        ? Index['step'] extends number
+          ? Index['step'] extends 0
+            ? never // Zero step is invalid
+            : Max<0, Ceil<Subtract<Dim, Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>>, Index['step']>> // stop defaults to Dim
+          : Max<0, Subtract<Dim, Clamp<NormalizeIndex<Index['start'], Dim>, 0, Dim>>> // stop defaults to Dim, step = 1
+        : Index['step'] extends number
+          ? Index['step'] extends 0
+            ? never // Zero step is invalid
+            : Ceil<Dim, Index['step']> // start = 0, stop = Dim
+          : Dim // No start, stop, or step - full slice
+    : never;
+
+/**
+ * Compute the shape after slicing operations
+ *
+ * @example
+ * type Original = readonly [10, 20, 30];
+ * type Sliced1 = SlicedShape<Original, [{ start: 0, stop: 5 }, null, null]> // [5, 20, 30]
+ * type Sliced2 = SlicedShape<Original, [5, null, { start: 0, stop: 10 }]> // [20, 10]
+ * type Sliced3 = SlicedShape<Original, [null, { start: 5, stop: 15 }, null]> // [10, 10, 30]
+ */
+export type SlicedShape<
+  InputShape extends Shape,
+  Indices extends readonly SliceIndex[],
+> = SlicedShapeHelper<InputShape, Indices, readonly []>;
+
+type SlicedShapeHelper<
+  RemainingShape extends Shape,
+  RemainingIndices extends readonly SliceIndex[],
+  Acc extends Shape,
+> = RemainingIndices extends readonly []
+  ? readonly [...Acc, ...RemainingShape] // No more indices, keep remaining dims
+  : RemainingShape extends readonly []
+    ? Acc // No more shape dims
+    : RemainingIndices extends readonly [infer FirstIndex, ...infer RestIndices]
+      ? RemainingShape extends readonly [infer FirstDim, ...infer RestDims]
+        ? FirstDim extends number
+          ? RestDims extends Shape
+            ? RestIndices extends readonly SliceIndex[]
+              ? FirstIndex extends number
+                ? SlicedShapeHelper<RestDims, RestIndices, Acc> // Integer index: remove dimension
+                : FirstIndex extends SliceSpec | null
+                  ? ComputeSlicedDimSize<FirstDim, FirstIndex> extends never
+                    ? never // If dimension computation fails, propagate never
+                    : SlicedShapeHelper<
+                        RestDims,
+                        RestIndices,
+                        readonly [...Acc, ComputeSlicedDimSize<FirstDim, FirstIndex>]
+                      >
+                  : never
+              : never
+            : never
+          : never
+        : never
+      : never;

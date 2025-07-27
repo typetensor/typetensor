@@ -207,6 +207,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           writeable: true,
           aligned: true,
         },
+        __offset: 0,
       } as Neg<S['__output']>['__output'],
       __inputs: [this.storage] as const,
     };
@@ -236,6 +237,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           writeable: true,
           aligned: true,
         },
+        __offset: 0,
       } as Abs<S['__output']>['__output'],
       __inputs: [this.storage] as const,
     };
@@ -409,6 +411,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           writeable: true,
           aligned: true,
         },
+        __offset: 0,
       } as Add<S['__output'], T['__output']>['__output'],
       __inputs: [this.storage, other.storage] as const,
     } as Add<S['__output'], T['__output']>;
@@ -618,6 +621,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           ...this.storage.__layout,
           is_view: true,
         },
+        __offset: this.storage.__offset,
       } as ReshapeOp<S['__output'], NewShape>['__output'],
       __inputs: [this.storage] as const,
     } as ReshapeOp<S['__output'], NewShape>;
@@ -657,6 +661,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           ...this.storage.__layout,
           is_view: true,
         },
+        __offset: this.storage.__offset,
       } as ReshapeOp<S['__output'], NewShape>['__output'],
       __inputs: [this.storage] as const,
     } as ReshapeOp<S['__output'], NewShape>;
@@ -704,6 +709,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           ...this.storage.__layout,
           is_view: true,
         },
+        __offset: this.storage.__offset,
       } as View<S['__output'], NewShape>['__output'],
       __inputs: [this.storage] as const,
     } as View<S['__output'], NewShape>;

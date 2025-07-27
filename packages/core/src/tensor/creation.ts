@@ -132,6 +132,7 @@ function createTensorStorage<D extends AnyDType, S extends Shape>(
       writeable: true,
       aligned: true,
     } satisfies DefaultLayoutFlags,
+    __offset: 0,
   };
 }
 
@@ -284,6 +285,7 @@ export async function zeros<D extends AnyDType, S extends Shape>(
       writeable: true,
       aligned: true,
     } satisfies DefaultLayoutFlags,
+    __offset: 0,
   };
 
   // Wrap in a create transformation
@@ -345,6 +347,7 @@ export async function ones<D extends AnyDType, S extends Shape>(
       writeable: true,
       aligned: true,
     } satisfies DefaultLayoutFlags,
+    __offset: 0,
   };
 
   // Wrap in a create transformation
@@ -430,6 +433,7 @@ export async function eye<D extends AnyDType>(
       writeable: true,
       aligned: true,
     } satisfies DefaultLayoutFlags,
+    __offset: 0,
   };
 
   // Wrap in a create transformation

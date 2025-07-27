@@ -5,7 +5,15 @@
  * (reshape, flatten, etc.) with compile-time shape validation and layout preservation.
  */
 
-import type { Shape, Product, CanReshape, ShapeToString } from '../shape/types';
+import type {
+  Shape,
+  Product,
+  CanReshape,
+  ShapeToString,
+  SlicedShape,
+  SliceSpec,
+  SliceIndex,
+} from '../shape/types';
 import type { Divide, Mod } from 'ts-arithmetic';
 import type {
   TensorStorage,
@@ -253,3 +261,77 @@ type ProductOfKnownHelper<
           : Product<readonly [Acc, Head]>
         : Acc
     : Acc;
+
+// =============================================================================
+// Slice Operations
+// =============================================================================
+
+/**
+ * Compute new strides after slicing
+ * Integer indices remove the corresponding stride, slices preserve it
+ *
+ * Note: The actual stride value may be multiplied by step at runtime
+ */
+export type ComputeSlicedStrides<
+  InputStrides extends Shape,
+  Indices extends readonly SliceIndex[],
+> = ComputeSlicedStridesHelper<InputStrides, Indices, readonly []>;
+
+type ComputeSlicedStridesHelper<
+  RemainingStrides extends Shape,
+  RemainingIndices extends readonly SliceIndex[],
+  Acc extends Shape,
+> = RemainingIndices extends readonly []
+  ? readonly [...Acc, ...RemainingStrides] // No more indices
+  : RemainingStrides extends readonly []
+    ? Acc // No more strides
+    : RemainingIndices extends readonly [infer FirstIndex, ...infer RestIndices]
+      ? RemainingStrides extends readonly [infer FirstStride, ...infer RestStrides]
+        ? FirstStride extends number
+          ? RestStrides extends Shape
+            ? RestIndices extends readonly SliceIndex[]
+              ? FirstIndex extends number
+                ? ComputeSlicedStridesHelper<RestStrides, RestIndices, Acc> // Integer index: remove stride
+                : FirstIndex extends SliceSpec | null
+                  ? ComputeSlicedStridesHelper<
+                      RestStrides,
+                      RestIndices,
+                      readonly [...Acc, number] // Slice: stride depends on runtime step
+                    >
+                  : never
+              : never
+            : never
+          : never
+        : never
+      : never;
+
+/**
+ * Slice operation storage transformation
+ *
+ * Creates a view of the tensor with a subset of elements along each dimension.
+ * The actual slicing computation is performed by the device at execution time.
+ *
+ * @example
+ * type A = TensorStorage<Float32, [10, 20, 30]>;
+ * type B = SliceOp<A, [SliceSpec, 5, null]>; // Shape: [5, 30]
+ * type C = SliceOp<A, [null, null, SliceSpec]>; // Shape: [10, 20, number]
+ *
+ * The device implementation will use the indices to compute the actual offset
+ * and shape at runtime.
+ */
+export type SliceOp<Input extends AnyTensorStorage, Indices extends readonly SliceIndex[]> =
+  SlicedShape<Input['__shape'], Indices> extends never
+    ? never // If shape computation fails (e.g., zero step), propagate never
+    : StorageTransformation<
+        'slice',
+        TensorStorage<
+          Input['__dtype'],
+          SlicedShape<Input['__shape'], Indices>,
+          ComputeSlicedStrides<Input['__strides'], Indices>,
+          ViewLayout<Input['__layout']>
+        > & {
+          // Store the slice indices as metadata for device implementation
+          readonly __sliceIndices: Indices;
+        },
+        readonly [Input]
+      >;

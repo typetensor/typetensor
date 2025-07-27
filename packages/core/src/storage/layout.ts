@@ -59,6 +59,7 @@ export interface TensorStorage<
   readonly __strides: St;
   readonly __size: Product<S>;
   readonly __layout: L;
+  readonly __offset: number;
 }
 
 /**

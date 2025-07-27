@@ -11,7 +11,7 @@ import type {
   OutputOf,
   LayoutOf,
 } from './layout';
-import type { ReshapeOp, Flatten, View } from './view';
+import type { ReshapeOp, Flatten, View, SliceOp } from './view';
 import type { Float32, Int32, Float64 } from '../dtype/types';
 import { expectTypeOf } from 'expect-type';
 
@@ -370,4 +370,332 @@ type ReadOnlyTensor = TensorStorage<Float32, readonly [3, 4], readonly [4, 1], R
   expectTypeOf<readonly [100, 60]>().toEqualTypeOf<ShapeOf<OutputOf<Reshaped1>>>();
   expectTypeOf<readonly [6000]>().toEqualTypeOf<ShapeOf<OutputOf<Reshaped2>>>();
   expectTypeOf<readonly [10, 600]>().toEqualTypeOf<ShapeOf<OutputOf<Reshaped3>>>();
+}
+
+// =============================================================================
+// Slice Operation Tests
+// =============================================================================
+
+// Test 1: Basic slicing with SliceSpec
+{
+  type Tensor3D = TensorStorage<Float32, readonly [10, 20, 30]>;
+
+  // Slice with SliceSpec on first dimension
+  type Sliced1 = SliceOp<Tensor3D, readonly [{ start: 0; stop: 5 }, null, null]>;
+  type Sliced1Output = OutputOf<Sliced1>;
+  type Sliced1Shape = ShapeOf<Sliced1Output>;
+  expectTypeOf<Sliced1Shape>().toEqualTypeOf<readonly [5, 20, 30]>();
+
+  // Slice with SliceSpec on multiple dimensions
+  type Sliced2 = SliceOp<Tensor3D, readonly [{ start: 0; stop: 5 }, { start: 5; stop: 15 }, null]>;
+  type Sliced2Output = OutputOf<Sliced2>;
+  type Sliced2Shape = ShapeOf<Sliced2Output>;
+  expectTypeOf<Sliced2Shape>().toEqualTypeOf<readonly [5, 10, 30]>();
+}
+
+// Test 2: Integer indexing (removes dimensions)
+{
+  type Tensor3D = TensorStorage<Float32, readonly [10, 20, 30]>;
+
+  // Index first dimension
+  type Indexed1 = SliceOp<Tensor3D, readonly [5, null, null]>;
+  type Indexed1Output = OutputOf<Indexed1>;
+  type Indexed1Shape = ShapeOf<Indexed1Output>;
+  expectTypeOf<Indexed1Shape>().toEqualTypeOf<readonly [20, 30]>();
+
+  // Index multiple dimensions
+  type Indexed2 = SliceOp<Tensor3D, readonly [5, 10, null]>;
+  type Indexed2Output = OutputOf<Indexed2>;
+  type Indexed2Shape = ShapeOf<Indexed2Output>;
+  expectTypeOf<Indexed2Shape>().toEqualTypeOf<readonly [30]>();
+
+  // Index all dimensions (scalar)
+  type Indexed3 = SliceOp<Tensor3D, readonly [5, 10, 15]>;
+  type Indexed3Output = OutputOf<Indexed3>;
+  type Indexed3Shape = ShapeOf<Indexed3Output>;
+  expectTypeOf<Indexed3Shape>().toEqualTypeOf<readonly []>();
+}
+
+// Test 3: Mixed slicing and indexing
+{
+  type Tensor4D = TensorStorage<Float32, readonly [5, 10, 15, 20]>;
+
+  // Mix of slice, index, and null
+  type Mixed1 = SliceOp<
+    Tensor4D,
+    readonly [{ start: 1; stop: 4 }, 5, null, { start: 0; stop: 10; step: 2 }]
+  >;
+  type Mixed1Output = OutputOf<Mixed1>;
+  type Mixed1Shape = ShapeOf<Mixed1Output>;
+  expectTypeOf<Mixed1Shape>().toEqualTypeOf<readonly [3, 15, 5]>();
+
+  // Different combination
+  type Mixed2 = SliceOp<Tensor4D, readonly [null, 0, { start: 5 }, 10]>;
+  type Mixed2Output = OutputOf<Mixed2>;
+  type Mixed2Shape = ShapeOf<Mixed2Output>;
+  expectTypeOf<Mixed2Shape>().toEqualTypeOf<readonly [5, 10]>();
+}
+
+// Test 4: Partial indexing (fewer indices than dimensions)
+{
+  type Tensor3D = TensorStorage<Float32, readonly [10, 20, 30]>;
+
+  // Only index first dimension
+  type Partial1 = SliceOp<Tensor3D, readonly [5]>;
+  type Partial1Output = OutputOf<Partial1>;
+  type Partial1Shape = ShapeOf<Partial1Output>;
+  expectTypeOf<Partial1Shape>().toEqualTypeOf<readonly [20, 30]>();
+
+  // Slice first dimension, leave others unchanged
+  type Partial2 = SliceOp<Tensor3D, readonly [{ start: 2; stop: 8 }, null]>;
+  type Partial2Output = OutputOf<Partial2>;
+  type Partial2Shape = ShapeOf<Partial2Output>;
+  expectTypeOf<Partial2Shape>().toEqualTypeOf<readonly [6, 20, 30]>();
+}
+
+// Test 5: Stride computation
+{
+  type Tensor2D = TensorStorage<Float32, readonly [10, 20], readonly [20, 1]>;
+
+  // Slicing preserves strides (but as number type)
+  type Sliced1 = SliceOp<Tensor2D, readonly [{ start: 0; stop: 5 }, null]>;
+  type Sliced1Output = OutputOf<Sliced1>;
+  type Sliced1Strides = StridesOf<Sliced1Output>;
+  expectTypeOf<Sliced1Strides>().toEqualTypeOf<readonly [number, number]>();
+
+  // Integer indexing removes strides
+  type Indexed1 = SliceOp<Tensor2D, readonly [5, null]>;
+  type Indexed1Output = OutputOf<Indexed1>;
+  type Indexed1Strides = StridesOf<Indexed1Output>;
+  expectTypeOf<Indexed1Strides>().toEqualTypeOf<readonly [number]>();
+}
+
+// Test 6: Layout preservation
+{
+  type Tensor2D = TensorStorage<Float32, readonly [10, 20]>;
+  type Sliced = SliceOp<Tensor2D, readonly [{ start: 0; stop: 5 }, null]>;
+  type SlicedLayout = LayoutOf<OutputOf<Sliced>>;
+
+  // Slicing creates a view
+  expectTypeOf<true>().toEqualTypeOf<SlicedLayout['is_view']>();
+  expectTypeOf<true>().toEqualTypeOf<SlicedLayout['c_contiguous']>();
+}
+
+// Test 7: Dtype preservation
+{
+  type Int32Tensor = TensorStorage<Int32, readonly [10, 20]>;
+  type Float64Tensor = TensorStorage<Float64, readonly [10, 20]>;
+
+  type SlicedInt32 = SliceOp<Int32Tensor, readonly [5, null]>;
+  type SlicedFloat64 = SliceOp<Float64Tensor, readonly [null, 10]>;
+
+  expectTypeOf<Int32>().toEqualTypeOf<DTypeOf<OutputOf<SlicedInt32>>>();
+  expectTypeOf<Float64>().toEqualTypeOf<DTypeOf<OutputOf<SlicedFloat64>>>();
+}
+
+// Test 8: Edge cases
+{
+  // Scalar tensor
+  type Scalar = TensorStorage<Float32, readonly []>;
+  type SlicedScalar = SliceOp<Scalar, readonly []>; // No indices
+  expectTypeOf<readonly []>().toEqualTypeOf<ShapeOf<OutputOf<SlicedScalar>>>();
+
+  // 1D tensor
+  type Vec = TensorStorage<Float32, readonly [10]>;
+  type SlicedVec = SliceOp<Vec, readonly [{ start: 2; stop: 8 }]>;
+  expectTypeOf<readonly [6]>().toEqualTypeOf<ShapeOf<OutputOf<SlicedVec>>>();
+}
+
+// =============================================================================
+// Edge Case Tests for Slicing
+// =============================================================================
+
+// Test 9: Negative indices
+{
+  type Tensor2D = TensorStorage<Float32, readonly [10, 20]>;
+
+  // Negative stop index: -2 means up to (but not including) the 2nd last element
+  // For dim size 10: stop=-2 → stop=8, so [0:8] has size 8
+  type NegStop = SliceOp<Tensor2D, readonly [{ stop: -2 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<NegStop>>>().toEqualTypeOf<readonly [8, 20]>();
+
+  // Negative start index: -5 means start from 5th element from end
+  // For dim size 10: start=-5 → start=5, so [5:10] has size 5
+  type NegStart = SliceOp<Tensor2D, readonly [{ start: -5 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<NegStart>>>().toEqualTypeOf<readonly [5, 20]>();
+
+  // Both negative: start=-8 → 2, stop=-2 → 8, so [2:8] has size 6
+  type BothNeg = SliceOp<Tensor2D, readonly [{ start: -8; stop: -2 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<BothNeg>>>().toEqualTypeOf<readonly [6, 20]>();
+
+  // Extreme negative indices
+  type ExtremeNeg = SliceOp<Tensor2D, readonly [{ start: -10 }, null]>; // -10 = 0 (at boundary)
+  expectTypeOf<ShapeOf<OutputOf<ExtremeNeg>>>().toEqualTypeOf<readonly [10, 20]>();
+
+  type BeyondNeg = SliceOp<Tensor2D, readonly [{ start: -15 }, null]>; // -15 clamps to 0
+  expectTypeOf<ShapeOf<OutputOf<BeyondNeg>>>().toEqualTypeOf<readonly [10, 20]>();
+
+  // Mixed positive and negative
+  type MixedPosNeg = SliceOp<Tensor2D, readonly [{ start: -8; stop: 9 }, null]>; // [2:9] = size 7
+  expectTypeOf<ShapeOf<OutputOf<MixedPosNeg>>>().toEqualTypeOf<readonly [7, 20]>();
+}
+
+// Test 10: Negative step
+{
+  type Tensor1D = TensorStorage<Float32, readonly [20]>;
+
+  // Reverse entire dimension: step=-1 with no bounds reverses whole array
+  // Default start=19 (last elem), stop=-1 (before first), step=-1
+  type Reverse = SliceOp<Tensor1D, readonly [{ step: -1 }]>;
+  expectTypeOf<ShapeOf<OutputOf<Reverse>>>().toEqualTypeOf<readonly [20]>();
+
+  // Reverse with bounds: [15:5:-1] goes from index 15 down to (but not including) 5
+  // Elements: 15,14,13,12,11,10,9,8,7,6 = 10 elements
+  type ReversePartial = SliceOp<Tensor1D, readonly [{ start: 15; stop: 5; step: -1 }]>;
+  expectTypeOf<ShapeOf<OutputOf<ReversePartial>>>().toEqualTypeOf<readonly [10]>();
+
+  // Reverse with step > 1: [18:4:-2] takes every 2nd element going backwards
+  // Elements: 18,16,14,12,10,8,6 = 7 elements
+  type ReverseStep = SliceOp<Tensor1D, readonly [{ start: 18; stop: 4; step: -2 }]>;
+  expectTypeOf<ShapeOf<OutputOf<ReverseStep>>>().toEqualTypeOf<readonly [7]>();
+}
+
+// Test 11: Out of bounds indices
+{
+  type Tensor2D = TensorStorage<Float32, readonly [10, 20]>;
+
+  // Start beyond dimension size: clamps to dim size, results in empty slice
+  // [15:10] with dim size 10 → [10:10] → size 0
+  type StartOOB = SliceOp<Tensor2D, readonly [{ start: 15 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<StartOOB>>>().toEqualTypeOf<readonly [0, 20]>();
+
+  // Stop beyond dimension size: clamps stop to dim size
+  // [5:25] with dim size 10 → [5:10] → size 5
+  type StopOOB = SliceOp<Tensor2D, readonly [{ start: 5; stop: 25 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<StopOOB>>>().toEqualTypeOf<readonly [5, 20]>();
+
+  // Both beyond bounds: results in empty slice
+  // [20:30] with dim size 10 → [10:10] → size 0
+  type BothOOB = SliceOp<Tensor2D, readonly [{ start: 20; stop: 30 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<BothOOB>>>().toEqualTypeOf<readonly [0, 20]>();
+
+  // Additional test: Very large out-of-bounds values
+  type VeryLargeOOB = SliceOp<Tensor2D, readonly [{ start: 1000; stop: 2000 }, null]>;
+  expectTypeOf<ShapeOf<OutputOf<VeryLargeOOB>>>().toEqualTypeOf<readonly [0, 20]>();
+
+  // Negative bounds that become valid after conversion
+  // These tests will fail until we implement negative index support
+
+  // Negative beyond bounds: -15 in dim 10 → clamps to 0
+  type NegativeBeyondBounds = SliceOp<Tensor2D, readonly [{ start: -15 }, null]>;
+  // Should clamp to [0:10] → size 10 (when implemented)
+  expectTypeOf<ShapeOf<OutputOf<NegativeBeyondBounds>>>().toEqualTypeOf<readonly [10, 20]>();
+
+  // Mixed negative and positive out of bounds
+  type MixedNegPosBounds = SliceOp<Tensor2D, readonly [{ start: -20; stop: 50 }, null]>;
+  // Should clamp to [0:10] → size 10 (when implemented)
+  expectTypeOf<ShapeOf<OutputOf<MixedNegPosBounds>>>().toEqualTypeOf<readonly [10, 20]>();
+}
+
+// Test 12: Zero step (should be error)
+{
+  type Tensor1D = TensorStorage<Float32, readonly [10]>;
+
+  // Zero step should be compile-time error
+  type ZeroStep = SliceOp<Tensor1D, readonly [{ step: 0 }]>;
+  // Should produce never type - zero step is invalid
+  expectTypeOf<ZeroStep>().toEqualTypeOf<never>();
+
+  // Zero step with start/stop
+  type ZeroStepWithBounds = SliceOp<Tensor1D, readonly [{ start: 2; stop: 8; step: 0 }]>;
+  expectTypeOf<ZeroStepWithBounds>().toEqualTypeOf<never>();
+
+  // Zero step in multi-dimensional slice
+  type ZeroStepMultiDim = SliceOp<
+    TensorStorage<Float32, readonly [10, 20]>,
+    readonly [{ step: 2 }, { step: 0 }]
+  >;
+  expectTypeOf<ZeroStepMultiDim>().toEqualTypeOf<never>();
+}
+
+// Test 13: Empty slices (start >= stop)
+{
+  type Tensor1D = TensorStorage<Float32, readonly [20]>;
+
+  // Start equals stop: [5:5] = empty slice
+  type EmptySlice1 = SliceOp<Tensor1D, readonly [{ start: 5; stop: 5 }]>;
+  expectTypeOf<ShapeOf<OutputOf<EmptySlice1>>>().toEqualTypeOf<readonly [0]>();
+
+  // Start greater than stop with positive step: [10:5] = empty slice
+  type EmptySlice2 = SliceOp<Tensor1D, readonly [{ start: 10; stop: 5 }]>;
+  expectTypeOf<ShapeOf<OutputOf<EmptySlice2>>>().toEqualTypeOf<readonly [0]>();
+
+  // With negative step this would be valid: [10:5:-1] = 5 elements
+  type ValidWithNegStep = SliceOp<Tensor1D, readonly [{ start: 10; stop: 5; step: -1 }]>;
+  expectTypeOf<ShapeOf<OutputOf<ValidWithNegStep>>>().toEqualTypeOf<readonly [5]>();
+
+  // Additional edge cases for empty slices
+  type EmptyAtStart = SliceOp<Tensor1D, readonly [{ start: 0; stop: 0 }]>;
+  expectTypeOf<ShapeOf<OutputOf<EmptyAtStart>>>().toEqualTypeOf<readonly [0]>();
+
+  type EmptyAtEnd = SliceOp<Tensor1D, readonly [{ start: 20; stop: 20 }]>;
+  expectTypeOf<ShapeOf<OutputOf<EmptyAtEnd>>>().toEqualTypeOf<readonly [0]>();
+}
+
+// Test 14: Large numbers and arithmetic limits
+{
+  // Very large dimensions
+  type LargeTensor = TensorStorage<Float32, readonly [1000000]>;
+
+  // Large slice: [100000:900000:1000] = 800000/1000 = 800 elements
+  type LargeSlice = SliceOp<LargeTensor, readonly [{ start: 100000; stop: 900000; step: 1000 }]>;
+  expectTypeOf<ShapeOf<OutputOf<LargeSlice>>>().toEqualTypeOf<readonly [800]>();
+
+  // Multiple large dimensions with step
+  type LargeTensor3D = TensorStorage<Float32, readonly [1000, 1000, 1000]>;
+  type LargeSlice3D = SliceOp<LargeTensor3D, readonly [{ step: 10 }, { step: 10 }, { step: 10 }]>;
+  expectTypeOf<ShapeOf<OutputOf<LargeSlice3D>>>().toEqualTypeOf<readonly [100, 100, 100]>();
+}
+
+// Test 15: Complex stride patterns
+{
+  type Tensor3D = TensorStorage<Float32, readonly [8, 12, 16], readonly [192, 16, 1]>;
+
+  // Slice that affects strides
+  type StridedSlice = SliceOp<
+    Tensor3D,
+    readonly [{ step: 2 }, { start: 2; stop: 10 }, { step: 3 }]
+  >;
+  // Shape: [8/2=4, 10-2=8, 16/3=6 (rounded up)]
+  expectTypeOf<ShapeOf<OutputOf<StridedSlice>>>().toEqualTypeOf<readonly [4, 8, 6]>();
+
+  // Strides should be computed exactly:
+  // - First dim has step=2, so stride 192*2=384
+  // - Second dim is contiguous slice, so stride stays 16
+  // - Third dim has step=3, so stride 1*3=3
+  type StridedStrides = StridesOf<OutputOf<StridedSlice>>;
+  expectTypeOf<StridedStrides>().toEqualTypeOf<readonly [384, 16, 3]>();
+}
+
+// Test 16: Mixed edge cases
+{
+  type Tensor4D = TensorStorage<Float32, readonly [10, 20, 30, 40]>;
+
+  // Mix of challenging cases
+  type Complex1 = SliceOp<
+    Tensor4D,
+    readonly [
+      { start: 8 }, // Size: 2 (10-8)
+      5, // Removes dimension
+      { stop: 5 }, // Size: 5
+      { start: 35; stop: 45 }, // Out of bounds: clamps to [35:40] = 5
+    ]
+  >;
+  // Expected shape after handling all cases
+  expectTypeOf<ShapeOf<OutputOf<Complex1>>>().toEqualTypeOf<readonly [2, 5, 5]>();
+
+  // Partial indexing with edge cases
+  type Complex2 = SliceOp<Tensor4D, readonly [{ start: 15 }, 0]>;
+  // start=15 > dim=10, so clamps to [10:10] = 0, then removes second dim
+  expectTypeOf<ShapeOf<OutputOf<Complex2>>>().toEqualTypeOf<readonly [0, 30, 40]>();
 }
