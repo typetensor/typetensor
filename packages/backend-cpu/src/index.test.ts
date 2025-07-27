@@ -15,6 +15,7 @@ import {
   generateBinaryOperationTests,
   generateReductionOperationTests,
   generateSoftmaxOperationTests,
+  generateMatmulOperationTests,
 } from '@typetensor/test-utils';
 import { cpu } from './index';
 
@@ -63,4 +64,5 @@ describe('CPU Backend Integration Tests', () => {
   generateBinaryOperationTests(cpu, testFramework);
   generateReductionOperationTests(cpu, testFramework);
   generateSoftmaxOperationTests(cpu, testFramework);
+  generateMatmulOperationTests(cpu, testFramework);
 });
