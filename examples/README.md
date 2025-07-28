@@ -39,12 +39,35 @@ In a real project outside this monorepo, you would simply:
    import { cpu } from '@typetensor/backend-cpu';
    ```
 
-## What the Example Demonstrates
+## Examples
+
+### 01-simple-operations.ts
+Basic tensor creation, arithmetic, and shape safety demonstrations.
+
+### 02-shape-errors.ts
+Examples of compile-time shape error detection.
+
+### 03-view-operations.ts
+Memory-efficient tensor views and reshaping.
+
+### 04-chaining.ts
+Chaining tensor operations with type safety.
+
+### 05-einops-rearrange.ts ⭐ **NEW**
+Simple tensor rearrangement using Einstein notation:
+- Transpose: `"h w -> w h"`
+- Format conversion: `"c h w -> h w c"`
+- Add dimensions: `"h w -> 1 h w"`
+- Split dimensions: `"(h w) c -> h w c"`
+- Multi-head attention preparation
+
+## What the Examples Demonstrate
 
 - **Type-safe tensor creation**: See how TypeScript infers and validates tensor shapes at compile time
 - **Shape safety**: Examples of operations that TypeScript prevents due to incompatible shapes
 - **Broadcasting**: Type-safe broadcasting operations with automatic shape inference
 - **Common operations**: Basic tensor operations like reshape, view, and arithmetic
+- **Einops patterns**: Elegant tensor manipulations using Einstein notation
 - **Error prevention**: Commented examples showing what TypeScript catches at compile time
 
 ## Key Features Highlighted
