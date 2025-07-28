@@ -16,7 +16,7 @@ import type {
   TypeSingletonAxis,
   TypeParseError,
 } from './type-parser';
-import type { Add, Multiply, Divide } from 'ts-arithmetic';
+import type { Add, Multiply, Divide, Subtract } from 'ts-arithmetic';
 
 // =============================================================================
 // Helper Types
@@ -53,7 +53,7 @@ type IndexOf<
 /**
  * Take N elements from array
  */
-type Take<
+export type Take<
   T extends readonly unknown[],
   N extends number,
   Acc extends readonly unknown[] = readonly [],
@@ -66,7 +66,7 @@ type Take<
 /**
  * Drop N elements from array
  */
-type Drop<
+export type Drop<
   T extends readonly unknown[],
   N extends number,
   Count extends readonly unknown[] = readonly [],
@@ -86,6 +86,14 @@ type Drop<
 type AxisMap = Record<string, number>;
 
 /**
+ * Result of BuildAxisMap containing both axis mappings and ellipsis dimensions
+ */
+type BuildAxisMapResult = {
+  axisMap: AxisMap;
+  ellipsisDims: Shape;
+};
+
+/**
  * Merge intersection types into a single object type
  */
 export type MergeIntersection<T> = T extends object ? { [K in keyof T]: T[K] } : never;
@@ -93,20 +101,20 @@ export type MergeIntersection<T> = T extends object ? { [K in keyof T]: T[K] } :
 /**
  * Count simple axes in pattern list (for shape consumption)
  */
-type CountSimpleAxes<
+export type CountSimpleAxes<
   Patterns extends readonly TypeAxisPattern[],
   Count extends number = 0,
 > = Patterns extends readonly [infer Head, ...infer Tail]
   ? Head extends TypeSimpleAxis
     ? Tail extends readonly TypeAxisPattern[]
-      ? CountSimpleAxes<Tail, Count extends number ? number : never>
-      : number
+      ? CountSimpleAxes<Tail, Add<Count, 1>>
+      : Add<Count, 1>
     : Head extends TypeCompositeAxis
       ? CountSimpleAxes<Head['axes']> extends infer InnerCount
         ? InnerCount extends number
           ? Tail extends readonly TypeAxisPattern[]
-            ? CountSimpleAxes<Tail, Count extends number ? number : never>
-            : number
+            ? CountSimpleAxes<Tail, Add<Count, InnerCount>>
+            : Add<Count, InnerCount>
           : never
         : never
       : Tail extends readonly TypeAxisPattern[]
@@ -139,9 +147,51 @@ type FlattenAxes<
   : Result;
 
 /**
+ * Process a simple axis in BuildAxisMap
+ */
+export type ProcessSimpleAxis<
+  AxisName extends string,
+  InputShape extends Shape,
+  CurrentIndex extends number,
+  Map extends AxisMap,
+> = CurrentIndex extends keyof InputShape
+  ? InputShape[CurrentIndex] extends number
+    ? Map & { [K in AxisName]: InputShape[CurrentIndex] }
+    : never
+  : never;
+
+/**
+ * Process an ellipsis axis in BuildAxisMap
+ */
+export type ProcessEllipsisAxis<
+  Tail extends readonly TypeAxisPattern[],
+  InputShape extends Shape,
+  CurrentIndex extends number,
+> =
+  CountSimpleAxes<Tail> extends infer TailAxesCount
+    ? TailAxesCount extends number
+      ? InputShape['length'] extends number
+        ? Subtract<
+            Subtract<InputShape['length'], CurrentIndex>,
+            TailAxesCount
+          > extends infer EllipsisCount
+          ? EllipsisCount extends number
+            ? {
+                remainingPatterns: Tail;
+                remainingShape: Drop<InputShape, Add<CurrentIndex, EllipsisCount>>;
+                nextIndex: 0;
+                capturedDims: Take<Drop<InputShape, CurrentIndex>, EllipsisCount>;
+              }
+            : never
+          : never
+        : never
+      : never
+    : never;
+
+/**
  * Build axis map from input pattern and shape
  */
-type BuildAxisMap<
+export type BuildAxisMap<
   InputPatterns extends readonly TypeAxisPattern[],
   InputShape extends Shape,
   ProvidedAxes extends Record<string, number> | undefined = undefined,
@@ -186,27 +236,82 @@ type BuildAxisMap<
           : never
         : never
       : Head extends TypeEllipsisAxis
-        ? CountSimpleAxes<Tail> extends infer TailAxes
-          ? TailAxes extends number
-            ? InputShape['length'] extends number
-              ? Tail extends readonly TypeAxisPattern[]
-                ? BuildAxisMap<
-                    Tail,
-                    Drop<InputShape, CurrentIndex extends number ? CurrentIndex : 0>,
-                    ProvidedAxes,
-                    0,
-                    Map
-                  >
+        ? Tail extends readonly TypeAxisPattern[]
+          ? CountSimpleAxes<Tail> extends infer TailAxesCount
+            ? TailAxesCount extends number
+              ? InputShape['length'] extends number
+                ? // Calculate how many dimensions ellipsis captures
+                  Subtract<
+                    Subtract<InputShape['length'], CurrentIndex>,
+                    TailAxesCount
+                  > extends infer EllipsisCount
+                  ? EllipsisCount extends number
+                    ? // Extract the ellipsis dimensions
+                      Take<Drop<InputShape, CurrentIndex>, EllipsisCount> extends infer CapturedDims
+                      ? CapturedDims extends Shape
+                        ? BuildAxisMap<
+                            Tail,
+                            Drop<InputShape, Add<CurrentIndex, EllipsisCount>>,
+                            ProvidedAxes,
+                            0,
+                            Map,
+                            CapturedDims
+                          >
+                        : never
+                      : never
+                    : never
+                  : never
                 : never
               : never
             : never
           : never
         : Head extends TypeSingletonAxis
           ? Tail extends readonly TypeAxisPattern[]
-            ? BuildAxisMap<Tail, InputShape, ProvidedAxes, CurrentIndex, Map>
+            ? BuildAxisMap<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>, Map>
             : never
           : never
   : Map;
+
+/**
+ * Extract ellipsis dimensions from input pattern and shape
+ */
+export type ExtractEllipsisDims<
+  InputPatterns extends readonly TypeAxisPattern[],
+  InputShape extends Shape,
+  CurrentIndex extends number = 0,
+> = InputPatterns extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeEllipsisAxis
+    ? Tail extends readonly TypeAxisPattern[]
+      ? CountSimpleAxes<Tail> extends infer TailCount
+        ? TailCount extends number
+          ? InputShape['length'] extends number
+            ? // Calculate how many dimensions ellipsis captures
+              Subtract<
+                Subtract<InputShape['length'], CurrentIndex>,
+                TailCount
+              > extends infer EllipsisCount
+              ? EllipsisCount extends number
+                ? Take<Drop<InputShape, CurrentIndex>, EllipsisCount>
+                : readonly []
+              : readonly []
+            : readonly []
+          : readonly []
+        : readonly []
+      : readonly []
+    : Head extends TypeSimpleAxis
+      ? Tail extends readonly TypeAxisPattern[]
+        ? ExtractEllipsisDims<Tail, InputShape, Add<CurrentIndex, 1>>
+        : readonly []
+      : Head extends TypeSingletonAxis
+        ? Tail extends readonly TypeAxisPattern[]
+          ? ExtractEllipsisDims<Tail, InputShape, Add<CurrentIndex, 1>>
+          : readonly []
+        : Head extends TypeCompositeAxis
+          ? Tail extends readonly TypeAxisPattern[]
+            ? ExtractEllipsisDims<Tail, InputShape, Add<CurrentIndex, 1>>
+            : readonly []
+          : readonly []
+  : readonly [];
 
 /**
  * Map composite axes with provided dimensions
@@ -302,7 +407,7 @@ export type ComputeUnknownDimension<
 /**
  * Compute output shape from output patterns and axis map
  */
-type ComputeOutputShape<
+export type ComputeOutputShape<
   OutputPatterns extends readonly TypeAxisPattern[],
   Map extends AxisMap,
   EllipsisDims extends Shape = readonly [],
@@ -378,7 +483,11 @@ export type ResolveEinopsShape<
     ? ParsedAST extends TypeEinopsAST
       ? BuildAxisMap<ParsedAST['input'], InputShape, Axes> extends infer AxisMapping
         ? AxisMapping extends AxisMap
-          ? ComputeOutputShape<ParsedAST['output'], AxisMapping>
+          ? ExtractEllipsisDims<ParsedAST['input'], InputShape> extends infer EllipsisDims
+            ? EllipsisDims extends Shape
+              ? ComputeOutputShape<ParsedAST['output'], AxisMapping, EllipsisDims>
+              : never
+            : never
           : never
         : never
       : ParsedAST extends TypeParseError<string>
