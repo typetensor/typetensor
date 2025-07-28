@@ -177,6 +177,25 @@ export type CountSimpleAxes<
   : Count;
 
 /**
+ * Count all axes that consume dimensions (simple, composite, singleton)
+ * Used for ellipsis dimension calculation
+ */
+export type CountConsumingAxes<
+  Patterns extends readonly TypeAxisPattern[],
+  Count extends number = 0,
+> = Patterns extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeSimpleAxis | TypeSingletonAxis | TypeCompositeAxis
+    ? Tail extends readonly TypeAxisPattern[]
+      ? CountConsumingAxes<Tail, Add<Count, 1>>
+      : Add<Count, 1>
+    : Head extends TypeEllipsisAxis
+      ? Tail extends readonly TypeAxisPattern[]
+        ? CountConsumingAxes<Tail, Count>
+        : Count
+      : never
+  : Count;
+
+/**
  * Flatten composite axes to get all simple axes
  */
 type FlattenAxes<
@@ -401,7 +420,7 @@ export type ComputeCompositeAxisMap<
               Tail,
               TotalDim,
               ProvidedAxes,
-              Result & { [K in Head['name']]: ProvidedAxes[Head['name']] },
+              Result & Record<Head['name'], ProvidedAxes[Head['name']]>,
               readonly [...ProcessedAxes, Head],
               OriginalAxes
             >
@@ -415,11 +434,11 @@ export type ComputeCompositeAxisMap<
                 Tail,
                 TotalDim,
                 ProvidedAxes,
-                Result & { [K in Head['name']]: UnknownDim },
+                Result & Record<Head['name'], UnknownDim>,
                 readonly [...ProcessedAxes, Head],
                 OriginalAxes
               >
-            : Result & { [K in Head['name']]: UnknownDim }
+            : Result & Record<Head['name'], UnknownDim>
           : never
         : never
     : never

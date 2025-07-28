@@ -7,8 +7,8 @@
 
 import { parse } from './scanner';
 import { AxisResolver, type ResolvedPattern } from './axis-resolver';
-import type { EinopsAST } from './ast';
-import { isSimpleAxis } from './ast';
+import type { EinopsAST, AxisPattern } from './ast';
+import { isSimpleAxis, isCompositeAxis } from './ast';
 import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation } from '../storage/layout';
 import type { RearrangeOp } from '../storage/einops';
@@ -32,10 +32,11 @@ export interface RearrangeOptions {
  * Planned tensor operation
  */
 interface TensorOperation {
-  readonly type: 'reshape' | 'permute' | 'transpose' | 'identity';
+  readonly type: 'reshape' | 'permute' | 'transpose' | 'identity' | 'sum';
   readonly params?: {
     readonly shape?: readonly number[];
     readonly axes?: readonly number[];
+    readonly keepdims?: boolean;
   };
 }
 
@@ -66,7 +67,7 @@ export class RearrangeError extends Error {
  *
  * @param tensor - Input tensor to rearrange (can be Tensor or ChainablePromise)
  * @param pattern - Einops pattern like "h w -> w h" or "(h w) c -> h w c"
- * @param options - Optional configuration including axis dimensions
+ * @param axes - Optional axis dimensions for composite patterns
  * @returns ChainablePromise with rearranged tensor
  *
  * @example
@@ -75,7 +76,7 @@ export class RearrangeError extends Error {
  * const result = await rearrange(tensor, "h w -> w h");
  *
  * // Composite pattern with provided axis
- * const result = await rearrange(tensor, "(h w) c -> h w c", { axes: { h: 32 } });
+ * const result = await rearrange(tensor, "(h w) c -> h w c", { h: 32 });
  *
  * // Works with chained operations
  * const result = await rearrange(tensor.add(other), "b h w c -> b c h w");
@@ -87,26 +88,29 @@ export class RearrangeError extends Error {
 export function rearrange<
   S extends AnyStorageTransformation,
   Pattern extends string,
-  Axes extends Record<string, number> | undefined = undefined
+  Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
   pattern: Pattern,
-  axes?: Axes
+  axes?: Axes,
 ): ChainablePromise<RearrangeOp<S['__output'], Pattern, Axes>> {
   return new ChainablePromise((resolve, reject) => {
     void (async () => {
       try {
         // Resolve tensor if it's a ChainablePromise
         const resolvedTensor = tensor instanceof ChainablePromise ? await tensor : tensor;
-        
+
         if (!(resolvedTensor instanceof Tensor)) {
           throw new Error('Expected a Tensor instance');
         }
-        
+
         // Step 1: Parse the pattern
         const ast = parse(pattern);
 
-        // Step 2: Resolve axes against tensor shape
+        // Step 2: Validate the pattern follows rearrange rules
+        validateRearrangePattern(ast);
+
+        // Step 3: Resolve axes against tensor shape
         const resolved = resolveAxes(ast, resolvedTensor.shape, axes);
 
         // Step 3: Plan operations
@@ -114,22 +118,84 @@ export function rearrange<
 
         // Step 4: Execute operations
         const result = executeOperations(resolvedTensor, operations);
-        
+
         // Return with correct type
-        resolve(result as Tensor<RearrangeOp<S['__output'], Pattern, Axes>>);
-        
+        resolve(result as unknown as Tensor<RearrangeOp<S['__output'], Pattern, Axes>>);
       } catch (error) {
         if (error instanceof Error) {
           const inputShape = tensor instanceof ChainablePromise ? undefined : tensor.shape;
-          reject(new RearrangeError(`Failed to rearrange tensor: ${error.message}`, pattern, {
-            inputShape: inputShape as readonly number[] | undefined,
-          }));
+          reject(
+            new RearrangeError(`Failed to rearrange tensor: ${error.message}`, pattern, {
+              inputShape: inputShape as any,
+            }),
+          );
         } else {
           reject(error);
         }
       }
     })();
   });
+}
+
+// =============================================================================
+// Validation Functions
+// =============================================================================
+
+/**
+ * Validate that a pattern is valid for rearrange operation
+ * Following PyTorch einops rules
+ */
+function validateRearrangePattern(ast: EinopsAST): void {
+  // Collect all axis names from input and output
+  const inputAxes = new Set<string>();
+  const outputAxes = new Set<string>();
+  const outputAxisCounts = new Map<string, number>();
+
+  // Process input axes
+  function collectInputAxes(pattern: AxisPattern): void {
+    if (isSimpleAxis(pattern)) {
+      inputAxes.add(pattern.name);
+    } else if (isCompositeAxis(pattern)) {
+      pattern.axes.forEach(collectInputAxes);
+    }
+  }
+
+  // Process output axes  
+  function collectOutputAxes(pattern: AxisPattern): void {
+    if (isSimpleAxis(pattern)) {
+      outputAxes.add(pattern.name);
+      outputAxisCounts.set(pattern.name, (outputAxisCounts.get(pattern.name) || 0) + 1);
+    } else if (isCompositeAxis(pattern)) {
+      pattern.axes.forEach(collectOutputAxes);
+    }
+  }
+
+  ast.input.forEach(collectInputAxes);
+  ast.output.forEach(collectOutputAxes);
+
+  // Check for axes only on one side
+  const onlyInInput = [...inputAxes].filter(axis => !outputAxes.has(axis));
+  const onlyInOutput = [...outputAxes].filter(axis => !inputAxes.has(axis));
+  
+  if (onlyInInput.length > 0 || onlyInOutput.length > 0) {
+    const problematicAxes = [...onlyInInput, ...onlyInOutput];
+    throw new RearrangeError(
+      `Identifiers only on one side of expression (should be on both): {${problematicAxes.join(', ')}}`,
+      ast.metadata.originalPattern
+    );
+  }
+
+  // Check for duplicate axes in output
+  const duplicateAxes = [...outputAxisCounts.entries()]
+    .filter(([_, count]) => count > 1)
+    .map(([axis, _]) => axis);
+    
+  if (duplicateAxes.length > 0) {
+    throw new RearrangeError(
+      `Indexing expression contains duplicate dimension "${duplicateAxes[0]}"`,
+      ast.metadata.originalPattern
+    );
+  }
 }
 
 // =============================================================================
@@ -192,40 +258,34 @@ function planOperations(
 /**
  * Execute the planned operations on the tensor
  */
-async function executeOperations(
-  tensor: Tensor<any>,
+function executeOperations<S extends AnyStorageTransformation>(
+  tensor: Tensor<S>,
   operations: TensorOperation[],
-): Promise<Tensor<any>> {
-  let result: Tensor<any> = tensor;
-
-  for (const operation of operations) {
+): Tensor<S> {
+  return operations.reduce((tensor, operation) => {
     switch (operation.type) {
       case 'identity':
-        // No-op
-        break;
+        return tensor;
 
       case 'reshape':
         if (operation.params?.shape) {
-          result = result.reshape(operation.params.shape as any);
+          return tensor.reshape(operation.params.shape as any) as unknown as Tensor<S>;
         }
-        break;
+        return tensor;
 
       case 'permute':
         if (operation.params?.axes) {
-          result = result.permute(operation.params.axes as any);
+          return tensor.permute(operation.params.axes as any) as unknown as Tensor<S>;
         }
-        break;
+        return tensor;
 
       case 'transpose':
-        result = result.transpose();
-        break;
+        return tensor.transpose() as unknown as Tensor<S>;
 
       default:
-        throw new Error(`Unknown operation type: ${(operation as any).type}`);
+        throw new Error(`Unknown operation type: ${operation.type}`);
     }
-  }
-
-  return result;
+  }, tensor);
 }
 
 // =============================================================================

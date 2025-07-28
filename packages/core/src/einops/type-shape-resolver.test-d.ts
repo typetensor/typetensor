@@ -86,6 +86,12 @@ import { expectTypeOf } from 'expect-type';
   expectTypeOf<Result>().toEqualTypeOf<readonly [2, 3]>();
 }
 
+// Test 7b: Singleton with ellipsis
+{
+  type Result = ResolveEinopsShape<'... 1 -> 1 ...', readonly [2, 3, 4, 1]>;
+  expectTypeOf<Result>().toEqualTypeOf<readonly [1, 2, 3, 4]>();
+}
+
 // =============================================================================
 // Ellipsis Pattern Tests
 // =============================================================================
@@ -151,6 +157,25 @@ import { expectTypeOf } from 'expect-type';
     readonly [32, 224, 224, 3]
   >;
   expectTypeOf<Result2>().toEqualTypeOf<readonly [32, 3, 224, 224]>();
+}
+
+// =============================================================================
+// Scalar Pattern Tests  
+// =============================================================================
+
+// Test 12: Scalar patterns
+{
+  // Scalar identity
+  type Result1 = ResolveEinopsShape<' -> ', readonly []>;
+  expectTypeOf<Result1>().toEqualTypeOf<readonly []>();
+  
+  // Scalar to singleton
+  type Result2 = ResolveEinopsShape<' -> 1', readonly []>;
+  expectTypeOf<Result2>().toEqualTypeOf<readonly [1]>();
+  
+  // Singleton to scalar
+  type Result3 = ResolveEinopsShape<'1 -> ', readonly [1]>;
+  expectTypeOf<Result3>().toEqualTypeOf<readonly []>();
 }
 
 // =============================================================================
