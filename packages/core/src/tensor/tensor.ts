@@ -1366,6 +1366,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const flatData = this._flattenNestedArray(logicalData);
 
     // Create a new C-contiguous tensor from the logical data
+    // Use the same approach that worked in the manual test
     const { tensor: tensorFn } = await import('./creation');
     return (await tensorFn(flatData as any, {
       device: this.device,
@@ -1600,34 +1601,36 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       });
     }
 
-    // Compute transposed shape and strides
-    const transposedShape = computeTransposedShape(this.shape);
-    const transposedStrides = computeTransposedStrides(this.shape, this.strides);
-
-    const transposeOp = {
-      __op: 'transpose' as const,
-      __output: {
-        __dtype: this.storage.__dtype,
-        __shape: transposedShape,
-        __strides: transposedStrides,
-        __size: this.storage.__size,
-        __layout: {
-          c_contiguous: false,
-          f_contiguous: false,
-          is_view: true,
-          writeable: this.storage.__layout.writeable,
-          aligned: this.storage.__layout.aligned,
-        },
-        __offset: this.storage.__offset,
-      } as TransposeOp<S['__output']>['__output'],
-      __inputs: [this.storage] as const,
-    } as TransposeOp<S['__output']>;
-
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
-          const tensor = await this._ensureContiguousIfNeeded('transpose');
-          resolve(new Tensor(transposeOp, tensor.data));
+          // First ensure the tensor is contiguous if needed
+          const contiguousTensor = await this._ensureContiguousIfNeeded('transpose');
+          
+          // Compute transposed shape and strides based on the contiguous tensor
+          const transposedShape = computeTransposedShape(contiguousTensor.shape);
+          const transposedStrides = computeTransposedStrides(contiguousTensor.shape, contiguousTensor.strides);
+
+          const transposeOp = {
+            __op: 'transpose' as const,
+            __output: {
+              __dtype: contiguousTensor.storage.__dtype,
+              __shape: transposedShape,
+              __strides: transposedStrides,
+              __size: contiguousTensor.storage.__size,
+              __layout: {
+                c_contiguous: false,
+                f_contiguous: false,
+                is_view: true,
+                writeable: contiguousTensor.storage.__layout.writeable,
+                aligned: contiguousTensor.storage.__layout.aligned,
+              },
+              __offset: contiguousTensor.storage.__offset,
+            } as TransposeOp<S['__output']>['__output'],
+            __inputs: [contiguousTensor.storage] as const,
+          } as TransposeOp<S['__output']>;
+
+          resolve(new Tensor(transposeOp, contiguousTensor.data));
         } catch (error) {
           reject(error);
         }

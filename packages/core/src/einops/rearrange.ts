@@ -117,7 +117,7 @@ export function rearrange<
         const operations = planOperations(ast, resolvedTensor.shape, resolved);
 
         // Step 4: Execute operations
-        const result = executeOperations(resolvedTensor, operations);
+        const result = await executeOperations(resolvedTensor, operations);
 
         // Return with correct type
         resolve(result as unknown as Tensor<RearrangeOp<S['__output'], Pattern, Axes>>);
@@ -405,34 +405,40 @@ function planOperations(
 /**
  * Execute the planned operations on the tensor
  */
-function executeOperations<S extends AnyStorageTransformation>(
+async function executeOperations<S extends AnyStorageTransformation>(
   tensor: Tensor<S>,
   operations: TensorOperation[],
-): Tensor<S> {
-  return operations.reduce((tensor, operation) => {
+): Promise<Tensor<S>> {
+  let result = tensor;
+
+  for (const operation of operations) {
     switch (operation.type) {
       case 'identity':
-        return tensor;
+        // No-op
+        break;
 
       case 'reshape':
         if (operation.params?.shape) {
-          return tensor.reshape(operation.params.shape as any) as unknown as Tensor<S>;
+          result = (await result.reshape(operation.params.shape as any)) as unknown as Tensor<S>;
         }
-        return tensor;
+        break;
 
       case 'permute':
         if (operation.params?.axes) {
-          return tensor.permute(operation.params.axes as any) as unknown as Tensor<S>;
+          result = (await result.permute(operation.params.axes as any)) as unknown as Tensor<S>;
         }
-        return tensor;
+        break;
 
       case 'transpose':
-        return tensor.transpose() as unknown as Tensor<S>;
+        result = (await result.transpose()) as unknown as Tensor<S>;
+        break;
 
       default:
         throw new Error(`Unknown operation type: ${operation.type}`);
     }
-  }, tensor);
+  }
+
+  return result;
 }
 
 // =============================================================================
