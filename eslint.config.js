@@ -88,6 +88,12 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
   {
+    files: ['examples/**/*.ts'],
+    rules: {
+      'no-console': 'off', // Allow console.log in examples
+    },
+  },
+  {
     ignores: ['**/node_modules/', '**/dist/', '**/coverage/', '*.config.js', '*.test-d.ts', '*.test.ts', '**/*.test-d.ts', '**/*.test.ts'],
   }
 );
