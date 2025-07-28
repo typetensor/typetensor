@@ -9,4 +9,4 @@ export type { SliceIndex } from './shape/types';
 
 // Einops operations
 export { rearrange } from './einops/rearrange';
-export type { RearrangeTensor, RearrangeOptions } from './einops/rearrange';
+export type { RearrangeOptions } from './einops/rearrange';

@@ -5,7 +5,7 @@
  * enabling static type checking for tensor transformations.
  */
 
-import type { Shape, Product } from '../shape/types';
+import type { Shape } from '../shape/types';
 import type {
   ParsePattern,
   TypeEinopsAST,
@@ -23,9 +23,84 @@ import type { Add, Multiply, Divide, Subtract } from 'ts-arithmetic';
 // =============================================================================
 
 /**
- * Get element at index from tuple
+ * Check if an array has duplicate simple axis names
  */
-type At<T extends readonly unknown[], I extends number> = T[I];
+type HasDuplicateAxisNames<
+  Patterns extends readonly TypeAxisPattern[],
+  Seen extends string = never,
+> = Patterns extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeSimpleAxis
+    ? Head['name'] extends Seen
+      ? true // Found duplicate
+      : Tail extends readonly TypeAxisPattern[]
+        ? HasDuplicateAxisNames<Tail, Seen | Head['name']>
+        : false
+    : Head extends TypeCompositeAxis
+      ? HasDuplicateAxisNames<Head['axes']> extends true
+        ? true
+        : Tail extends readonly TypeAxisPattern[]
+          ? HasDuplicateAxisNames<Tail, Seen>
+          : false
+      : Tail extends readonly TypeAxisPattern[]
+        ? HasDuplicateAxisNames<Tail, Seen>
+        : false
+  : false;
+
+/**
+ * Count ellipsis axes in pattern
+ */
+type CountEllipsis<
+  Patterns extends readonly TypeAxisPattern[],
+  Count extends number = 0,
+> = Patterns extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeEllipsisAxis
+    ? Tail extends readonly TypeAxisPattern[]
+      ? CountEllipsis<Tail, Add<Count, 1>>
+      : Add<Count, 1>
+    : Head extends TypeCompositeAxis
+      ? CountEllipsis<Head['axes']> extends infer InnerCount
+        ? InnerCount extends number
+          ? Tail extends readonly TypeAxisPattern[]
+            ? CountEllipsis<Tail, Add<Count, InnerCount>>
+            : Add<Count, InnerCount>
+          : never
+        : never
+      : Tail extends readonly TypeAxisPattern[]
+        ? CountEllipsis<Tail, Count>
+        : Count
+  : Count;
+
+/**
+ * Validate that composite axis dimensions match the actual dimension
+ */
+type ValidateCompositeProduct<
+  Axes extends readonly TypeSimpleAxis[],
+  ExpectedProduct extends number,
+  ProvidedAxes extends Record<string, number>,
+> = ComputeCompositeProduct<Axes, ProvidedAxes> extends ExpectedProduct ? true : false;
+
+/**
+ * Compute product of composite axis dimensions
+ */
+type ComputeCompositeProduct<
+  Axes extends readonly TypeSimpleAxis[],
+  ProvidedAxes extends Record<string, number>,
+  Product extends number = 1,
+> = Axes extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeSimpleAxis
+    ? Head['name'] extends keyof ProvidedAxes
+      ? ProvidedAxes[Head['name']] extends number
+        ? Tail extends readonly TypeSimpleAxis[]
+          ? ComputeCompositeProduct<
+              Tail,
+              ProvidedAxes,
+              Multiply<Product, ProvidedAxes[Head['name']]>
+            >
+          : Multiply<Product, ProvidedAxes[Head['name']]>
+        : Product // Axis not provided, can't validate
+      : Product // Axis not provided, can't validate
+    : never
+  : Product;
 
 /**
  * Append element to tuple
@@ -36,19 +111,6 @@ type Append<T extends readonly unknown[], E> = readonly [...T, E];
  * Concatenate two tuples
  */
 type Concat<T1 extends readonly unknown[], T2 extends readonly unknown[]> = readonly [...T1, ...T2];
-
-/**
- * Find index of element in array
- */
-type IndexOf<
-  T extends readonly unknown[],
-  E,
-  Acc extends readonly unknown[] = readonly [],
-> = T extends readonly [infer Head, ...infer Tail]
-  ? Head extends E
-    ? Acc['length']
-    : IndexOf<Tail, E, readonly [...Acc, unknown]>
-  : -1;
 
 /**
  * Take N elements from array
@@ -84,14 +146,6 @@ export type Drop<
  * Map of axis names to their dimension values
  */
 type AxisMap = Record<string, number>;
-
-/**
- * Result of BuildAxisMap containing both axis mappings and ellipsis dimensions
- */
-type BuildAxisMapResult = {
-  axisMap: AxisMap;
-  ellipsisDims: Shape;
-};
 
 /**
  * Merge intersection types into a single object type
@@ -156,7 +210,7 @@ export type ProcessSimpleAxis<
   Map extends AxisMap,
 > = CurrentIndex extends keyof InputShape
   ? InputShape[CurrentIndex] extends number
-    ? Map & { [K in AxisName]: InputShape[CurrentIndex] }
+    ? Map & Record<AxisName, InputShape[CurrentIndex]>
     : never
   : never;
 
@@ -197,7 +251,6 @@ export type BuildAxisMap<
   ProvidedAxes extends Record<string, number> | undefined = undefined,
   CurrentIndex extends number = 0,
   Map extends AxisMap = {},
-  EllipsisDims extends Shape = readonly [],
 > = InputPatterns extends readonly [infer Head, ...infer Tail]
   ? Head extends TypeSimpleAxis
     ? CurrentIndex extends keyof InputShape
@@ -208,7 +261,7 @@ export type BuildAxisMap<
               InputShape,
               ProvidedAxes,
               Add<CurrentIndex, 1>,
-              Map & { [K in Head['name']]: InputShape[CurrentIndex] }
+              Map & Record<Head['name'], InputShape[CurrentIndex]>
             >
           : never
         : never
@@ -254,8 +307,7 @@ export type BuildAxisMap<
                             Drop<InputShape, Add<CurrentIndex, EllipsisCount>>,
                             ProvidedAxes,
                             0,
-                            Map,
-                            CapturedDims
+                            Map
                           >
                         : never
                       : never
@@ -420,13 +472,15 @@ export type ComputeOutputShape<
           ? ComputeOutputShape<Tail, Map, EllipsisDims, Append<Result, Map[Head['name']]>>
           : never
         : never
-      : never
+      : never // Output axis not found in input
     : Head extends TypeCompositeAxis
       ? ComputeCompositeOutput<Head['axes'], Map> extends infer CompDim
         ? CompDim extends number
-          ? Tail extends readonly TypeAxisPattern[]
-            ? ComputeOutputShape<Tail, Map, EllipsisDims, Append<Result, CompDim>>
-            : never
+          ? 0 extends CompDim
+            ? never // Invalid composite (includes unknown axis)
+            : Tail extends readonly TypeAxisPattern[]
+              ? ComputeOutputShape<Tail, Map, EllipsisDims, Append<Result, CompDim>>
+              : never
           : never
         : never
       : Head extends TypeEllipsisAxis
@@ -455,7 +509,7 @@ type ComputeCompositeOutput<
           ? ComputeCompositeOutput<Tail, Map, Multiply<Product, Map[Head['name']]>>
           : Multiply<Product, Map[Head['name']]>
         : never
-      : never
+      : 0 // Axis not found in map
     : Head extends TypeCompositeAxis
       ? ComputeCompositeOutput<Head['axes'], Map> extends infer InnerProd
         ? InnerProd extends number
@@ -481,16 +535,116 @@ export type ResolveEinopsShape<
 > =
   ParsePattern<Pattern> extends infer ParsedAST
     ? ParsedAST extends TypeEinopsAST
-      ? BuildAxisMap<ParsedAST['input'], InputShape, Axes> extends infer AxisMapping
-        ? AxisMapping extends AxisMap
-          ? ExtractEllipsisDims<ParsedAST['input'], InputShape> extends infer EllipsisDims
-            ? EllipsisDims extends Shape
-              ? ComputeOutputShape<ParsedAST['output'], AxisMapping, EllipsisDims>
-              : never
+      ? // Validate no duplicate axes in input
+        HasDuplicateAxisNames<ParsedAST['input']> extends true
+        ? never
+        : // Validate at most one ellipsis
+          CountEllipsis<ParsedAST['input']> extends infer InputEllipsisCount
+          ? InputEllipsisCount extends number
+            ? InputEllipsisCount extends 0 | 1
+              ? CountEllipsis<ParsedAST['output']> extends infer OutputEllipsisCount
+                ? OutputEllipsisCount extends number
+                  ? OutputEllipsisCount extends 0 | 1
+                    ? BuildAxisMap<ParsedAST['input'], InputShape, Axes> extends infer AxisMapping
+                      ? AxisMapping extends AxisMap
+                        ? ExtractEllipsisDims<
+                            ParsedAST['input'],
+                            InputShape
+                          > extends infer EllipsisDims
+                          ? EllipsisDims extends Shape
+                            ? ValidateAndComputeOutput<
+                                ParsedAST,
+                                AxisMapping,
+                                EllipsisDims,
+                                InputShape,
+                                Axes
+                              >
+                            : never
+                          : never
+                        : never
+                      : never
+                    : never // Multiple ellipsis in output
+                  : never
+                : never
+              : never // Multiple ellipsis in input
             : never
           : never
-        : never
       : ParsedAST extends TypeParseError<string>
         ? never
         : never
     : never;
+
+/**
+ * Validate and compute output shape
+ */
+type ValidateAndComputeOutput<
+  AST extends TypeEinopsAST,
+  AxisMapping extends AxisMap,
+  EllipsisDims extends Shape,
+  InputShape extends Shape,
+  Axes extends Record<string, number> | undefined,
+> =
+  ValidateComposites<AST['input'], InputShape, Axes> extends true
+    ? ComputeOutputShape<AST['output'], AxisMapping, EllipsisDims>
+    : never;
+
+/**
+ * Validate all composite axes have correct products
+ */
+type ValidateComposites<
+  Patterns extends readonly TypeAxisPattern[],
+  InputShape extends Shape,
+  ProvidedAxes extends Record<string, number> | undefined,
+  CurrentIndex extends number = 0,
+> = Patterns extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeCompositeAxis
+    ? ProvidedAxes extends Record<string, number>
+      ? CurrentIndex extends keyof InputShape
+        ? InputShape[CurrentIndex] extends number
+          ? FlattenAxes<Head['axes']> extends infer FlatAxes
+            ? FlatAxes extends readonly TypeSimpleAxis[]
+              ? // Check if all axes in composite are provided
+                AllAxesProvided<FlatAxes, ProvidedAxes> extends true
+                ? ValidateCompositeProduct<
+                    FlatAxes,
+                    InputShape[CurrentIndex],
+                    ProvidedAxes
+                  > extends true
+                  ? Tail extends readonly TypeAxisPattern[]
+                    ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
+                    : true
+                  : false // Product mismatch
+                : Tail extends readonly TypeAxisPattern[]
+                  ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
+                  : true // Not all axes provided, skip validation
+              : never
+            : never
+          : never
+        : never
+      : Tail extends readonly TypeAxisPattern[]
+        ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
+        : true // No provided axes, skip validation
+    : Head extends TypeSimpleAxis | TypeSingletonAxis
+      ? Tail extends readonly TypeAxisPattern[]
+        ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
+        : true
+      : Head extends TypeEllipsisAxis
+        ? true // Skip ellipsis, we already validated count
+        : never
+  : true;
+
+/**
+ * Check if all axes are provided
+ */
+type AllAxesProvided<
+  Axes extends readonly TypeSimpleAxis[],
+  ProvidedAxes extends Record<string, number>,
+> = Axes extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeSimpleAxis
+    ? Head['name'] extends keyof ProvidedAxes
+      ? Tail extends readonly TypeSimpleAxis[]
+        ? AllAxesProvided<Tail, ProvidedAxes>
+        : true
+      : false
+    : never
+  : true;

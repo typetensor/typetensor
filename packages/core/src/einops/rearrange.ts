@@ -1,6 +1,6 @@
 /**
  * Basic rearrange function for einops patterns
- * 
+ *
  * This module provides the core rearrange functionality, implementing
  * simple tensor transformations using einops patterns.
  */
@@ -9,20 +9,13 @@ import { parse } from './scanner';
 import { AxisResolver, type ResolvedPattern } from './axis-resolver';
 import type { EinopsAST } from './ast';
 import { isSimpleAxis } from './ast';
+import { Tensor, ChainablePromise } from '../tensor/tensor';
+import type { AnyStorageTransformation } from '../storage/layout';
+import type { RearrangeOp } from '../storage/einops';
 
 // =============================================================================
 // Types
 // =============================================================================
-
-/**
- * Basic tensor interface for rearrange operations
- */
-export interface RearrangeTensor {
-  readonly shape: readonly number[];
-  reshape(newShape: readonly number[]): RearrangeTensor;
-  permute(axes: readonly number[]): RearrangeTensor;
-  transpose(): RearrangeTensor;
-}
 
 /**
  * Options for rearrange operation
@@ -70,52 +63,73 @@ export class RearrangeError extends Error {
 
 /**
  * Rearrange tensor dimensions according to einops pattern
- * 
- * @param tensor - Input tensor to rearrange
+ *
+ * @param tensor - Input tensor to rearrange (can be Tensor or ChainablePromise)
  * @param pattern - Einops pattern like "h w -> w h" or "(h w) c -> h w c"
  * @param options - Optional configuration including axis dimensions
- * @returns New tensor with rearranged dimensions
- * 
+ * @returns ChainablePromise with rearranged tensor
+ *
  * @example
  * ```typescript
  * // Simple transpose
- * const result = rearrange(tensor, "h w -> w h");
- * 
+ * const result = await rearrange(tensor, "h w -> w h");
+ *
  * // Composite pattern with provided axis
- * const result = rearrange(tensor, "(h w) c -> h w c", { axes: { h: 32 } });
- * 
- * // Axis reordering
- * const result = rearrange(tensor, "b h w c -> b c h w");
+ * const result = await rearrange(tensor, "(h w) c -> h w c", { axes: { h: 32 } });
+ *
+ * // Works with chained operations
+ * const result = await rearrange(tensor.add(other), "b h w c -> b c h w");
+ *
+ * // Can be chained further
+ * const result = await rearrange(tensor, "h w -> w h").add(other);
  * ```
  */
-export function rearrange(
-  tensor: RearrangeTensor,
-  pattern: string,
-  options: RearrangeOptions = {},
-): RearrangeTensor {
-  try {
-    // Step 1: Parse the pattern
-    const ast = parse(pattern);
-    
-    // Step 2: Resolve axes against tensor shape
-    const resolved = resolveAxes(ast, tensor.shape, options.axes);
-    
-    // Step 3: Plan operations
-    const operations = planOperations(ast, tensor.shape, resolved);
-    
-    // Step 4: Execute operations
-    return executeOperations(tensor, operations);
-    
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new RearrangeError(
-        `Failed to rearrange tensor: ${error.message}`,
-        pattern,
-        { inputShape: tensor.shape },
-      );
-    }
-    throw error;
-  }
+export function rearrange<
+  S extends AnyStorageTransformation,
+  Pattern extends string,
+  Axes extends Record<string, number> | undefined = undefined
+>(
+  tensor: Tensor<S> | ChainablePromise<S>,
+  pattern: Pattern,
+  axes?: Axes
+): ChainablePromise<RearrangeOp<S['__output'], Pattern, Axes>> {
+  return new ChainablePromise((resolve, reject) => {
+    void (async () => {
+      try {
+        // Resolve tensor if it's a ChainablePromise
+        const resolvedTensor = tensor instanceof ChainablePromise ? await tensor : tensor;
+        
+        if (!(resolvedTensor instanceof Tensor)) {
+          throw new Error('Expected a Tensor instance');
+        }
+        
+        // Step 1: Parse the pattern
+        const ast = parse(pattern);
+
+        // Step 2: Resolve axes against tensor shape
+        const resolved = resolveAxes(ast, resolvedTensor.shape, axes);
+
+        // Step 3: Plan operations
+        const operations = planOperations(ast, resolvedTensor.shape, resolved);
+
+        // Step 4: Execute operations
+        const result = executeOperations(resolvedTensor, operations);
+        
+        // Return with correct type
+        resolve(result as Tensor<RearrangeOp<S['__output'], Pattern, Axes>>);
+        
+      } catch (error) {
+        if (error instanceof Error) {
+          const inputShape = tensor instanceof ChainablePromise ? undefined : tensor.shape;
+          reject(new RearrangeError(`Failed to rearrange tensor: ${error.message}`, pattern, {
+            inputShape: inputShape as readonly number[] | undefined,
+          }));
+        } else {
+          reject(error);
+        }
+      }
+    })();
+  });
 }
 
 // =============================================================================
@@ -143,12 +157,12 @@ function planOperations(
   resolved: ResolvedPattern,
 ): TensorOperation[] {
   const operations: TensorOperation[] = [];
-  
+
   // Handle simple identity case
   if (isIdentityPattern(ast)) {
     return [{ type: 'identity' }];
   }
-  
+
   // Handle simple transpose
   if (isSimpleTranspose(ast)) {
     const permutation = computeSimplePermutation(ast);
@@ -159,11 +173,11 @@ function planOperations(
       return [{ type: 'permute', params: { axes: permutation } }];
     }
   }
-  
+
   // General case: Always just reshape to final output shape
   // The axis resolver has already computed the correct output shape
   const outputShape = Array.from(resolved.outputShape);
-  
+
   // If shapes are different, we need to reshape
   if (!arraysEqual(inputShape, outputShape)) {
     operations.push({
@@ -171,46 +185,46 @@ function planOperations(
       params: { shape: outputShape },
     });
   }
-  
+
   return operations;
 }
 
 /**
  * Execute the planned operations on the tensor
  */
-function executeOperations(
-  tensor: RearrangeTensor,
+async function executeOperations(
+  tensor: Tensor<any>,
   operations: TensorOperation[],
-): RearrangeTensor {
-  let result = tensor;
-  
+): Promise<Tensor<any>> {
+  let result: Tensor<any> = tensor;
+
   for (const operation of operations) {
     switch (operation.type) {
       case 'identity':
         // No-op
         break;
-        
+
       case 'reshape':
         if (operation.params?.shape) {
-          result = result.reshape(operation.params.shape);
+          result = result.reshape(operation.params.shape as any);
         }
         break;
-        
+
       case 'permute':
         if (operation.params?.axes) {
-          result = result.permute(operation.params.axes);
+          result = result.permute(operation.params.axes as any);
         }
         break;
-        
+
       case 'transpose':
         result = result.transpose();
         break;
-        
+
       default:
         throw new Error(`Unknown operation type: ${(operation as any).type}`);
     }
   }
-  
+
   return result;
 }
 
@@ -225,19 +239,19 @@ function isIdentityPattern(ast: EinopsAST): boolean {
   if (ast.input.length !== ast.output.length) {
     return false;
   }
-  
+
   for (let i = 0; i < ast.input.length; i++) {
     const inputPattern = ast.input[i];
     const outputPattern = ast.output[i];
-    
+
     if (!inputPattern || !outputPattern) {
       return false;
     }
-    
+
     if (inputPattern.type !== outputPattern.type) {
       return false;
     }
-    
+
     if (isSimpleAxis(inputPattern) && isSimpleAxis(outputPattern)) {
       if (inputPattern.name !== outputPattern.name) {
         return false;
@@ -249,7 +263,7 @@ function isIdentityPattern(ast: EinopsAST): boolean {
       return false;
     }
   }
-  
+
   return true;
 }
 
@@ -260,36 +274,35 @@ function isSimpleTranspose(ast: EinopsAST): boolean {
   // All patterns must be simple axes
   const allInputSimple = ast.input.every(isSimpleAxis);
   const allOutputSimple = ast.output.every(isSimpleAxis);
-  
+
   if (!allInputSimple || !allOutputSimple) {
     return false;
   }
-  
+
   // Same number of axes
   if (ast.input.length !== ast.output.length) {
     return false;
   }
-  
+
   // All input axes must appear in output (different order is ok)
-  const inputNames = ast.input.map(p => isSimpleAxis(p) ? p.name : '');
-  const outputNames = ast.output.map(p => isSimpleAxis(p) ? p.name : '');
-  
+  const inputNames = ast.input.map((p) => (isSimpleAxis(p) ? p.name : ''));
+  const outputNames = ast.output.map((p) => (isSimpleAxis(p) ? p.name : ''));
+
   const inputSet = new Set(inputNames);
   const outputSet = new Set(outputNames);
-  
-  return inputSet.size === outputSet.size && 
-         [...inputSet].every(name => outputSet.has(name));
+
+  return inputSet.size === outputSet.size && [...inputSet].every((name) => outputSet.has(name));
 }
 
 /**
  * Compute permutation for simple transpose
  */
 function computeSimplePermutation(ast: EinopsAST): number[] {
-  const inputNames = ast.input.map(p => isSimpleAxis(p) ? p.name : '');
-  const outputNames = ast.output.map(p => isSimpleAxis(p) ? p.name : '');
-  
+  const inputNames = ast.input.map((p) => (isSimpleAxis(p) ? p.name : ''));
+  const outputNames = ast.output.map((p) => (isSimpleAxis(p) ? p.name : ''));
+
   const permutation: number[] = [];
-  
+
   for (const outputName of outputNames) {
     const inputIndex = inputNames.indexOf(outputName);
     if (inputIndex === -1) {
@@ -297,7 +310,7 @@ function computeSimplePermutation(ast: EinopsAST): number[] {
     }
     permutation.push(inputIndex);
   }
-  
+
   return permutation;
 }
 

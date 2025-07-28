@@ -62,7 +62,7 @@ import type { Mod } from 'ts-arithmetic';
  * const result1 = await (await a.add(b)).mul(c);  // Traditional
  * const result2 = await a.add(b).mul(c);          // Chainable
  */
-class ChainablePromise<S extends AnyStorageTransformation> extends Promise<Tensor<S>> {
+export class ChainablePromise<S extends AnyStorageTransformation> extends Promise<Tensor<S>> {
   // eslint-disable-next-line @typescript-eslint/no-useless-constructor
   constructor(
     executor: (

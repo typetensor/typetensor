@@ -93,8 +93,9 @@ type FortranTensor = TensorStorage<Float32, readonly [3, 4], readonly [1, 3], Fo
   type Split2D = RearrangeOp<Float32Matrix2D, '(h w) c -> h w c', { h: 2 }>;
   expectTypeOf<readonly [2, 1, 3]>().toEqualTypeOf<ShapeOf<OutputOf<Split2D>>>(); // [2,3] -> [2,1,3]
 
-  // Flatten last two dimensions
-  type FlattenLast = RearrangeOp<Float32Tensor3D, 'batch (h w) -> batch h w', { h: 3 }>;
+  // Split composite dimension  
+  type Tensor2D_12 = TensorStorage<Float32, readonly [2, 12]>;
+  type FlattenLast = RearrangeOp<Tensor2D_12, 'batch (h w) -> batch h w', { h: 3 }>;
   expectTypeOf<readonly [2, 3, 4]>().toEqualTypeOf<ShapeOf<OutputOf<FlattenLast>>>(); // [2,12] -> [2,3,4]
 }
 
