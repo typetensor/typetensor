@@ -219,9 +219,9 @@ export class ChainablePromise<S extends AnyStorageTransformation> extends Promis
     shape: ValidReshapeShape<S['__output']['__shape'], NewShape>,
   ): ChainablePromise<ReshapeOp<S['__output'], NewShape>> {
     return new ChainablePromise((resolve, reject) => {
-      this.then((tensor) => {
-        resolve(tensor.reshape(shape) as Tensor<ReshapeOp<S['__output'], NewShape>>);
-      }).catch(reject);
+      this.then((tensor) => tensor.reshape(shape))
+        .then(resolve)
+        .catch(reject);
     });
   }
 
@@ -233,17 +233,25 @@ export class ChainablePromise<S extends AnyStorageTransformation> extends Promis
     });
   }
 
+  contiguous(): ChainablePromise<S> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.contiguous())
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
   view<NewShape extends readonly (number | -1)[]>(
     shape: IsValidViewShape<S['__output']['__shape'], NewShape> extends true ? NewShape : never,
   ): ChainablePromise<View<S['__output'], NewShape>> {
     return new ChainablePromise((resolve, reject) => {
       this.then((tensor) => {
-        resolve(tensor.view(shape) as Tensor<View<S['__output'], NewShape>>);
+        resolve(tensor.view(shape));
       }).catch(reject);
     });
   }
 
-  slice<Indices extends readonly SliceIndex[]>(
+  slice<const Indices extends readonly SliceIndex[]>(
     indices: Indices,
   ): ChainablePromise<SliceOp<S['__output'], Indices>> {
     return new ChainablePromise((resolve, reject) => {
@@ -612,6 +620,33 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
   }
 
   // =============================================================================
+  // Operation Execution Helper
+  // =============================================================================
+
+  /**
+   * Helper to ensure tensor is contiguous if device doesn't support non-contiguous operations
+   *
+   * @param opType - The operation type to check
+   * @returns The tensor itself if contiguous or device supports non-contiguous, otherwise a contiguous copy
+   */
+  private async _ensureContiguousIfNeeded(
+    opType: AnyStorageTransformation['__op'],
+  ): Promise<Tensor<S>> {
+    // If already contiguous, no need to check device support
+    if (this.layout.c_contiguous === true) {
+      return this;
+    }
+
+    // Check if device supports non-contiguous for this operation
+    if (this.device.supportsNonContiguous(opType)) {
+      return this;
+    }
+
+    // Device doesn't support non-contiguous, make a contiguous copy
+    return this._createContiguousCopy();
+  }
+
+  // =============================================================================
   // Unary Operations
   // =============================================================================
 
@@ -624,14 +659,17 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('neg');
+
           // Build the transformation with proper output metadata
           const negOp: Neg<S['__output']> = {
             __op: 'neg',
             __output: {
-              __dtype: this.storage.__dtype,
-              __shape: this.storage.__shape,
-              __strides: this.storage.__strides,
-              __size: this.storage.__size,
+              __dtype: tensor.storage.__dtype,
+              __shape: tensor.storage.__shape,
+              __strides: tensor.storage.__strides,
+              __size: tensor.storage.__size,
               __layout: {
                 c_contiguous: true,
                 f_contiguous: false,
@@ -641,10 +679,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
               },
               __offset: 0,
             } as Neg<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           };
 
-          const resultData = await this.data.device.execute(negOp, [this.data]);
+          const resultData = await tensor.data.device.execute(negOp, [tensor.data]);
           resolve(new Tensor(negOp, resultData));
         } catch (error) {
           reject(error);
@@ -662,14 +700,17 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('abs');
+
           // Build the transformation with proper output metadata
           const absOp: Abs<S['__output']> = {
             __op: 'abs',
             __output: {
-              __dtype: this.storage.__dtype,
-              __shape: this.storage.__shape,
-              __strides: this.storage.__strides,
-              __size: this.storage.__size,
+              __dtype: tensor.storage.__dtype,
+              __shape: tensor.storage.__shape,
+              __strides: tensor.storage.__strides,
+              __size: tensor.storage.__size,
               __layout: {
                 c_contiguous: true,
                 f_contiguous: false,
@@ -679,10 +720,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
               },
               __offset: 0,
             } as Abs<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           };
 
-          const resultData = await this.data.device.execute(absOp, [this.data]);
+          const resultData = await tensor.data.device.execute(absOp, [tensor.data]);
           resolve(new Tensor(absOp, resultData));
         } catch (error) {
           reject(error);
@@ -700,16 +741,19 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('sin');
+
           const sinOp = {
             __op: 'sin' as const,
             __output: {
-              ...this.storage,
-              __dtype: toFloatDType(this.dtype),
+              ...tensor.storage,
+              __dtype: toFloatDType(tensor.dtype),
             } as Sin<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           } as Sin<S['__output']>;
 
-          const resultData = await this.data.device.execute(sinOp, [this.data]);
+          const resultData = await tensor.data.device.execute(sinOp, [tensor.data]);
           resolve(new Tensor(sinOp, resultData));
         } catch (error) {
           reject(error);
@@ -727,16 +771,19 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('cos');
+
           const cosOp = {
             __op: 'cos' as const,
             __output: {
-              ...this.storage,
-              __dtype: toFloatDType(this.dtype),
+              ...tensor.storage,
+              __dtype: toFloatDType(tensor.dtype),
             } as Cos<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           } as Cos<S['__output']>;
 
-          const resultData = await this.data.device.execute(cosOp, [this.data]);
+          const resultData = await tensor.data.device.execute(cosOp, [tensor.data]);
           resolve(new Tensor(cosOp, resultData));
         } catch (error) {
           reject(error);
@@ -754,16 +801,19 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('exp');
+
           const expOp = {
             __op: 'exp' as const,
             __output: {
-              ...this.storage,
-              __dtype: toFloatDType(this.dtype),
+              ...tensor.storage,
+              __dtype: toFloatDType(tensor.dtype),
             } as Exp<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           } as Exp<S['__output']>;
 
-          const resultData = await this.data.device.execute(expOp, [this.data]);
+          const resultData = await tensor.data.device.execute(expOp, [tensor.data]);
           resolve(new Tensor(expOp, resultData));
         } catch (error) {
           reject(error);
@@ -781,13 +831,16 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('log');
+
           const logOp = {
             __op: 'log' as const,
             __output: {
-              ...this.storage,
-              __dtype: toFloatDType(this.dtype),
+              ...tensor.storage,
+              __dtype: toFloatDType(tensor.dtype),
             } as Log<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           } as Log<S['__output']>;
 
           const resultData = await this.data.device.execute(logOp, [this.data]);
@@ -808,16 +861,19 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('sqrt');
+
           const sqrtOp = {
             __op: 'sqrt' as const,
             __output: {
-              ...this.storage,
-              __dtype: toFloatDType(this.dtype),
+              ...tensor.storage,
+              __dtype: toFloatDType(tensor.dtype),
             } as Sqrt<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           } as Sqrt<S['__output']>;
 
-          const resultData = await this.data.device.execute(sqrtOp, [this.data]);
+          const resultData = await tensor.data.device.execute(sqrtOp, [tensor.data]);
           resolve(new Tensor(sqrtOp, resultData));
         } catch (error) {
           reject(error);
@@ -835,15 +891,18 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('square');
+
           const squareOp = {
             __op: 'square' as const,
             __output: {
-              ...this.storage,
+              ...tensor.storage,
             } as Square<S['__output']>['__output'],
-            __inputs: [this.storage] as const,
+            __inputs: [tensor.storage] as const,
           } as Square<S['__output']>;
 
-          const resultData = await this.data.device.execute(squareOp, [this.data]);
+          const resultData = await tensor.data.device.execute(squareOp, [tensor.data]);
           resolve(new Tensor(squareOp, resultData));
         } catch (error) {
           reject(error);
@@ -889,11 +948,15 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           // Validate shapes can broadcast with helpful error messages
           assertShapesCompatible(this.shape, otherTensor.shape, 'element-wise addition');
 
+          // Ensure both tensors are contiguous if device requires it
+          const tensor1 = await this._ensureContiguousIfNeeded('add');
+          const tensor2 = await otherTensor._ensureContiguousIfNeeded('add');
+
           // Compute broadcast shape and promoted dtype
-          const outputShape = broadcastShapes(this.shape, otherTensor.shape);
+          const outputShape = broadcastShapes(tensor1.shape, tensor2.shape);
           const outputStrides = computeStrides(outputShape);
           const outputSize = computeSize(outputShape);
-          const promotedDtype = toPromotedDType(this.dtype, otherTensor.dtype);
+          const promotedDtype = toPromotedDType(tensor1.dtype, tensor2.dtype);
 
           // Build the add operation with proper output metadata
           const addOp = {
@@ -912,10 +975,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
               },
               __offset: 0,
             } as Add<S['__output'], T['__output']>['__output'],
-            __inputs: [this.storage, otherTensor.storage] as const,
+            __inputs: [tensor1.storage, tensor2.storage] as const,
           } as Add<S['__output'], T['__output']>;
 
-          const resultData = await this.data.device.execute(addOp, [this.data, otherTensor.data]);
+          const resultData = await tensor1.data.device.execute(addOp, [tensor1.data, tensor2.data]);
           resolve(new Tensor(addOp, resultData));
         } catch (error) {
           reject(error);
@@ -953,11 +1016,15 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             );
           }
 
+          // Ensure both tensors are contiguous if device requires it
+          const tensor1 = await this._ensureContiguousIfNeeded('sub');
+          const tensor2 = await otherTensor._ensureContiguousIfNeeded('sub');
+
           // Compute broadcast shape and promoted dtype
-          const outputShape = broadcastShapes(this.shape, otherTensor.shape);
+          const outputShape = broadcastShapes(tensor1.shape, tensor2.shape);
           const outputStrides = computeStrides(outputShape);
           const outputSize = computeSize(outputShape);
-          const promotedDtype = toPromotedDType(this.dtype, otherTensor.dtype);
+          const promotedDtype = toPromotedDType(tensor1.dtype, tensor2.dtype);
 
           // Build the sub operation with proper output metadata
           const subOp = {
@@ -975,10 +1042,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
                 aligned: true,
               },
             } as Sub<S['__output'], T['__output']>['__output'],
-            __inputs: [this.storage, otherTensor.storage] as const,
+            __inputs: [tensor1.storage, tensor2.storage] as const,
           } as Sub<S['__output'], T['__output']>;
 
-          const resultData = await this.data.device.execute(subOp, [this.data, otherTensor.data]);
+          const resultData = await tensor1.data.device.execute(subOp, [tensor1.data, tensor2.data]);
           resolve(new Tensor(subOp, resultData));
         } catch (error) {
           reject(error);
@@ -1016,11 +1083,15 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             );
           }
 
+          // Ensure both tensors are contiguous if device requires it
+          const tensor1 = await this._ensureContiguousIfNeeded('mul');
+          const tensor2 = await otherTensor._ensureContiguousIfNeeded('mul');
+
           // Compute broadcast shape and promoted dtype
-          const outputShape = broadcastShapes(this.shape, otherTensor.shape);
+          const outputShape = broadcastShapes(tensor1.shape, tensor2.shape);
           const outputStrides = computeStrides(outputShape);
           const outputSize = computeSize(outputShape);
-          const promotedDtype = toPromotedDType(this.dtype, otherTensor.dtype);
+          const promotedDtype = toPromotedDType(tensor1.dtype, tensor2.dtype);
 
           // Build the mul operation with proper output metadata
           const mulOp = {
@@ -1038,10 +1109,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
                 aligned: true,
               },
             } as Mul<S['__output'], T['__output']>['__output'],
-            __inputs: [this.storage, otherTensor.storage] as const,
+            __inputs: [tensor1.storage, tensor2.storage] as const,
           } as Mul<S['__output'], T['__output']>;
 
-          const resultData = await this.data.device.execute(mulOp, [this.data, otherTensor.data]);
+          const resultData = await tensor1.data.device.execute(mulOp, [tensor1.data, tensor2.data]);
           resolve(new Tensor(mulOp, resultData));
         } catch (error) {
           reject(error);
@@ -1079,11 +1150,15 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             );
           }
 
+          // Ensure both tensors are contiguous if device requires it
+          const tensor1 = await this._ensureContiguousIfNeeded('div');
+          const tensor2 = await otherTensor._ensureContiguousIfNeeded('div');
+
           // Compute broadcast shape and promoted dtype
-          const outputShape = broadcastShapes(this.shape, otherTensor.shape);
+          const outputShape = broadcastShapes(tensor1.shape, tensor2.shape);
           const outputStrides = computeStrides(outputShape);
           const outputSize = computeSize(outputShape);
-          const promotedDtype = toPromotedDType(this.dtype, otherTensor.dtype);
+          const promotedDtype = toPromotedDType(tensor1.dtype, tensor2.dtype);
 
           // Build the div operation with proper output metadata
           const divOp = {
@@ -1101,10 +1176,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
                 aligned: true,
               },
             } as Div<S['__output'], T['__output']>['__output'],
-            __inputs: [this.storage, otherTensor.storage] as const,
+            __inputs: [tensor1.storage, tensor2.storage] as const,
           } as Div<S['__output'], T['__output']>;
 
-          const resultData = await this.data.device.execute(divOp, [this.data, otherTensor.data]);
+          const resultData = await tensor1.data.device.execute(divOp, [tensor1.data, tensor2.data]);
           resolve(new Tensor(divOp, resultData));
         } catch (error) {
           reject(error);
@@ -1132,44 +1207,55 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    */
   reshape<NewShape extends readonly number[]>(
     shape: ValidReshapeShape<S['__output']['__shape'], NewShape>,
-  ): CanReshape<S['__output']['__shape'], NewShape> extends true
-    ? Tensor<ReshapeOp<S['__output'], NewShape>>
-    : never {
-    // Validate that reshaping is allowed
-    // At runtime, shape will always be a valid array (TypeScript ensures this)
-    // Cast to NewShape after validation
-    const validShape = shape as NewShape;
-    const totalElements = this.shape.reduce((a, b) => a * b, 1);
-    const newTotalElements = validShape.reduce((a, b) => a * b, 1);
-    if (totalElements !== newTotalElements) {
-      throw new Error(
-        `Cannot reshape from ${formatShape(this.shape as Shape)} to ${formatShape(validShape as Shape)}: different number of elements`,
-      );
-    }
+  ): ChainablePromise<ReshapeOp<S['__output'], NewShape>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Validate that reshaping is allowed
+          // At runtime, shape will always be a valid array (TypeScript ensures this)
+          // Cast to NewShape after validation
+          const validShape = shape as NewShape;
+          const totalElements = this.shape.reduce((a, b) => a * b, 1);
+          const newTotalElements = validShape.reduce((a, b) => a * b, 1);
+          if (totalElements !== newTotalElements) {
+            throw new Error(
+              `Cannot reshape from ${formatShape(this.shape as Shape)} to ${formatShape(validShape as Shape)}: different number of elements`,
+            );
+          }
 
-    const reshapeOp = {
-      __op: 'reshape' as const,
-      __output: {
-        __dtype: this.storage.__dtype,
-        __shape: validShape,
-        __strides: computeStrides(validShape) as ComputeStrides<NewShape>,
-        __size: computeSize(validShape) as Product<NewShape>,
-        __layout: {
-          ...this.storage.__layout,
-          is_view: true,
-        },
-        __offset: this.storage.__offset,
-      } as ReshapeOp<S['__output'], NewShape>['__output'],
-      __inputs: [this.storage] as const,
-    } as ReshapeOp<S['__output'], NewShape>;
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('reshape');
 
-    // Reshape typically returns a view (same data, new metadata)
-    return new Tensor(reshapeOp, this.data) as CanReshape<
-      S['__output']['__shape'],
-      NewShape
-    > extends true
-      ? Tensor<ReshapeOp<S['__output'], NewShape>>
-      : never;
+          const reshapeOp = {
+            __op: 'reshape' as const,
+            __output: {
+              __dtype: tensor.storage.__dtype,
+              __shape: validShape,
+              __strides: computeStrides(validShape) as ComputeStrides<NewShape>,
+              __size: computeSize(validShape) as Product<NewShape>,
+              __layout: {
+                ...tensor.storage.__layout,
+                is_view: true,
+              },
+              __offset: tensor.storage.__offset,
+            } as ReshapeOp<S['__output'], NewShape>['__output'],
+            __inputs: [tensor.storage] as const,
+          } as ReshapeOp<S['__output'], NewShape>;
+
+          // Reshape typically returns a view (same data, new metadata)
+          resolve(
+            new Tensor(reshapeOp, tensor.data) as CanReshape<
+              S['__output']['__shape'],
+              NewShape
+            > extends true
+              ? Tensor<ReshapeOp<S['__output'], NewShape>>
+              : never,
+          );
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   /**
@@ -1240,6 +1326,33 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
   }
 
   /**
+   * Returns a contiguous tensor with the same data
+   *
+   * If the tensor is already contiguous, returns itself (no-op).
+   * Otherwise, creates a new tensor with C-contiguous memory layout.
+   *
+   * @returns Contiguous tensor
+   */
+  contiguous(): ChainablePromise<S> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // If already contiguous, return self
+          if (this.layout.c_contiguous === true) {
+            resolve(this);
+            return;
+          }
+          // Otherwise create a contiguous copy
+          const contiguousCopy = await this._createContiguousCopy();
+          resolve(contiguousCopy);
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
+  }
+
+  /**
    * Create a contiguous copy of the tensor with data in logical order
    *
    * This reads the tensor data in logical order (respecting strides/views)
@@ -1296,7 +1409,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    */
   view<NewShape extends readonly (number | -1)[]>(
     shape: IsValidViewShape<S['__output']['__shape'], NewShape> extends true ? NewShape : never,
-  ): Tensor<View<S['__output'], NewShape>> {
+  ): ChainablePromise<View<S['__output'], NewShape>> {
     // Infer shape if -1 is present
     const inferredShape = this.inferShape(shape);
 
@@ -1316,7 +1429,16 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       __inputs: [this.storage] as const,
     } as View<S['__output'], NewShape>;
 
-    return new Tensor(viewOp, this.data);
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          const tensor = await this._ensureContiguousIfNeeded('view');
+          resolve(new Tensor(viewOp, tensor.data));
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   /**
@@ -1384,7 +1506,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    * const c = await a.slice([null, 1]);     // [[3, 4], [7, 8]] - select column
    * const d = await a.slice([{ start: 0, stop: 2, step: 1 }, null]); // full tensor
    */
-  slice<Indices extends readonly SliceIndex[]>(
+  slice<const Indices extends readonly SliceIndex[]>(
     indices: Indices,
   ): ChainablePromise<SliceOp<S['__output'], Indices>> {
     return new ChainablePromise((resolve, reject) => {
@@ -1451,7 +1573,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    * const c = await tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]); // Shape: [2, 2, 2]
    * const d = c.transpose(); // Shape: [2, 2, 2] (swaps last two dims)
    */
-  transpose(): Tensor<TransposeOp<S['__output']>> {
+  transpose(): ChainablePromise<TransposeOp<S['__output']>> {
     if (this.ndim < 2) {
       // For scalars and 1D tensors, return unchanged
       const transposeOp = {
@@ -1466,7 +1588,16 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         __inputs: [this.storage] as const,
       } as TransposeOp<S['__output']>;
 
-      return new Tensor(transposeOp, this.data) as Tensor<TransposeOp<S['__output']>>;
+      return new ChainablePromise((resolve, reject) => {
+        void (async () => {
+          try {
+            const tensor = await this._ensureContiguousIfNeeded('transpose');
+            resolve(new Tensor(transposeOp, tensor.data));
+          } catch (error) {
+            reject(error);
+          }
+        })();
+      });
     }
 
     // Compute transposed shape and strides
@@ -1492,7 +1623,16 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       __inputs: [this.storage] as const,
     } as TransposeOp<S['__output']>;
 
-    return new Tensor(transposeOp, this.data) as Tensor<TransposeOp<S['__output']>>;
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          const tensor = await this._ensureContiguousIfNeeded('transpose');
+          resolve(new Tensor(transposeOp, tensor.data));
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   /**
@@ -1504,7 +1644,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    * const a = await tensor([[1, 2, 3], [4, 5, 6]]);
    * const b = a.T; // Same as a.transpose()
    */
-  get T(): Tensor<TransposeOp<S['__output']>> {
+  get T(): ChainablePromise<TransposeOp<S['__output']>> {
     return this.transpose();
   }
 
@@ -1922,17 +2062,21 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     // Validate shapes can be matrix multiplied with helpful error messages
     assertMatmulCompatible(this.shape, other.shape);
 
+    // Ensure both tensors are contiguous if device requires it
+    const tensor1 = await this._ensureContiguousIfNeeded('matmul');
+    const tensor2 = await other._ensureContiguousIfNeeded('matmul');
+
     // Compute output shape
-    const outputShape = matmulShape(this.shape, other.shape);
+    const outputShape = matmulShape(tensor1.shape, tensor2.shape);
     if (!outputShape) {
       throw new Error(
-        `Cannot perform matrix multiplication on shapes ${formatShape(this.shape)} and ${formatShape(other.shape)}`,
+        `Cannot perform matrix multiplication on shapes ${formatShape(tensor1.shape)} and ${formatShape(tensor2.shape)}`,
       );
     }
 
     const outputStrides = computeStrides(outputShape);
     const outputSize = computeSize(outputShape);
-    const promotedDtype = toPromotedDType(this.dtype, other.dtype);
+    const promotedDtype = toPromotedDType(tensor1.dtype, tensor2.dtype);
 
     // Build the matmul operation with proper output metadata
     const matmulOp = {
@@ -1951,10 +2095,10 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       } as MatmulOp<S['__output'], T['__output']>['__output'],
-      __inputs: [this.storage, other.storage] as const,
+      __inputs: [tensor1.storage, tensor2.storage] as const,
     } as MatmulOp<S['__output'], T['__output']>;
 
-    const resultData = await this.data.device.execute(matmulOp, [this.data, other.data]);
+    const resultData = await tensor1.data.device.execute(matmulOp, [tensor1.data, tensor2.data]);
     return new Tensor(matmulOp, resultData);
   }
 
@@ -2000,17 +2144,20 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       );
     }
 
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('softmax');
+
     // Convert to float dtype for softmax computation
-    const outputDtype = toFloatDType(this.dtype);
-    const outputStrides = computeStrides(this.shape);
-    const outputSize = computeSize(this.shape);
+    const outputDtype = toFloatDType(tensor.dtype);
+    const outputStrides = computeStrides(tensor.shape);
+    const outputSize = computeSize(tensor.shape);
 
     // Build the softmax operation with proper output metadata
     const softmaxOp = {
       __op: 'softmax' as const,
       __output: {
         __dtype: outputDtype,
-        __shape: this.shape,
+        __shape: tensor.shape,
         __strides: outputStrides,
         __size: outputSize,
         __layout: {
@@ -2022,11 +2169,11 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       } as SoftmaxOp<S['__output'], Axis>['__output'],
-      __inputs: [this.storage] as const,
+      __inputs: [tensor.storage] as const,
       __softmaxAxis: normalizedAxis,
     } as SoftmaxOp<S['__output'], Axis>;
 
-    const resultData = await this.data.device.execute(softmaxOp, [this.data]);
+    const resultData = await tensor.data.device.execute(softmaxOp, [tensor.data]);
     return new Tensor(softmaxOp, resultData);
   }
 
@@ -2070,17 +2217,20 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       );
     }
 
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('log_softmax');
+
     // Convert to float dtype for log-softmax computation
-    const outputDtype = toFloatDType(this.dtype);
-    const outputStrides = computeStrides(this.shape);
-    const outputSize = computeSize(this.shape);
+    const outputDtype = toFloatDType(tensor.dtype);
+    const outputStrides = computeStrides(tensor.shape);
+    const outputSize = computeSize(tensor.shape);
 
     // Build the log-softmax operation with proper output metadata
     const logSoftmaxOp = {
       __op: 'log_softmax' as const,
       __output: {
         __dtype: outputDtype,
-        __shape: this.shape,
+        __shape: tensor.shape,
         __strides: outputStrides,
         __size: outputSize,
         __layout: {
@@ -2092,11 +2242,11 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       } as LogSoftmaxOp<S['__output'], Axis>['__output'],
-      __inputs: [this.storage] as const,
+      __inputs: [tensor.storage] as const,
       __logSoftmaxAxis: normalizedAxis,
     } as LogSoftmaxOp<S['__output'], Axis>;
 
-    const resultData = await this.data.device.execute(logSoftmaxOp, [this.data]);
+    const resultData = await tensor.data.device.execute(logSoftmaxOp, [tensor.data]);
     return new Tensor(logSoftmaxOp, resultData);
   }
 
@@ -2141,6 +2291,9 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
     const keepDimsFlag = keepdims ?? false;
 
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('sum');
+
     // Compute output shape based on reduction
     const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
     const outputStrides = computeStrides(outputShape);
@@ -2150,7 +2303,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const sumOp = {
       __op: 'sum' as const,
       __output: {
-        __dtype: this.storage.__dtype,
+        __dtype: tensor.storage.__dtype,
         __shape: outputShape as any, // Runtime shape
         __strides: outputStrides as any, // Runtime strides
         __size: outputSize,
@@ -2163,12 +2316,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       },
-      __inputs: [this.storage] as const,
+      __inputs: [tensor.storage] as const,
       __sumAxes: axes,
       __keepDims: keepDimsFlag,
     } as unknown as SumOp<S['__output'], Axes, KeepDims>;
 
-    const resultData = await this.data.device.execute(sumOp as any, [this.data]);
+    const resultData = await tensor.data.device.execute(sumOp as any, [tensor.data]);
     return new Tensor(sumOp, resultData) as Tensor<SumOp<S['__output'], Axes, KeepDims>>;
   }
 
@@ -2211,11 +2364,14 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
     const keepDimsFlag = keepdims ?? false;
 
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('mean');
+
     // Compute output shape based on reduction
     const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
     const outputStrides = computeStrides(outputShape);
     const outputSize = computeSize(outputShape);
-    const outputDtype = toFloatDType(this.dtype);
+    const outputDtype = toFloatDType(tensor.dtype);
 
     // Build the mean operation with proper output metadata
     const meanOp = {
@@ -2234,12 +2390,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       },
-      __inputs: [this.storage] as const,
+      __inputs: [tensor.storage] as const,
       __meanAxes: axes,
       __keepDims: keepDimsFlag,
     } as unknown as MeanOp<S['__output'], Axes, KeepDims>;
 
-    const resultData = await this.data.device.execute(meanOp as any, [this.data]);
+    const resultData = await tensor.data.device.execute(meanOp as any, [tensor.data]);
     return new Tensor(meanOp, resultData) as Tensor<MeanOp<S['__output'], Axes, KeepDims>>;
   }
 
@@ -2282,6 +2438,9 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
     const keepDimsFlag = keepdims ?? false;
 
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('max');
+
     // Compute output shape based on reduction
     const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
     const outputStrides = computeStrides(outputShape);
@@ -2291,7 +2450,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const maxOp = {
       __op: 'max' as const,
       __output: {
-        __dtype: this.storage.__dtype,
+        __dtype: tensor.storage.__dtype,
         __shape: outputShape as any, // Runtime shape
         __strides: outputStrides as any, // Runtime strides
         __size: outputSize,
@@ -2304,12 +2463,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       },
-      __inputs: [this.storage] as const,
+      __inputs: [tensor.storage] as const,
       __maxAxes: axes,
       __keepDims: keepDimsFlag,
     } as unknown as MaxOp<S['__output'], Axes, KeepDims>;
 
-    const resultData = await this.data.device.execute(maxOp as any, [this.data]);
+    const resultData = await tensor.data.device.execute(maxOp as any, [tensor.data]);
     return new Tensor(maxOp, resultData) as Tensor<MaxOp<S['__output'], Axes, KeepDims>>;
   }
 
@@ -2352,6 +2511,9 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
     const keepDimsFlag = keepdims ?? false;
 
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('min');
+
     // Compute output shape based on reduction
     const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
     const outputStrides = computeStrides(outputShape);
@@ -2361,7 +2523,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     const minOp = {
       __op: 'min' as const,
       __output: {
-        __dtype: this.storage.__dtype,
+        __dtype: tensor.storage.__dtype,
         __shape: outputShape as any, // Runtime shape
         __strides: outputStrides as any, // Runtime strides
         __size: outputSize,
@@ -2374,12 +2536,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         },
         __offset: 0,
       },
-      __inputs: [this.storage] as const,
+      __inputs: [tensor.storage] as const,
       __minAxes: axes,
       __keepDims: keepDimsFlag,
     } as unknown as MinOp<S['__output'], Axes, KeepDims>;
 
-    const resultData = await this.data.device.execute(minOp as any, [this.data]);
+    const resultData = await tensor.data.device.execute(minOp as any, [tensor.data]);
     return new Tensor(minOp, resultData) as Tensor<MinOp<S['__output'], Axes, KeepDims>>;
   }
 

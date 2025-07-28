@@ -57,15 +57,15 @@ async function main(): Promise<void> {
   const original = await tensor([1, 2, 3, 4, 5, 6] as const, { device: cpu, dtype: float32 });
 
   // Valid reshape: 6 elements → [2, 3]
-  const reshaped = original.reshape([2, 3] as const);
+  const reshaped = await original.reshape([2, 3] as const);
   console.log(await reshaped.format());
 
   // Valid reshape: 6 elements → [3, 2]
-  const reshaped2 = original.reshape([3, 2] as const);
+  const reshaped2 = await original.reshape([3, 2] as const);
   console.log(await reshaped2.format());
 
   // Using view with dimension inference (-1)
-  const viewed = original.view([2, -1] as const);
+  const viewed = await original.view([2, -1] as const);
   console.log(await viewed.format());
 
   // ============================================================================

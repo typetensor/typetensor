@@ -8,7 +8,7 @@
 import { parse } from './scanner';
 import { AxisResolver, type ResolvedPattern } from './axis-resolver';
 import type { EinopsAST, AxisPattern } from './ast';
-import { isSimpleAxis, isCompositeAxis } from './ast';
+import { isSimpleAxis, isCompositeAxis, isEllipsisAxis, isSingletonAxis } from './ast';
 import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation } from '../storage/layout';
 import type { RearrangeOp } from '../storage/einops';
@@ -215,6 +215,111 @@ function resolveAxes(
 }
 
 /**
+ * Compute the intermediate shape after expanding all composite axes
+ */
+function computeIntermediateShape(
+  patterns: readonly AxisPattern[],
+  axisDimensions: Map<string, number>,
+): number[] {
+  const shape: number[] = [];
+  
+  for (const pattern of patterns) {
+    if (isSimpleAxis(pattern)) {
+      const dim = axisDimensions.get(pattern.name);
+      if (dim === undefined) {
+        throw new Error(`Axis ${pattern.name} not found in dimensions map`);
+      }
+      shape.push(dim);
+    } else if (isCompositeAxis(pattern)) {
+      // Expand composite to its constituent axes
+      const expandedShape = computeIntermediateShape(pattern.axes, axisDimensions);
+      shape.push(...expandedShape);
+    } else if (isSingletonAxis(pattern)) {
+      shape.push(1);
+    } else if (isEllipsisAxis(pattern)) {
+      // Ellipsis handling would go here - for now throw error
+      throw new Error('Ellipsis in intermediate shape computation not yet implemented');
+    }
+  }
+  
+  return shape;
+}
+
+/**
+ * Build a flat list of all axis names in order, expanding composites
+ */
+function flattenPatternToAxisNames(patterns: readonly AxisPattern[]): string[] {
+  const names: string[] = [];
+  
+  for (const pattern of patterns) {
+    if (isSimpleAxis(pattern)) {
+      names.push(pattern.name);
+    } else if (isCompositeAxis(pattern)) {
+      names.push(...flattenPatternToAxisNames(pattern.axes));
+    } else if (isSingletonAxis(pattern)) {
+      names.push(`__singleton_${names.length}`);
+    } else if (isEllipsisAxis(pattern)) {
+      // Skip ellipsis for now
+      continue;
+    }
+  }
+  
+  return names;
+}
+
+/**
+ * Compute permutation from source axis order to target axis order
+ */
+function computeGeneralPermutation(
+  inputPatterns: readonly AxisPattern[],
+  outputPatterns: readonly AxisPattern[],
+): number[] | null {
+  const inputNames = flattenPatternToAxisNames(inputPatterns);
+  const outputNames = flattenPatternToAxisNames(outputPatterns);
+  
+  if (inputNames.length !== outputNames.length) {
+    return null; // Can't compute permutation if different lengths
+  }
+  
+  const permutation: number[] = [];
+  
+  for (const outputName of outputNames) {
+    const inputIndex = inputNames.indexOf(outputName);
+    if (inputIndex === -1) {
+      return null; // Output axis not found in input
+    }
+    permutation.push(inputIndex);
+  }
+  
+  // Check if this is identity permutation
+  const isIdentity = permutation.every((val, idx) => val === idx);
+  return isIdentity ? null : permutation;
+}
+
+/**
+ * Check if we need complex operations (both reshape and permute)
+ */
+function needsComplexOperations(ast: EinopsAST): boolean {
+  // Check if input has any composite patterns
+  const hasInputComposite = ast.input.some(p => isCompositeAxis(p));
+  
+  // Check if output has any composite patterns  
+  const hasOutputComposite = ast.output.some(p => isCompositeAxis(p));
+  
+  // Check if there's reordering of axes
+  const inputSimpleAxes = ast.input.filter(isSimpleAxis).map(p => p.name);
+  const outputSimpleAxes = ast.output.filter(isSimpleAxis).map(p => p.name);
+  
+  // If we have composites and the order of simple axes differs, we need complex ops
+  if ((hasInputComposite || hasOutputComposite) && 
+      !arraysEqual(inputSimpleAxes as any, outputSimpleAxes as any)) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Plan the sequence of tensor operations needed
  */
 function planOperations(
@@ -240,11 +345,51 @@ function planOperations(
     }
   }
 
-  // General case: Always just reshape to final output shape
-  // The axis resolver has already computed the correct output shape
-  const outputShape = Array.from(resolved.outputShape);
+  // Check if we need complex operations (reshape + permute)
+  if (needsComplexOperations(ast)) {
+    // Step 1: Compute intermediate shape with all composites expanded
+    const intermediateShapeInput = computeIntermediateShape(ast.input, resolved.axisDimensions);
+    const intermediateShapeOutput = computeIntermediateShape(ast.output, resolved.axisDimensions);
+    
+    // Debug logging
+    console.log('[DEBUG] Complex operations needed');
+    console.log('[DEBUG] Input shape:', inputShape);
+    console.log('[DEBUG] Intermediate shape (input):', intermediateShapeInput);
+    console.log('[DEBUG] Intermediate shape (output):', intermediateShapeOutput);
+    console.log('[DEBUG] Final shape:', resolved.outputShape);
+    
+    // Step 2: Reshape to intermediate shape if needed
+    if (!arraysEqual(inputShape, intermediateShapeInput)) {
+      operations.push({
+        type: 'reshape',
+        params: { shape: intermediateShapeInput },
+      });
+    }
+    
+    // Step 3: Compute and apply permutation
+    const permutation = computeGeneralPermutation(ast.input, ast.output);
+    console.log('[DEBUG] Permutation:', permutation);
+    if (permutation !== null) {
+      operations.push({
+        type: 'permute',
+        params: { axes: permutation },
+      });
+    }
+    
+    // Step 4: Final reshape if output shape differs from intermediate
+    const finalShape = Array.from(resolved.outputShape);
+    if (!arraysEqual(intermediateShapeOutput, finalShape)) {
+      operations.push({
+        type: 'reshape',
+        params: { shape: finalShape },
+      });
+    }
+    
+    return operations;
+  }
 
-  // If shapes are different, we need to reshape
+  // Simple case: just reshape to final output shape
+  const outputShape = Array.from(resolved.outputShape);
   if (!arraysEqual(inputShape, outputShape)) {
     operations.push({
       type: 'reshape',

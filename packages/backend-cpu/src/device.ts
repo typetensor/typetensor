@@ -5,7 +5,12 @@
  * on the CPU using JavaScript/TypeScript typed arrays.
  */
 
-import type { Device, DeviceData, AnyStorageTransformation, ValidateDeviceOperations } from '@typetensor/core';
+import type {
+  Device,
+  DeviceData,
+  AnyStorageTransformation,
+  ValidateDeviceOperations,
+} from '@typetensor/core';
 import { CPUDeviceData } from './data';
 import { executeOperation } from './operations';
 
@@ -28,10 +33,24 @@ export class CPUDevice implements Device {
    */
   // @ts-expect-error: This property is used for compile-time validation only
   private _operationValidation: ValidateDeviceOperations<
-    | 'create' | 'neg' | 'abs' | 'sin' | 'cos' | 'exp' | 'log' | 'sqrt' | 'square' // Unary ops
-    | 'add' | 'sub' | 'mul' | 'div'                                                // Binary ops  
-    | 'reshape' | 'view' | 'slice' | 'flatten'                                     // View ops
-    | 'matmul'                                                                      // Matrix ops
+    | 'create'
+    | 'neg'
+    | 'abs'
+    | 'sin'
+    | 'cos'
+    | 'exp'
+    | 'log'
+    | 'sqrt'
+    | 'square' // Unary ops
+    | 'add'
+    | 'sub'
+    | 'mul'
+    | 'div' // Binary ops
+    | 'reshape'
+    | 'view'
+    | 'slice'
+    | 'flatten' // View ops
+    | 'matmul' // Matrix ops
   > = true;
 
   /**
@@ -115,5 +134,17 @@ export class CPUDevice implements Device {
     const cpuData = data as CPUDeviceData;
     // Copy the buffer to prevent external modifications
     cpuData.buffer = buffer.slice(0);
+  }
+
+  /**
+   * Check if CPU backend supports non-contiguous tensors for a specific operation
+   * 
+   * For the CPU demo backend, we don't support non-contiguous tensors for any operations
+   * to keep the implementation simple. All operations expect contiguous data.
+   */
+  supportsNonContiguous(_op: AnyStorageTransformation['__op']): boolean {
+    // CPU backend doesn't support non-contiguous tensors for any operation
+    // This is a simplification for the demo backend
+    return false;
   }
 }

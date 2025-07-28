@@ -353,7 +353,7 @@ export type ExtractEllipsisDims<
 > = InputPatterns extends readonly [infer Head, ...infer Tail]
   ? Head extends TypeEllipsisAxis
     ? Tail extends readonly TypeAxisPattern[]
-      ? CountSimpleAxes<Tail> extends infer TailCount
+      ? CountConsumingAxes<Tail> extends infer TailCount
         ? TailCount extends number
           ? InputShape['length'] extends number
             ? // Calculate how many dimensions ellipsis captures

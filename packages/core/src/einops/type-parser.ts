@@ -330,14 +330,10 @@ export type ParseEinopsPattern<Pattern extends string> = SplitAtArrow<Pattern> e
           }
           ? InputPatterns extends readonly TypeAxisPattern[]
             ? OutputPatterns extends readonly TypeAxisPattern[]
-              ? InputPatterns extends readonly []
-                ? ParseError<'Input parsing failed: Empty axis name'>
-                : OutputPatterns extends readonly []
-                  ? ParseError<'Output parsing failed: Empty pattern'>
-                  : {
-                      input: InputPatterns;
-                      output: OutputPatterns;
-                    }
+              ? {
+                  input: InputPatterns;
+                  output: OutputPatterns;
+                }
               : ParseError<'Invalid output patterns'>
             : ParseError<'Invalid input patterns'>
           : ParseAxisList<OutputStr> extends ParseError<infer Message>

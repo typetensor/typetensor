@@ -160,7 +160,7 @@ import { expectTypeOf } from 'expect-type';
 }
 
 // =============================================================================
-// Scalar Pattern Tests  
+// Scalar Pattern Tests
 // =============================================================================
 
 // Test 12: Scalar patterns
@@ -168,11 +168,11 @@ import { expectTypeOf } from 'expect-type';
   // Scalar identity
   type Result1 = ResolveEinopsShape<' -> ', readonly []>;
   expectTypeOf<Result1>().toEqualTypeOf<readonly []>();
-  
+
   // Scalar to singleton
   type Result2 = ResolveEinopsShape<' -> 1', readonly []>;
   expectTypeOf<Result2>().toEqualTypeOf<readonly [1]>();
-  
+
   // Singleton to scalar
   type Result3 = ResolveEinopsShape<'1 -> ', readonly [1]>;
   expectTypeOf<Result3>().toEqualTypeOf<readonly []>();
@@ -182,7 +182,7 @@ import { expectTypeOf } from 'expect-type';
 // Error Cases (should resolve to never)
 // =============================================================================
 
-// Test 12: Invalid patterns
+// Test 13: Invalid patterns
 {
   // Unknown axis in output
   type Result1 = ResolveEinopsShape<'h w -> h w c', readonly [2, 3]>;
@@ -197,7 +197,7 @@ import { expectTypeOf } from 'expect-type';
   expectTypeOf<Result3>().toBeNever();
 }
 
-// Test 13: Shape mismatch in composite patterns
+// Test 14: Shape mismatch in composite patterns
 {
   // Wrong decomposition - 6 != 2*4
   type Result1 = ResolveEinopsShape<'(h w) -> h w', readonly [6], { h: 2; w: 4 }>;

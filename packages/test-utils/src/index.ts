@@ -7,3 +7,4 @@ export { generateBinaryOperationTests } from './generators/binary-operations';
 export { generateReductionOperationTests } from './generators/reduction-operations';
 export { generateSoftmaxOperationTests } from './generators/softmax-operations';
 export { generateMatmulOperationTests } from './generators/matmul-operations';
+export { generateEinopsOperationTests } from './generators/einops-operations';

@@ -344,7 +344,7 @@ describe('view operations', () => {
     expectTypeOf(t).toEqualTypeOf<Tensor<CreateOp<TensorStorage<typeof float32, readonly [6]>>>>();
 
     const start = performance.now();
-    const view = t.reshape([2, 3] as const);
+    const view = await t.reshape([2, 3] as const);
     const duration = performance.now() - start;
 
     // Type assertion for reshaped tensor

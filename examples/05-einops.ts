@@ -29,13 +29,13 @@ async function main(): Promise<void> {
     { device: cpu, dtype: float32 },
   );
 
-  console.log('Original matrix [2×3]:');
+  console.log('Original matrix [2 x 3]:');
   console.log(await matrix.format());
 
   // Transpose using einops pattern
   const transposed = rearrange(matrix, 'height width -> width height');
 
-  console.log('\nTransposed [3×2]:');
+  console.log('\nTransposed [3 x 2]:');
   console.log(await transposed.format());
 
   // ============================================================================
@@ -62,13 +62,13 @@ async function main(): Promise<void> {
     { device: cpu, dtype: float32 },
   );
 
-  console.log('Channels-first (CHW) format [3×2×2]:');
+  console.log('Channels-first (CHW) format [3 x 2 x 2]:');
   console.log(await image_chw.format());
 
   // Convert to channels-last format (HWC)
   const image_hwc = rearrange(image_chw, 'channels height width -> height width channels');
 
-  console.log('\nChannels-last (HWC) format [2×2×3]:');
+  console.log('\nChannels-last (HWC) format [2 x 2 x 3]:');
   console.log(await image_hwc.format());
 
   // ============================================================================
@@ -84,13 +84,13 @@ async function main(): Promise<void> {
     { device: cpu, dtype: float32 },
   );
 
-  console.log('Single image [2×3]:');
+  console.log('Single image [2 x 3]:');
   console.log(await single_image.format());
 
   // Add batch dimension at the beginning
   const batched = rearrange(single_image, 'height width -> 1 height width');
 
-  console.log('\nWith batch dimension [1×2×3]:');
+  console.log('\nWith batch dimension [1 x 2 x 3]:');
   console.log(await batched.format());
 
   // ============================================================================
@@ -116,13 +116,13 @@ async function main(): Promise<void> {
     { device: cpu, dtype: float32 },
   );
 
-  console.log('Feature map [3×2×2] (channels×height×width):');
+  console.log('Feature map [3 x 2 x 2] (channels x height x width):');
   console.log(await feature_map.format());
 
   // Flatten spatial dimensions while keeping channels
   const flattened = rearrange(feature_map, 'channels height width -> channels (height width)');
 
-  console.log('\nFlattened [3×4] (channels×flattened_spatial):');
+  console.log('\nFlattened [3 x 4] (channels x flattened_spatial):');
   console.log(await flattened.format());
 
   // ============================================================================
@@ -138,15 +138,15 @@ async function main(): Promise<void> {
     { device: cpu, dtype: float32 },
   );
 
-  console.log('Flattened tensor [2×6]:');
+  console.log('Flattened tensor [2 x 6]:');
   console.log(await flat_tensor.format());
 
-  // Split the second dimension into 2×3
+  // Split the second dimension into 2 x 3
   const reshaped = rearrange(flat_tensor, 'batch (height width) -> batch height width', {
-    axes: { height: 2 }, // width will be inferred as 3
+    height: 2, // width will be inferred as 3
   });
 
-  console.log('\nReshaped to [2×2×3]:');
+  console.log('\nReshaped to [2 x 2 x 3]:');
   console.log(await reshaped.format());
 
   // ============================================================================
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
   // ============================================================================
   console.log('\n\n6. Multi-Head Attention Preparation:');
 
-  // Simulated output from a linear layer (batch×seq×embed)
+  // Simulated output from a linear layer (batch x seq x embed)
   const embeddings = await tensor(
     [
       [
@@ -169,15 +169,15 @@ async function main(): Promise<void> {
     { device: cpu, dtype: float32 },
   );
 
-  console.log('Token embeddings [2×2×8] (batch×seq×embed):');
+  console.log('Token embeddings [2 x 2 x 8] (batch x seq x embed):');
   console.log(await embeddings.format());
 
   // Split embedding dimension into heads and head_dim
   const multi_head = rearrange(embeddings, 'batch seq (heads dim) -> batch heads seq dim', {
-    axes: { heads: 4 }, // 4 heads, each with dimension 2
+    heads: 4, // 4 heads, each with dimension 2
   });
 
-  console.log('\nMulti-head format [2×4×2×2] (batch×heads×seq×dim):');
+  console.log('\nMulti-head format [2 x 4 x 2 x 2] (batch x heads x seq x dim):');
   console.log(await multi_head.format());
 
   // ============================================================================

@@ -16,6 +16,7 @@ import {
   generateReductionOperationTests,
   generateSoftmaxOperationTests,
   generateMatmulOperationTests,
+  generateEinopsOperationTests,
 } from '@typetensor/test-utils';
 import { cpu } from './index';
 
@@ -38,7 +39,12 @@ const testFramework = {
     toHaveLength: (length: number) => expect(actual).toHaveLength(length),
     toBeInstanceOf: (constructor: any) => expect(actual).toBeInstanceOf(constructor),
     rejects: {
-      toThrow: async (error?: string | RegExp) => await expect(actual).rejects.toThrow(error),
+      toThrow: async (error?: string | RegExp) => {
+        if (error === undefined) {
+          return await expect(actual).rejects.toThrow();
+        }
+        return await expect(actual).rejects.toThrow(error);
+      },
     },
     not: {
       toThrow: () => expect(() => actual).not.toThrow(),
@@ -65,4 +71,5 @@ describe('CPU Backend Integration Tests', () => {
   generateReductionOperationTests(cpu, testFramework);
   generateSoftmaxOperationTests(cpu, testFramework);
   generateMatmulOperationTests(cpu, testFramework);
+  generateEinopsOperationTests(cpu, testFramework);
 });

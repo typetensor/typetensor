@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   console.log('Shape:', matrix.shape);
 
   // Reshape to 3x2
-  const reshaped1 = matrix.reshape([3, 2] as const);
+  const reshaped1 = await matrix.reshape([3, 2] as const);
   console.log('\nReshaped to 3x2:', await reshaped1.toArray());
 
   // Reshape to 1D (flatten)
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   console.log('\nFlattened to 1D:', await flattened.toArray());
 
   // Reshape to 6x1 column vector
-  const column = matrix.reshape([6, 1] as const);
+  const column = await matrix.reshape([6, 1] as const);
   console.log('\nReshaped to 6x1:', await column.toArray());
 
   // =============================================================================
@@ -166,11 +166,11 @@ async function main(): Promise<void> {
   console.log('Original 2x3x2 tensor:', await large.toArray());
 
   // Slice then reshape
-  const sliced = await large.slice([0]); // Get first 3x2 matrix
+  const sliced = await large.slice([0] as const); // Get first 3x2 matrix
   console.log('\nAfter slice([0]):', await sliced.toArray());
   console.log('Shape:', sliced.shape); // [3, 2]
 
-  const reshaped = sliced.reshape([2, 3] as const);
+  const reshaped = await sliced.reshape([2, 3] as const);
   console.log('\nAfter reshape([2, 3]):', await reshaped.toArray());
   console.log('Shape:', reshaped.shape); // [2, 3]
 

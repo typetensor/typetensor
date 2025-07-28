@@ -125,6 +125,23 @@ export interface Device {
    * @throws {Error} If buffer size doesn't match data size
    */
   writeData(data: DeviceData, buffer: ArrayBuffer): Promise<void>;
+
+  /**
+   * Check if this device supports non-contiguous tensors for a specific operation
+   *
+   * @param op - The operation type to check
+   * @returns True if the operation can handle non-contiguous inputs, false otherwise
+   *
+   * @example
+   * // CPU device might not support non-contiguous for most ops
+   * cpuDevice.supportsNonContiguous('matmul'); // false
+   * cpuDevice.supportsNonContiguous('neg'); // false
+   * 
+   * // GPU device might support non-contiguous for all ops
+   * gpuDevice.supportsNonContiguous('matmul'); // true
+   * gpuDevice.supportsNonContiguous('neg'); // true
+   */
+  supportsNonContiguous(op: AllOperationTypes): boolean;
 }
 
 /**

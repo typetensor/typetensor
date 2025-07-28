@@ -462,14 +462,6 @@ import type {
 }
 
 {
-  // Test empty axis name error
-  type EmptyAxisError = ParsePattern<' -> a'>;
-  expectTypeOf<EmptyAxisError>().toEqualTypeOf<
-    TypeParseError<'[Einops] Input parsing failed: Empty axis name'>
-  >();
-}
-
-{
   // Test invalid singleton error
   type InvalidSingletonError = ParsePattern<'1abc -> h'>;
   expectTypeOf<InvalidSingletonError>().toEqualTypeOf<
