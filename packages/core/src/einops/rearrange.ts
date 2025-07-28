@@ -146,6 +146,24 @@ export function rearrange<
  * Following PyTorch einops rules
  */
 function validateRearrangePattern(ast: EinopsAST): void {
+  // Check for multiple ellipsis in same side
+  const inputEllipsisCount = ast.input.filter(p => isEllipsisAxis(p)).length;
+  const outputEllipsisCount = ast.output.filter(p => isEllipsisAxis(p)).length;
+  
+  if (inputEllipsisCount > 1) {
+    throw new RearrangeError(
+      'Multiple ellipsis (...) in input pattern is not allowed',
+      ast.metadata.originalPattern,
+    );
+  }
+  
+  if (outputEllipsisCount > 1) {
+    throw new RearrangeError(
+      'Multiple ellipsis (...) in output pattern is not allowed',
+      ast.metadata.originalPattern,
+    );
+  }
+
   // Collect all axis names from input and output
   const inputAxes = new Set<string>();
   const outputAxes = new Set<string>();
@@ -264,7 +282,8 @@ function flattenPatternToAxisNames(patterns: readonly AxisPattern[], ellipsisDim
     } else if (isCompositeAxis(pattern)) {
       names.push(...flattenPatternToAxisNames(pattern.axes, ellipsisDimensions));
     } else if (isSingletonAxis(pattern)) {
-      names.push(`__singleton_${names.length}`);
+      // Use a consistent name for singletons - they represent the same logical dimension
+      names.push(`__singleton_1`);
     } else if (isEllipsisAxis(pattern)) {
       // Ellipsis: expand to individual dimension names
       if (ellipsisDimensions) {
@@ -357,6 +376,20 @@ function planOperations(
     } else {
       return [{ type: 'permute', params: { axes: permutation } }];
     }
+  }
+
+  // Handle ellipsis patterns that need permutation
+  const hasEllipsis = [...ast.input, ...ast.output].some(p => isEllipsisAxis(p));
+  if (hasEllipsis && !needsComplexOperations(ast)) {
+    // Simple ellipsis case: compute permutation directly
+    const permutation = computeGeneralPermutation(ast.input, ast.output, resolved.ellipsisDimensions);
+    if (permutation !== null) {
+      operations.push({
+        type: 'permute',
+        params: { axes: permutation },
+      });
+    }
+    return operations;
   }
 
   // Check if we need complex operations (reshape + permute)

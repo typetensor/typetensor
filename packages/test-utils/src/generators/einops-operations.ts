@@ -980,6 +980,169 @@ export function generateEinopsOperationTests(
       });
     });
 
+    describe('ellipsis patterns', () => {
+      it('should handle basic ellipsis identity', async () => {
+        // PyTorch einops: rearrange(tensor, 'a ... b -> a ... b')
+        // Ellipsis should preserve middle dimensions unchanged
+        const t = await tensor(
+          [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+            [
+              [5, 6],
+              [7, 8],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        const result = await rearrange(t, 'a ... b -> a ... b');
+
+        expect(result.shape).toEqual([2, 2, 2]);
+        const data = await result.toArray();
+        expect(data).toEqual([
+          [
+            [1, 2],
+            [3, 4],
+          ],
+          [
+            [5, 6],
+            [7, 8],
+          ],
+        ]);
+      });
+
+      it('should handle ellipsis reordering', async () => {
+        // PyTorch einops: rearrange(tensor, 'a ... b -> b ... a')
+        // Reorder first and last dimensions while preserving middle
+        const t = await tensor(
+          [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+            [
+              [5, 6],
+              [7, 8],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        const result = await rearrange(t, 'a ... b -> b ... a');
+
+        expect(result.shape).toEqual([2, 2, 2]);
+        const data = await result.toArray();
+        expect(data).toEqual([
+          [
+            [1, 5],
+            [3, 7],
+          ],
+          [
+            [2, 6],
+            [4, 8],
+          ],
+        ]);
+      });
+
+      it('should handle composite with ellipsis', async () => {
+        // PyTorch einops: rearrange(tensor, '(a b) ... c -> a b c ...', a=2)
+        // This was our previously failing test case
+        const data = Array.from({ length: 6 * 7 * 8 * 9 }, (_, i) => i + 1);
+        const t = await tensor(data, { device, dtype: float32 });
+        const reshaped = await t.reshape([6, 7, 8, 9] as const);
+
+        const result = await rearrange(reshaped, '(a b) ... c -> a b c ...', { a: 2 });
+
+        expect(result.shape).toEqual([2, 3, 9, 7, 8]);
+      });
+
+      it('should handle ellipsis consuming multiple dimensions', async () => {
+        // PyTorch einops: rearrange(tensor, 'a ... d -> a d ...')
+        // Ellipsis consumes middle dimensions [3, 4]
+        const data = Array.from({ length: 2 * 3 * 4 * 5 }, (_, i) => i);
+        const t = await tensor(data, { device, dtype: float32 });
+        const reshaped = await t.reshape([2, 3, 4, 5] as const);
+
+        const result = await rearrange(reshaped, 'a ... d -> a d ...');
+
+        expect(result.shape).toEqual([2, 5, 3, 4]);
+        const resultData = await result.toArray();
+        expect(resultData[0][0][0]).toEqual([0, 5, 10, 15]);
+      });
+
+      it('should handle ellipsis with no dimensions consumed', async () => {
+        // PyTorch einops: rearrange(tensor, 'a b ... -> a b ...')
+        // Ellipsis consumes zero dimensions
+        const t = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        const result = await rearrange(t, 'a b ... -> a b ...');
+
+        expect(result.shape).toEqual([2, 2]);
+        const data = await result.toArray();
+        expect(data).toEqual([
+          [1, 2],
+          [3, 4],
+        ]);
+      });
+    });
+
+    describe('complex axis inference', () => {
+      it('should handle merging with known dimensions', async () => {
+        // PyTorch einops: rearrange(tensor, 'a b c -> a (b c)')
+        const data = Array.from({ length: 24 }, (_, i) => i);
+        const t = await tensor(data, { device, dtype: float32 });
+        const reshaped = await t.reshape([2, 3, 4] as const);
+
+        const result = await rearrange(reshaped, 'a b c -> a (b c)');
+
+        expect(result.shape).toEqual([2, 12]);
+        const resultData = await result.toArray();
+        expect(resultData).toEqual([
+          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+          [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+        ]);
+      });
+
+      it('should handle splitting with one dimension specified', async () => {
+        // PyTorch einops: rearrange(tensor, '(a b) -> a b', a=6)
+        const data = Array.from({ length: 24 }, (_, i) => i);
+        const t = await tensor(data, { device, dtype: float32 });
+
+        const result = await rearrange(t, '(a b) -> a b', { a: 6 });
+
+        expect(result.shape).toEqual([6, 4]);
+      });
+    });
+
+    describe('ellipsis error cases', () => {
+      it('should throw on multiple ellipsis in same pattern', async () => {
+        const t = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        await expect(rearrange(t, '... a ... -> a')).rejects.toThrow();
+      });
+
+      it('should throw on ellipsis with insufficient dimensions', async () => {
+        const t = await tensor([1] as const, { device, dtype: float32 });
+
+        await expect(rearrange(t, 'a ... b -> a b')).rejects.toThrow();
+      });
+    });
+
     describe('complex real-world patterns', () => {
       it('should handle vision transformer patch embedding', async () => {
         // Convert image to patches for ViT
