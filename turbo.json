@@ -9,19 +9,23 @@
       "dependsOn": [],
       "cache": false
     },
+    "typecheck:watch": {
+      "dependsOn": [],
+      "cache": false,
+      "persistent": true
+    },
     "test": {
-      "dependsOn": ["build"],
       "cache": false
+    },
+    "test:watch": {
+      "cache": false,
+      "persistent": true
     },
     "lint": {
       "cache": false
     },
     "clean": {
       "cache": false
-    },
-    "dev": {
-      "cache": false,
-      "persistent": true
     }
   }
 }

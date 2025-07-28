@@ -11,6 +11,26 @@
     // Base directory for module resolution
     "baseUrl": "./",
 
+    // Path mappings for direct TypeScript source resolution
+    "paths": {
+      "@typetensor/core": ["./packages/core/src/index.ts"],
+      "@typetensor/core/*": ["./packages/core/src/*"],
+      "@typetensor/backend-cpu": ["./packages/backend-cpu/src/index.ts"],
+      "@typetensor/backend-cpu/*": ["./packages/backend-cpu/src/*"],
+      "@typetensor/backend-cuda": ["./packages/backend-cuda/src/index.ts"],
+      "@typetensor/backend-cuda/*": ["./packages/backend-cuda/src/*"],
+      "@typetensor/backend-metal": ["./packages/backend-metal/src/index.ts"],
+      "@typetensor/backend-metal/*": ["./packages/backend-metal/src/*"],
+      "@typetensor/backend-vulkan": ["./packages/backend-vulkan/src/index.ts"],
+      "@typetensor/backend-vulkan/*": ["./packages/backend-vulkan/src/*"],
+      "@typetensor/backend-wasm": ["./packages/backend-wasm/src/index.ts"],
+      "@typetensor/backend-wasm/*": ["./packages/backend-wasm/src/*"],
+      "@typetensor/backend-webgpu": ["./packages/backend-webgpu/src/index.ts"],
+      "@typetensor/backend-webgpu/*": ["./packages/backend-webgpu/src/*"],
+      "@typetensor/test-utils": ["./packages/test-utils/src/index.ts"],
+      "@typetensor/test-utils/*": ["./packages/test-utils/src/*"]
+    },
+
     // Custom conditions for development
     "customConditions": ["typetensor-dev"],
 
