@@ -133,13 +133,13 @@ async function copySlicedData(
   for (let outputFlatIndex = 0; outputFlatIndex < totalOutputElements; outputFlatIndex++) {
     // Convert output flat index to multi-dimensional indices
     const outputIndices = flatIndexToIndices(outputFlatIndex, outputShape);
-    
+
     // Map output indices to input indices using slice specifications
     const inputIndices = mapOutputToInputIndices(outputIndices, sliceIndices, inputShape);
-    
+
     // Convert input indices to flat index
     const inputFlatIndex = computeFlatIndex(inputIndices, inputStrides);
-    
+
     // Copy the element - arrays are properly sized so access is safe
     (outputArray as any)[outputFlatIndex] = (inputArray as any)[inputFlatIndex];
   }
@@ -191,7 +191,7 @@ function mapOutputToInputIndices(
   for (let inputDim = 0; inputDim < inputShape.length; inputDim++) {
     const sliceIndex = inputDim < sliceIndices.length ? sliceIndices[inputDim] : null;
     const inputSize = inputShape[inputDim];
-    
+
     if (inputSize === undefined) {
       throw new Error(`Invalid input shape dimension at index ${inputDim}`);
     }
@@ -215,12 +215,16 @@ function mapOutputToInputIndices(
       if (outputIndex === undefined) {
         throw new Error(`Missing output index for dimension ${outputDim}`);
       }
-      
+
       if (sliceIndex && typeof sliceIndex === 'object') {
-        const start = sliceIndex.start !== undefined ? 
-          (sliceIndex.start < 0 ? inputSize + sliceIndex.start : sliceIndex.start) : 0;
+        const start =
+          sliceIndex.start !== undefined
+            ? sliceIndex.start < 0
+              ? inputSize + sliceIndex.start
+              : sliceIndex.start
+            : 0;
         const step = sliceIndex.step ?? 1;
-        
+
         inputIndices[inputDim] = start + outputIndex * step;
       } else {
         throw new Error(`Invalid slice index type for SliceSpec: ${typeof sliceIndex}`);

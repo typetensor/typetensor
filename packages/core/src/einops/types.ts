@@ -79,7 +79,7 @@ export interface EllipsisToken {
 }
 
 /**
- * Singleton token for unit dimensions  
+ * Singleton token for unit dimensions
  * Matches: "1"
  */
 export interface SingletonToken {
@@ -90,7 +90,14 @@ export interface SingletonToken {
 /**
  * Union type representing all possible einops tokens
  */
-export type EinopsToken = AxisToken | ArrowToken | WhitespaceToken | LparenToken | RparenToken | EllipsisToken | SingletonToken;
+export type EinopsToken =
+  | AxisToken
+  | ArrowToken
+  | WhitespaceToken
+  | LparenToken
+  | RparenToken
+  | EllipsisToken
+  | SingletonToken;
 
 // =============================================================================
 // Tokenization Result
@@ -157,11 +164,7 @@ export class MalformedArrowError extends EinopsError {
  * Error thrown for unmatched parentheses in patterns
  */
 export class UnmatchedParenthesesError extends EinopsError {
-  constructor(
-    char: '(' | ')',
-    pattern: string,
-    position: Position,
-  ) {
+  constructor(char: '(' | ')', pattern: string, position: Position) {
     super(`Unmatched ${char === '(' ? 'opening' : 'closing'} parenthesis`, pattern, position);
     this.name = 'UnmatchedParenthesesError';
   }

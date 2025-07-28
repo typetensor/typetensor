@@ -1,6 +1,6 @@
 /**
  * Test generators for tensor creation operations
- * 
+ *
  * These generators create standardized test suites that can be run against
  * any Device implementation to verify tensor creation functionality.
  */
@@ -10,7 +10,7 @@ import { tensor, zeros, ones, eye, float32, int32, bool } from '@typetensor/core
 
 /**
  * Generates a comprehensive test suite for tensor creation operations
- * 
+ *
  * @param device - Device instance to test against
  * @param testFramework - Test framework object with describe/it/expect functions
  */
@@ -28,19 +28,18 @@ export function generateTensorCreationTests(
         toThrow: (error?: string | RegExp) => Promise<void>;
       };
     };
-  }
+  },
 ) {
   const { describe, it, expect } = testFramework;
 
   describe(`Tensor Creation Tests (${device.type}:${device.id})`, () => {
-    
     describe('scalar creation', () => {
       it('should create scalar tensors with correct properties', async () => {
         // PyTorch: torch.tensor(3.14)
         // Output: tensor(3.1400)
         // shape: torch.Size([]), dtype: torch.float32
         const floatScalar = await tensor(3.14, { device, dtype: float32 });
-        
+
         // Verify scalar properties
         expect(Array.isArray(floatScalar.shape)).toBe(true);
         expect(floatScalar.shape).toEqual([]);
@@ -48,7 +47,7 @@ export function generateTensorCreationTests(
         expect(floatScalar.size).toBe(1);
         expect(floatScalar.dtype).toBe(float32);
         expect(floatScalar.device).toBe(device);
-        
+
         // Verify data integrity
         const value = await floatScalar.item();
         expect(value).toBeCloseTo(3.14, 5); // float32 precision
@@ -81,14 +80,14 @@ export function generateTensorCreationTests(
         const floatValue = await floatScalar.item();
         expect(floatValue).toBeCloseTo(42.5, 5); // float32 precision
         expect(typeof floatValue).toBe('number');
-        
+
         // PyTorch: torch.tensor(-123, dtype=torch.int32).item()
         // Output: -123
         const intScalar = await tensor(-123, { device, dtype: int32 });
         const intValue = await intScalar.item();
         expect(intValue).toBe(-123); // int32 should be exact
         expect(typeof intValue).toBe('number');
-        
+
         // PyTorch: torch.tensor(False).item()
         // Output: False
         const boolScalar = await tensor(false, { device, dtype: bool });
@@ -105,7 +104,7 @@ export function generateTensorCreationTests(
         // shape: torch.Size([4]), dtype: torch.float32
         const originalData = [1, 2, 3, 4] as const;
         const vec = await tensor(originalData, { device, dtype: float32 });
-        
+
         // Verify structural properties
         expect(Array.isArray(vec.shape)).toBe(true);
         expect(vec.shape).toEqual([4]);
@@ -113,17 +112,17 @@ export function generateTensorCreationTests(
         expect(vec.size).toBe(4);
         expect(vec.dtype).toBe(float32);
         expect(vec.device).toBe(device);
-        
+
         // Verify strides for 1D tensor
         expect(Array.isArray(vec.strides)).toBe(true);
         expect(vec.strides).toEqual([1]);
-        
+
         // Verify data integrity
         const extractedData = await vec.toArray();
         expect(Array.isArray(extractedData)).toBe(true);
         expect(extractedData).toEqual([1, 2, 3, 4]);
         expect(extractedData.length).toBe(4);
-        
+
         // Verify individual elements
         for (let i = 0; i < extractedData.length; i++) {
           expect(typeof extractedData[i]).toBe('number');
@@ -136,7 +135,7 @@ export function generateTensorCreationTests(
         // Output: tensor([])
         // shape: torch.Size([0]), dtype: torch.float32
         const empty = await tensor([] as const, { device, dtype: float32 });
-        
+
         // Verify empty tensor properties
         expect(Array.isArray(empty.shape)).toBe(true);
         expect(empty.shape).toEqual([0]);
@@ -144,7 +143,7 @@ export function generateTensorCreationTests(
         expect(empty.size).toBe(0);
         expect(empty.dtype).toBe(float32);
         expect(empty.device).toBe(device);
-        
+
         // Verify empty data
         const data = await empty.toArray();
         expect(Array.isArray(data)).toBe(true);
@@ -161,10 +160,10 @@ export function generateTensorCreationTests(
         // shape: torch.Size([2, 3]), dtype: torch.float32
         const originalData = [
           [1, 2, 3],
-          [4, 5, 6]
+          [4, 5, 6],
         ] as const;
         const matrix = await tensor(originalData, { device, dtype: float32 });
-        
+
         // Verify matrix properties
         expect(Array.isArray(matrix.shape)).toBe(true);
         expect(matrix.shape).toEqual([2, 3]);
@@ -172,19 +171,22 @@ export function generateTensorCreationTests(
         expect(matrix.size).toBe(6);
         expect(matrix.dtype).toBe(float32);
         expect(matrix.device).toBe(device);
-        
+
         // Verify row-major strides (C-order)
         expect(Array.isArray(matrix.strides)).toBe(true);
         expect(matrix.strides).toEqual([3, 1]);
-        
+
         // Verify data integrity and structure
         const extractedData = await matrix.toArray();
         expect(Array.isArray(extractedData)).toBe(true);
         expect(extractedData.length).toBe(2);
         expect(Array.isArray(extractedData[0])).toBe(true);
         expect(Array.isArray(extractedData[1])).toBe(true);
-        expect(extractedData).toEqual([[1, 2, 3], [4, 5, 6]]);
-        
+        expect(extractedData).toEqual([
+          [1, 2, 3],
+          [4, 5, 6],
+        ]);
+
         // Verify individual row structure
         expect(extractedData[0].length).toBe(3);
         expect(extractedData[1].length).toBe(3);
@@ -194,11 +196,14 @@ export function generateTensorCreationTests(
         // PyTorch: torch.tensor([[1, 2], [3, 4]], dtype=torch.int32)
         // Output: tensor([[1, 2],
         //                  [3, 4]], dtype=torch.int32)
-        const square = await tensor([
-          [1, 2],
-          [3, 4]
-        ] as const, { device, dtype: int32 });
-        
+        const square = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: int32 },
+        );
+
         expect(square.shape).toEqual([2, 2]);
         expect(square.dtype).toBe(int32);
       });
@@ -212,11 +217,20 @@ export function generateTensorCreationTests(
         //                  [[5., 6.],
         //                   [7., 8.]]])
         // shape: torch.Size([2, 2, 2]), dtype: torch.float32
-        const tensor3d = await tensor([
-          [[1, 2], [3, 4]],
-          [[5, 6], [7, 8]]
-        ] as const, { device, dtype: float32 });
-        
+        const tensor3d = await tensor(
+          [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+            [
+              [5, 6],
+              [7, 8],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
         expect(tensor3d.shape).toEqual([2, 2, 2]);
         expect(tensor3d.ndim).toBe(3);
         expect(tensor3d.size).toBe(8);
@@ -225,11 +239,14 @@ export function generateTensorCreationTests(
       it('should create 4D tensors', async () => {
         // PyTorch: torch.tensor([[[[1, 2]], [[3, 4]]], [[[5, 6]], [[7, 8]]]], dtype=torch.float32)
         // shape: torch.Size([2, 2, 1, 2]), dtype: torch.float32
-        const tensor4d = await tensor([
-          [[[1, 2]], [[3, 4]]],
-          [[[5, 6]], [[7, 8]]]
-        ] as const, { device, dtype: float32 });
-        
+        const tensor4d = await tensor(
+          [
+            [[[1, 2]], [[3, 4]]],
+            [[[5, 6]], [[7, 8]]],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
         expect(tensor4d.shape).toEqual([2, 2, 1, 2]);
         expect(tensor4d.ndim).toBe(4);
         expect(tensor4d.size).toBe(8);
@@ -243,7 +260,7 @@ export function generateTensorCreationTests(
         //                  [0., 0., 0.]])
         // shape: torch.Size([2, 3]), dtype: torch.float32
         const zeroMatrix = await zeros([2, 3] as const, { device, dtype: float32 });
-        
+
         // Verify tensor structure
         expect(Array.isArray(zeroMatrix.shape)).toBe(true);
         expect(zeroMatrix.shape).toEqual([2, 3]);
@@ -251,12 +268,15 @@ export function generateTensorCreationTests(
         expect(zeroMatrix.size).toBe(6);
         expect(zeroMatrix.dtype).toBe(float32);
         expect(zeroMatrix.device).toBe(device);
-        
+
         // Verify all values are zero
         const data = await zeroMatrix.toArray();
         expect(Array.isArray(data)).toBe(true);
-        expect(data).toEqual([[0, 0, 0], [0, 0, 0]]);
-        
+        expect(data).toEqual([
+          [0, 0, 0],
+          [0, 0, 0],
+        ]);
+
         // Verify each element is actually zero
         for (const row of data) {
           for (const value of row) {
@@ -271,7 +291,7 @@ export function generateTensorCreationTests(
         // Output: tensor([1, 1, 1, 1], dtype=torch.int32)
         // shape: torch.Size([4]), dtype: torch.int32
         const oneVector = await ones([4] as const, { device, dtype: int32 });
-        
+
         // Verify tensor structure
         expect(Array.isArray(oneVector.shape)).toBe(true);
         expect(oneVector.shape).toEqual([4]);
@@ -279,13 +299,13 @@ export function generateTensorCreationTests(
         expect(oneVector.size).toBe(4);
         expect(oneVector.dtype).toBe(int32);
         expect(oneVector.device).toBe(device);
-        
+
         // Verify all values are one
         const data = await oneVector.toArray();
         expect(Array.isArray(data)).toBe(true);
         expect(data).toEqual([1, 1, 1, 1]);
         expect(data.length).toBe(4);
-        
+
         // Verify each element is actually one
         for (const value of data) {
           expect(value).toBe(1);
@@ -300,7 +320,7 @@ export function generateTensorCreationTests(
         //                  [0., 0., 1.]])
         // shape: torch.Size([3, 3]), dtype: torch.float32
         const identity = await eye(3, { device, dtype: float32 });
-        
+
         // Verify identity matrix structure
         expect(Array.isArray(identity.shape)).toBe(true);
         expect(identity.shape).toEqual([3, 3]);
@@ -308,7 +328,7 @@ export function generateTensorCreationTests(
         expect(identity.size).toBe(9);
         expect(identity.dtype).toBe(float32);
         expect(identity.device).toBe(device);
-        
+
         // Verify identity matrix data
         const data = await identity.toArray();
         expect(Array.isArray(data)).toBe(true);
@@ -316,9 +336,9 @@ export function generateTensorCreationTests(
         expect(data).toEqual([
           [1, 0, 0],
           [0, 1, 0],
-          [0, 0, 1]
+          [0, 0, 1],
         ]);
-        
+
         // Verify diagonal and off-diagonal elements
         for (let i = 0; i < 3; i++) {
           const row = data[i];
@@ -354,24 +374,26 @@ export function generateTensorCreationTests(
     });
 
     describe('error handling', () => {
-
       it('should throw on mismatched array dimensions', async () => {
         // PyTorch: torch.tensor([[1, 2, 3], [4, 5]])
         // Error: ValueError: expected sequence of length 3 at dim 1 (got 2)
         await expect(
-          tensor([
-            [1, 2, 3],
-            [4, 5]  // Wrong length
-          ] as const, { device, dtype: float32 })
+          tensor(
+            [
+              [1, 2, 3],
+              [4, 5], // Wrong length
+            ] as const,
+            { device, dtype: float32 },
+          ),
         ).rejects.toThrow('Inconsistent array dimensions');
       });
 
       it('should throw on invalid eye matrix size', async () => {
         // PyTorch: torch.eye(-1)
         // Error: RuntimeError: n must be greater or equal to 0, got -1
-        await expect(
-          eye(-1, { device, dtype: float32 })
-        ).rejects.toThrow('Invalid size for identity matrix: -1');
+        await expect(eye(-1, { device, dtype: float32 })).rejects.toThrow(
+          'Invalid size for identity matrix: -1',
+        );
       });
     });
   });

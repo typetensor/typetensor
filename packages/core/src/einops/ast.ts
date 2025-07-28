@@ -74,7 +74,7 @@ export interface ASTMetadata {
 
 /**
  * Complete AST representation of an einops pattern
- * 
+ *
  * Represents a fully parsed pattern like "batch (h w) -> batch h w"
  */
 export interface EinopsAST {
@@ -128,7 +128,7 @@ export function isSingletonAxis(pattern: AxisPattern): pattern is SingletonAxis 
  */
 export function getAxisNames(patterns: readonly AxisPattern[]): string[] {
   const names: string[] = [];
-  
+
   for (const pattern of patterns) {
     if (isSimpleAxis(pattern)) {
       names.push(pattern.name);
@@ -136,7 +136,7 @@ export function getAxisNames(patterns: readonly AxisPattern[]): string[] {
       names.push(...getAxisNames(pattern.axes));
     }
   }
-  
+
   return names;
 }
 
@@ -144,7 +144,7 @@ export function getAxisNames(patterns: readonly AxisPattern[]): string[] {
  * Check if any pattern in the list is an ellipsis
  */
 export function hasEllipsis(patterns: readonly AxisPattern[]): boolean {
-  return patterns.some(pattern => {
+  return patterns.some((pattern) => {
     if (isEllipsisAxis(pattern)) {
       return true;
     }
@@ -161,13 +161,13 @@ export function hasEllipsis(patterns: readonly AxisPattern[]): boolean {
  */
 export function getCompositeDepth(pattern: CompositeAxis): number {
   let maxChildDepth = 0;
-  
+
   for (const axis of pattern.axes) {
     if (isCompositeAxis(axis)) {
       maxChildDepth = Math.max(maxChildDepth, getCompositeDepth(axis));
     }
   }
-  
+
   return maxChildDepth + 1;
 }
 
@@ -176,7 +176,7 @@ export function getCompositeDepth(pattern: CompositeAxis): number {
  */
 export function countSimpleAxes(patterns: readonly AxisPattern[]): number {
   let count = 0;
-  
+
   for (const pattern of patterns) {
     if (isSimpleAxis(pattern)) {
       count++;
@@ -184,7 +184,7 @@ export function countSimpleAxes(patterns: readonly AxisPattern[]): number {
       count += countSimpleAxes(pattern.axes);
     }
   }
-  
+
   return count;
 }
 
@@ -200,7 +200,7 @@ export function getUniqueAxisNames(patterns: readonly AxisPattern[]): string[] {
  * Check if patterns contain any singleton axes
  */
 export function hasSingleton(patterns: readonly AxisPattern[]): boolean {
-  return patterns.some(pattern => {
+  return patterns.some((pattern) => {
     if (isSingletonAxis(pattern)) {
       return true;
     }

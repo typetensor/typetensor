@@ -500,12 +500,12 @@ export class RuntimeShape<S extends Shape = Shape> {
 
   /**
    * Check if two shapes can be matrix multiplied
-   * 
+   *
    * Matrix multiplication is valid when:
    * - Both tensors have at least 1 dimension
    * - The last dimension of the first tensor equals the second-to-last dimension of the second
    * - All batch dimensions (if any) match exactly
-   * 
+   *
    * @param shape1 - First tensor shape
    * @param shape2 - Second tensor shape
    * @returns true if shapes can be matrix multiplied
@@ -524,7 +524,7 @@ export class RuntimeShape<S extends Shape = Shape> {
     // Get dimensions to compare
     const dim1 = shape1[shape1.length - 1]; // Last of first
     let dim2: number;
-    
+
     if (shape2.length === 1) {
       // 1D second operand uses its only dimension
       dim2 = shape2[0]!;
@@ -542,12 +542,12 @@ export class RuntimeShape<S extends Shape = Shape> {
     if (shape1.length > 2 || shape2.length > 2) {
       const batchDims1 = shape1.length > 2 ? shape1.slice(0, -2) : [];
       const batchDims2 = shape2.length > 2 ? shape2.slice(0, -2) : [];
-      
+
       // Apply broadcasting rules: align from the right, pad with 1s on the left
       const maxBatchLength = Math.max(batchDims1.length, batchDims2.length);
       const paddedBatch1 = new Array(maxBatchLength - batchDims1.length).fill(1).concat(batchDims1);
       const paddedBatch2 = new Array(maxBatchLength - batchDims2.length).fill(1).concat(batchDims2);
-      
+
       // Check each batch dimension for broadcasting compatibility
       for (let i = 0; i < maxBatchLength; i++) {
         const dim1 = paddedBatch1[i];
@@ -564,7 +564,7 @@ export class RuntimeShape<S extends Shape = Shape> {
 
   /**
    * Compute the output shape of matrix multiplication
-   * 
+   *
    * @param shape1 - First tensor shape
    * @param shape2 - Second tensor shape
    * @returns Output shape or null if shapes are incompatible
@@ -584,7 +584,7 @@ export class RuntimeShape<S extends Shape = Shape> {
       const maxLength = Math.max(batchA.length, batchB.length);
       const paddedA = new Array(maxLength - batchA.length).fill(1).concat(batchA);
       const paddedB = new Array(maxLength - batchB.length).fill(1).concat(batchB);
-      
+
       const result: number[] = [];
       for (let i = 0; i < maxLength; i++) {
         const dimA = paddedA[i]!;
@@ -934,9 +934,9 @@ export function reshape(currentShape: Shape, newShape: number[]): Shape {
 
 /**
  * Check if two shapes can be matrix multiplied
- * 
+ *
  * @param shape1 - First tensor shape
- * @param shape2 - Second tensor shape  
+ * @param shape2 - Second tensor shape
  * @returns true if shapes can be matrix multiplied
  */
 export function canMatmul(shape1: Shape, shape2: Shape): boolean {
@@ -945,7 +945,7 @@ export function canMatmul(shape1: Shape, shape2: Shape): boolean {
 
 /**
  * Compute the output shape of matrix multiplication
- * 
+ *
  * @param shape1 - First tensor shape
  * @param shape2 - Second tensor shape
  * @returns Output shape
@@ -956,7 +956,7 @@ export function matmulShape(shape1: Shape, shape2: Shape): Shape {
   if (result === null) {
     throw new Error(
       `Cannot multiply tensors with shapes ${formatShape(shape1)} and ${formatShape(shape2)}. ` +
-      `Matrix multiplication requires compatible inner dimensions.`
+        `Matrix multiplication requires compatible inner dimensions.`,
     );
   }
   return result;
@@ -964,7 +964,7 @@ export function matmulShape(shape1: Shape, shape2: Shape): Shape {
 
 /**
  * Assert that two shapes can be matrix multiplied
- * 
+ *
  * @param shape1 - First tensor shape
  * @param shape2 - Second tensor shape
  * @throws {Error} If shapes are incompatible with detailed error message
@@ -973,7 +973,7 @@ export function assertMatmulCompatible(shape1: Shape, shape2: Shape): void {
   // Check for scalars
   if (shape1.length === 0 || shape2.length === 0) {
     throw new Error(
-      'Cannot multiply scalar tensors. Matrix multiplication requires at least 1D tensors.'
+      'Cannot multiply scalar tensors. Matrix multiplication requires at least 1D tensors.',
     );
   }
 
@@ -986,9 +986,9 @@ export function assertMatmulCompatible(shape1: Shape, shape2: Shape): void {
     const shape2Str = formatShape(shape2);
     throw new Error(
       `Cannot multiply tensors with shapes ${shape1Str} and ${shape2Str}. ` +
-      `Matrix multiplication requires the last dimension of the first tensor (${dim1}) ` +
-      `to match the ${shape2.length === 1 ? 'dimension' : 'second-to-last dimension'} ` +
-      `of the second tensor (${dim2}).`
+        `Matrix multiplication requires the last dimension of the first tensor (${dim1}) ` +
+        `to match the ${shape2.length === 1 ? 'dimension' : 'second-to-last dimension'} ` +
+        `of the second tensor (${dim2}).`,
     );
   }
 
@@ -996,12 +996,12 @@ export function assertMatmulCompatible(shape1: Shape, shape2: Shape): void {
   if (shape1.length > 2 || shape2.length > 2) {
     const batchDims1 = shape1.length > 2 ? shape1.slice(0, -2) : [];
     const batchDims2 = shape2.length > 2 ? shape2.slice(0, -2) : [];
-    
+
     // Apply broadcasting rules: align from the right, pad with 1s on the left
     const maxBatchLength = Math.max(batchDims1.length, batchDims2.length);
     const paddedBatch1 = new Array(maxBatchLength - batchDims1.length).fill(1).concat(batchDims1);
     const paddedBatch2 = new Array(maxBatchLength - batchDims2.length).fill(1).concat(batchDims2);
-    
+
     // Check each batch dimension for broadcasting compatibility
     for (let i = 0; i < maxBatchLength; i++) {
       const dim1 = paddedBatch1[i];
@@ -1012,9 +1012,9 @@ export function assertMatmulCompatible(shape1: Shape, shape2: Shape): void {
         const shape2Str = formatShape(shape2);
         throw new Error(
           `Cannot broadcast batch dimensions for matrix multiplication. ` +
-          `Tensors with shapes ${shape1Str} and ${shape2Str} have incompatible ` +
-          `batch dimension ${i}: ${dim1} vs ${dim2}. ` +
-          `Dimensions must be equal or one must be 1 for broadcasting.`
+            `Tensors with shapes ${shape1Str} and ${shape2Str} have incompatible ` +
+            `batch dimension ${i}: ${dim1} vs ${dim2}. ` +
+            `Dimensions must be equal or one must be 1 for broadcasting.`,
         );
       }
     }

@@ -160,7 +160,7 @@ function validateRearrangePattern(ast: EinopsAST): void {
     }
   }
 
-  // Process output axes  
+  // Process output axes
   function collectOutputAxes(pattern: AxisPattern): void {
     if (isSimpleAxis(pattern)) {
       outputAxes.add(pattern.name);
@@ -174,14 +174,14 @@ function validateRearrangePattern(ast: EinopsAST): void {
   ast.output.forEach(collectOutputAxes);
 
   // Check for axes only on one side
-  const onlyInInput = [...inputAxes].filter(axis => !outputAxes.has(axis));
-  const onlyInOutput = [...outputAxes].filter(axis => !inputAxes.has(axis));
-  
+  const onlyInInput = [...inputAxes].filter((axis) => !outputAxes.has(axis));
+  const onlyInOutput = [...outputAxes].filter((axis) => !inputAxes.has(axis));
+
   if (onlyInInput.length > 0 || onlyInOutput.length > 0) {
     const problematicAxes = [...onlyInInput, ...onlyInOutput];
     throw new RearrangeError(
       `Identifiers only on one side of expression (should be on both): {${problematicAxes.join(', ')}}`,
-      ast.metadata.originalPattern
+      ast.metadata.originalPattern,
     );
   }
 
@@ -189,11 +189,11 @@ function validateRearrangePattern(ast: EinopsAST): void {
   const duplicateAxes = [...outputAxisCounts.entries()]
     .filter(([_, count]) => count > 1)
     .map(([axis, _]) => axis);
-    
+
   if (duplicateAxes.length > 0) {
     throw new RearrangeError(
       `Indexing expression contains duplicate dimension "${duplicateAxes[0]}"`,
-      ast.metadata.originalPattern
+      ast.metadata.originalPattern,
     );
   }
 }
@@ -222,7 +222,7 @@ function computeIntermediateShape(
   axisDimensions: Map<string, number>,
 ): number[] {
   const shape: number[] = [];
-  
+
   for (const pattern of patterns) {
     if (isSimpleAxis(pattern)) {
       const dim = axisDimensions.get(pattern.name);
@@ -241,7 +241,7 @@ function computeIntermediateShape(
       throw new Error('Ellipsis in intermediate shape computation not yet implemented');
     }
   }
-  
+
   return shape;
 }
 
@@ -250,7 +250,7 @@ function computeIntermediateShape(
  */
 function flattenPatternToAxisNames(patterns: readonly AxisPattern[]): string[] {
   const names: string[] = [];
-  
+
   for (const pattern of patterns) {
     if (isSimpleAxis(pattern)) {
       names.push(pattern.name);
@@ -263,7 +263,7 @@ function flattenPatternToAxisNames(patterns: readonly AxisPattern[]): string[] {
       continue;
     }
   }
-  
+
   return names;
 }
 
@@ -276,13 +276,13 @@ function computeGeneralPermutation(
 ): number[] | null {
   const inputNames = flattenPatternToAxisNames(inputPatterns);
   const outputNames = flattenPatternToAxisNames(outputPatterns);
-  
+
   if (inputNames.length !== outputNames.length) {
     return null; // Can't compute permutation if different lengths
   }
-  
+
   const permutation: number[] = [];
-  
+
   for (const outputName of outputNames) {
     const inputIndex = inputNames.indexOf(outputName);
     if (inputIndex === -1) {
@@ -290,7 +290,7 @@ function computeGeneralPermutation(
     }
     permutation.push(inputIndex);
   }
-  
+
   // Check if this is identity permutation
   const isIdentity = permutation.every((val, idx) => val === idx);
   return isIdentity ? null : permutation;
@@ -301,21 +301,23 @@ function computeGeneralPermutation(
  */
 function needsComplexOperations(ast: EinopsAST): boolean {
   // Check if input has any composite patterns
-  const hasInputComposite = ast.input.some(p => isCompositeAxis(p));
-  
-  // Check if output has any composite patterns  
-  const hasOutputComposite = ast.output.some(p => isCompositeAxis(p));
-  
+  const hasInputComposite = ast.input.some((p) => isCompositeAxis(p));
+
+  // Check if output has any composite patterns
+  const hasOutputComposite = ast.output.some((p) => isCompositeAxis(p));
+
   // Check if there's reordering of axes
-  const inputSimpleAxes = ast.input.filter(isSimpleAxis).map(p => p.name);
-  const outputSimpleAxes = ast.output.filter(isSimpleAxis).map(p => p.name);
-  
+  const inputSimpleAxes = ast.input.filter(isSimpleAxis).map((p) => p.name);
+  const outputSimpleAxes = ast.output.filter(isSimpleAxis).map((p) => p.name);
+
   // If we have composites and the order of simple axes differs, we need complex ops
-  if ((hasInputComposite || hasOutputComposite) && 
-      !arraysEqual(inputSimpleAxes as any, outputSimpleAxes as any)) {
+  if (
+    (hasInputComposite || hasOutputComposite) &&
+    !arraysEqual(inputSimpleAxes as any, outputSimpleAxes as any)
+  ) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -350,14 +352,14 @@ function planOperations(
     // Step 1: Compute intermediate shape with all composites expanded
     const intermediateShapeInput = computeIntermediateShape(ast.input, resolved.axisDimensions);
     const intermediateShapeOutput = computeIntermediateShape(ast.output, resolved.axisDimensions);
-    
+
     // Debug logging
     console.log('[DEBUG] Complex operations needed');
     console.log('[DEBUG] Input shape:', inputShape);
     console.log('[DEBUG] Intermediate shape (input):', intermediateShapeInput);
     console.log('[DEBUG] Intermediate shape (output):', intermediateShapeOutput);
     console.log('[DEBUG] Final shape:', resolved.outputShape);
-    
+
     // Step 2: Reshape to intermediate shape if needed
     if (!arraysEqual(inputShape, intermediateShapeInput)) {
       operations.push({
@@ -365,7 +367,7 @@ function planOperations(
         params: { shape: intermediateShapeInput },
       });
     }
-    
+
     // Step 3: Compute and apply permutation
     const permutation = computeGeneralPermutation(ast.input, ast.output);
     console.log('[DEBUG] Permutation:', permutation);
@@ -375,7 +377,7 @@ function planOperations(
         params: { axes: permutation },
       });
     }
-    
+
     // Step 4: Final reshape if output shape differs from intermediate
     const finalShape = Array.from(resolved.outputShape);
     if (!arraysEqual(intermediateShapeOutput, finalShape)) {
@@ -384,7 +386,7 @@ function planOperations(
         params: { shape: finalShape },
       });
     }
-    
+
     return operations;
   }
 

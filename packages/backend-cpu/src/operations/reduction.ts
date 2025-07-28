@@ -232,14 +232,16 @@ export async function executeMinOp(
  */
 function performGlobalSum(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
 ): void {
   let sum: number | bigint = 0;
   for (let i = 0; i < inputView.length; i++) {
     const val = inputView[i];
     if (val !== undefined) {
-      sum = typeof sum === 'bigint' || typeof val === 'bigint' ? 
-        BigInt(sum) + BigInt(val) : Number(sum) + Number(val);
+      sum =
+        typeof sum === 'bigint' || typeof val === 'bigint'
+          ? BigInt(sum) + BigInt(val)
+          : Number(sum) + Number(val);
     }
   }
   outputView[0] = sum;
@@ -250,15 +252,17 @@ function performGlobalSum(
  */
 function performGlobalMean(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
   numElements: number,
 ): void {
   let sum: number | bigint = 0;
   for (let i = 0; i < inputView.length; i++) {
     const val = inputView[i];
     if (val !== undefined) {
-      sum = typeof sum === 'bigint' || typeof val === 'bigint' ? 
-        BigInt(sum) + BigInt(val) : Number(sum) + Number(val);
+      sum =
+        typeof sum === 'bigint' || typeof val === 'bigint'
+          ? BigInt(sum) + BigInt(val)
+          : Number(sum) + Number(val);
     }
   }
   outputView[0] = typeof sum === 'bigint' ? sum / BigInt(numElements) : sum / numElements;
@@ -269,7 +273,7 @@ function performGlobalMean(
  */
 function performCopy(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
 ): void {
   for (let i = 0; i < inputView.length; i++) {
     const val = inputView[i];
@@ -284,17 +288,17 @@ function performCopy(
  */
 function performGlobalMax(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
 ): void {
   if (inputView.length === 0) {
     throw new Error('Cannot compute max of empty tensor');
   }
-  
+
   let max = inputView[0];
   if (max === undefined) {
     throw new Error('Invalid input data');
   }
-  
+
   for (let i = 1; i < inputView.length; i++) {
     const val = inputView[i];
     if (val !== undefined) {
@@ -313,17 +317,17 @@ function performGlobalMax(
  */
 function performGlobalMin(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
 ): void {
   if (inputView.length === 0) {
     throw new Error('Cannot compute min of empty tensor');
   }
-  
+
   let min = inputView[0];
   if (min === undefined) {
     throw new Error('Invalid input data');
   }
-  
+
   for (let i = 1; i < inputView.length; i++) {
     const val = inputView[i];
     if (val !== undefined) {
@@ -349,14 +353,14 @@ function performGlobalMin(
  */
 function performAxisMaxMin(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
   inputShape: readonly number[],
   outputShape: readonly number[],
   axes: readonly number[],
   isMax: boolean,
 ): void {
   // Normalize negative axes
-  const normalizedAxes = axes.map(axis => axis < 0 ? inputShape.length + axis : axis);
+  const normalizedAxes = axes.map((axis) => (axis < 0 ? inputShape.length + axis : axis));
   const axisSet = new Set(normalizedAxes);
 
   // Initialize output to first valid values (will be overwritten)
@@ -364,20 +368,20 @@ function performAxisMaxMin(
   // and use that as the initial value
   const outputStrides = computeStrides(outputShape);
   const inputStrides = computeStrides(inputShape);
-  
+
   // Initialize with first encountered values for each output position
   const initialized = new Set<number>();
   const inputSize = inputView.length;
-  
+
   for (let flatIdx = 0; flatIdx < inputSize; flatIdx++) {
     // Convert flat index to multi-dimensional coordinates
     const inputCoords = flatIndexToCoords(flatIdx, inputStrides);
-    
+
     // Map to output coordinates based on the actual output shape
     // If keepDims=true, outputShape retains all dimensions (with reduced dims as size 1)
     // If keepDims=false, outputShape has reduced dimensions removed
     const outputCoords: number[] = [];
-    
+
     if (inputCoords.length === outputShape.length) {
       // keepDims=true case: output shape matches input rank
       // Set reduced dimensions to 0, keep others as-is
@@ -406,7 +410,7 @@ function performAxisMaxMin(
 
     // Convert output coordinates to flat index
     const outputIdx = coordsToFlatIndex(outputCoords, outputStrides);
-    
+
     const inputVal = inputView[flatIdx];
     if (inputVal !== undefined) {
       if (!initialized.has(outputIdx)) {
@@ -418,7 +422,7 @@ function performAxisMaxMin(
         const currentVal = outputView[outputIdx];
         if (currentVal !== undefined) {
           let shouldUpdate: boolean;
-          
+
           if (typeof currentVal === 'bigint' || typeof inputVal === 'bigint') {
             const current = BigInt(currentVal);
             const input = BigInt(inputVal);
@@ -428,7 +432,7 @@ function performAxisMaxMin(
             const input = Number(inputVal);
             shouldUpdate = isMax ? input > current : input < current;
           }
-          
+
           if (shouldUpdate) {
             outputView[outputIdx] = inputVal;
           }
@@ -451,15 +455,15 @@ function performAxisMaxMin(
  */
 function performAxisReduction(
   inputView: ArrayLike<number | bigint>,
-  outputView: ArrayLike<number | bigint> & { [index: number]: number | bigint },
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
   inputShape: readonly number[],
   outputShape: readonly number[],
   axes: readonly number[],
-  isMean: boolean = false,
+  isMean = false,
   meanDivisor?: number,
 ): void {
   // Normalize negative axes
-  const normalizedAxes = axes.map(axis => axis < 0 ? inputShape.length + axis : axis);
+  const normalizedAxes = axes.map((axis) => (axis < 0 ? inputShape.length + axis : axis));
   const axisSet = new Set(normalizedAxes);
 
   // Initialize output to zero
@@ -476,12 +480,12 @@ function performAxisReduction(
   for (let flatIdx = 0; flatIdx < inputSize; flatIdx++) {
     // Convert flat index to multi-dimensional coordinates
     const inputCoords = flatIndexToCoords(flatIdx, inputStrides);
-    
+
     // Map to output coordinates based on the actual output shape
     // If keepDims=true, outputShape retains all dimensions (with reduced dims as size 1)
     // If keepDims=false, outputShape has reduced dimensions removed
     const outputCoords: number[] = [];
-    
+
     if (inputCoords.length === outputShape.length) {
       // keepDims=true case: output shape matches input rank
       // Set reduced dimensions to 0, keep others as-is
@@ -510,13 +514,15 @@ function performAxisReduction(
 
     // Convert output coordinates to flat index
     const outputIdx = coordsToFlatIndex(outputCoords, outputStrides);
-    
+
     // Accumulate the value
     const inputVal = inputView[flatIdx];
     const currentOutput = outputView[outputIdx];
     if (inputVal !== undefined && currentOutput !== undefined) {
-      outputView[outputIdx] = typeof currentOutput === 'bigint' || typeof inputVal === 'bigint' ?
-        BigInt(currentOutput) + BigInt(inputVal) : Number(currentOutput) + Number(inputVal);
+      outputView[outputIdx] =
+        typeof currentOutput === 'bigint' || typeof inputVal === 'bigint'
+          ? BigInt(currentOutput) + BigInt(inputVal)
+          : Number(currentOutput) + Number(inputVal);
     }
   }
 
@@ -553,7 +559,7 @@ function computeStrides(shape: readonly number[]): number[] {
 function flatIndexToCoords(flatIdx: number, strides: number[]): number[] {
   const coords: number[] = new Array(strides.length);
   let remaining = flatIdx;
-  
+
   for (let i = 0; i < strides.length; i++) {
     const stride = strides[i];
     if (stride !== undefined) {
@@ -561,7 +567,7 @@ function flatIndexToCoords(flatIdx: number, strides: number[]): number[] {
       remaining %= stride;
     }
   }
-  
+
   return coords;
 }
 

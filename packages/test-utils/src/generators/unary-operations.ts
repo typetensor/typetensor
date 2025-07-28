@@ -67,10 +67,13 @@ export function generateUnaryOperationTests(
       it('should negate matrix values', async () => {
         // PyTorch: -torch.tensor([[1, -2], [-3, 4]])
         // Output: tensor([[-1, 2], [3, -4]])
-        const matrix = await tensor([
-          [1, -2],
-          [-3, 4]
-        ] as const, { device, dtype: float32 });
+        const matrix = await tensor(
+          [
+            [1, -2],
+            [-3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
         const negated = await matrix.neg();
 
         expect(matrix.shape).toEqual([2, 2]);
@@ -79,7 +82,7 @@ export function generateUnaryOperationTests(
         const result = await negated.toArray();
         expect(result).toEqual([
           [-1, 2],
-          [3, -4]
+          [3, -4],
         ]);
       });
 
@@ -130,10 +133,13 @@ export function generateUnaryOperationTests(
         // PyTorch: torch.abs(torch.tensor([[-1.5, 2.3], [0, -4.7]]))
         // Output: tensor([[1.5000, 2.3000],
         //                 [0.0000, 4.7000]])
-        const matrix = await tensor([
-          [-1.5, 2.3],
-          [0, -4.7]
-        ] as const, { device, dtype: float32 });
+        const matrix = await tensor(
+          [
+            [-1.5, 2.3],
+            [0, -4.7],
+          ] as const,
+          { device, dtype: float32 },
+        );
         const absMatrix = await matrix.abs();
 
         const result = await absMatrix.toArray();
@@ -149,42 +155,51 @@ export function generateUnaryOperationTests(
         // PyTorch: torch.sin(torch.tensor([0, π/2, π, 3π/2]))
         // Output: tensor([0.0000e+00, 1.0000e+00, -8.7423e-08, -1.0000e+00])
         // Note: Small floating point errors for π values
-        const angles = await tensor([0, Math.PI/2, Math.PI, 3*Math.PI/2] as const, { device, dtype: float32 });
+        const angles = await tensor([0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2] as const, {
+          device,
+          dtype: float32,
+        });
         const sines = await angles.sin();
 
         expect(sines.shape).toEqual([4]);
         const result = await sines.toArray();
-        
-        expect(result[0]).toBeCloseTo(0, 5);      // sin(0) = 0
-        expect(result[1]).toBeCloseTo(1, 5);      // sin(π/2) = 1
-        expect(result[2]).toBeCloseTo(0, 5);      // sin(π) = 0
-        expect(result[3]).toBeCloseTo(-1, 5);     // sin(3π/2) = -1
+
+        expect(result[0]).toBeCloseTo(0, 5); // sin(0) = 0
+        expect(result[1]).toBeCloseTo(1, 5); // sin(π/2) = 1
+        expect(result[2]).toBeCloseTo(0, 5); // sin(π) = 0
+        expect(result[3]).toBeCloseTo(-1, 5); // sin(3π/2) = -1
       });
 
       it('should compute cosine values', async () => {
         // PyTorch: torch.cos(torch.tensor([0, π/2, π, 3π/2]))
         // Output: tensor([1.0000e+00, -4.3711e-08, -1.0000e+00, 1.1925e-08])
         // Note: Small floating point errors for π/2 and 3π/2
-        const angles = await tensor([0, Math.PI/2, Math.PI, 3*Math.PI/2] as const, { device, dtype: float32 });
+        const angles = await tensor([0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2] as const, {
+          device,
+          dtype: float32,
+        });
         const cosines = await angles.cos();
 
         expect(cosines.shape).toEqual([4]);
         const result = await cosines.toArray();
-        
-        expect(result[0]).toBeCloseTo(1, 5);      // cos(0) = 1
-        expect(result[1]).toBeCloseTo(0, 5);      // cos(π/2) = 0
-        expect(result[2]).toBeCloseTo(-1, 5);     // cos(π) = -1
-        expect(result[3]).toBeCloseTo(0, 5);      // cos(3π/2) = 0
+
+        expect(result[0]).toBeCloseTo(1, 5); // cos(0) = 1
+        expect(result[1]).toBeCloseTo(0, 5); // cos(π/2) = 0
+        expect(result[2]).toBeCloseTo(-1, 5); // cos(π) = -1
+        expect(result[3]).toBeCloseTo(0, 5); // cos(3π/2) = 0
       });
 
       it('should handle trigonometric functions on matrices', async () => {
         // PyTorch: Matrix [[0, π/4], [π/2, π]]
         // sin: [[0.0000, 0.7071], [1.0000, -8.7423e-08]]
         // cos: [[1.0000, 0.7071], [-4.3711e-08, -1.0000]]
-        const matrix = await tensor([
-          [0, Math.PI/4],
-          [Math.PI/2, Math.PI]
-        ] as const, { device, dtype: float32 });
+        const matrix = await tensor(
+          [
+            [0, Math.PI / 4],
+            [Math.PI / 2, Math.PI],
+          ] as const,
+          { device, dtype: float32 },
+        );
 
         const sines = await matrix.sin();
         const cosines = await matrix.cos();
@@ -196,10 +211,10 @@ export function generateUnaryOperationTests(
         const cosResult = await cosines.toArray();
 
         // Check some key values
-        expect(sinResult[0][0]).toBeCloseTo(0, 5);           // sin(0)
-        expect(sinResult[1][0]).toBeCloseTo(1, 5);           // sin(π/2)
-        expect(cosResult[0][0]).toBeCloseTo(1, 5);           // cos(0)
-        expect(cosResult[1][1]).toBeCloseTo(-1, 5);          // cos(π)
+        expect(sinResult[0][0]).toBeCloseTo(0, 5); // sin(0)
+        expect(sinResult[1][0]).toBeCloseTo(1, 5); // sin(π/2)
+        expect(cosResult[0][0]).toBeCloseTo(1, 5); // cos(0)
+        expect(cosResult[1][1]).toBeCloseTo(-1, 5); // cos(π)
       });
     });
 
@@ -213,43 +228,49 @@ export function generateUnaryOperationTests(
         expect(exponentials.shape).toEqual([4]);
         const result = await exponentials.toArray();
 
-        expect(result[0]).toBeCloseTo(1, 5);           // e^0 = 1
-        expect(result[1]).toBeCloseTo(Math.E, 5);      // e^1 = e
+        expect(result[0]).toBeCloseTo(1, 5); // e^0 = 1
+        expect(result[1]).toBeCloseTo(Math.E, 5); // e^1 = e
         expect(result[2]).toBeCloseTo(Math.E * Math.E, 5); // e^2
-        expect(result[3]).toBeCloseTo(1/Math.E, 5);    // e^(-1) = 1/e
+        expect(result[3]).toBeCloseTo(1 / Math.E, 5); // e^(-1) = 1/e
       });
 
       it('should compute logarithmic values', async () => {
         // PyTorch: torch.log(torch.tensor([1, e, e^2, 1/e]))
         // Output: tensor([0.0000, 1.0000, 2.0000, -1.0000])
-        const values = await tensor([1, Math.E, Math.E * Math.E, 1/Math.E] as const, { device, dtype: float32 });
+        const values = await tensor([1, Math.E, Math.E * Math.E, 1 / Math.E] as const, {
+          device,
+          dtype: float32,
+        });
         const logarithms = await values.log();
 
         expect(logarithms.shape).toEqual([4]);
         const result = await logarithms.toArray();
 
-        expect(result[0]).toBeCloseTo(0, 5);      // ln(1) = 0
-        expect(result[1]).toBeCloseTo(1, 5);      // ln(e) = 1
-        expect(result[2]).toBeCloseTo(2, 5);      // ln(e^2) = 2
-        expect(result[3]).toBeCloseTo(-1, 5);     // ln(1/e) = -1
+        expect(result[0]).toBeCloseTo(0, 5); // ln(1) = 0
+        expect(result[1]).toBeCloseTo(1, 5); // ln(e) = 1
+        expect(result[2]).toBeCloseTo(2, 5); // ln(e^2) = 2
+        expect(result[3]).toBeCloseTo(-1, 5); // ln(1/e) = -1
       });
 
       it('should handle exp/log on matrices', async () => {
         // PyTorch: torch.exp(torch.tensor([[0, 1], [2, -1]]))
         // Output: tensor([[1.0000, 2.7183],
         //                 [7.3891, 0.3679]])
-        const matrix = await tensor([
-          [0, 1],
-          [2, -1]
-        ] as const, { device, dtype: float32 });
+        const matrix = await tensor(
+          [
+            [0, 1],
+            [2, -1],
+          ] as const,
+          { device, dtype: float32 },
+        );
 
         const exponentials = await matrix.exp();
         const result = await exponentials.toArray();
 
-        expect(result[0][0]).toBeCloseTo(1, 5);           // e^0
-        expect(result[0][1]).toBeCloseTo(Math.E, 5);      // e^1
+        expect(result[0][0]).toBeCloseTo(1, 5); // e^0
+        expect(result[0][1]).toBeCloseTo(Math.E, 5); // e^1
         expect(result[1][0]).toBeCloseTo(Math.E * Math.E, 5); // e^2
-        expect(result[1][1]).toBeCloseTo(1/Math.E, 5);    // e^(-1)
+        expect(result[1][1]).toBeCloseTo(1 / Math.E, 5); // e^(-1)
       });
     });
 
@@ -283,10 +304,13 @@ export function generateUnaryOperationTests(
         // PyTorch: torch.sqrt(torch.tensor([[1, 4], [9, 16]]))
         // Output: tensor([[1., 2.],
         //                 [3., 4.]])
-        const matrix = await tensor([
-          [1, 4],
-          [9, 16]
-        ] as const, { device, dtype: float32 });
+        const matrix = await tensor(
+          [
+            [1, 4],
+            [9, 16],
+          ] as const,
+          { device, dtype: float32 },
+        );
         const sqrts = await matrix.sqrt();
 
         const result = await sqrts.toArray();
@@ -327,10 +351,13 @@ export function generateUnaryOperationTests(
         // PyTorch: torch.square(torch.tensor([[1, -2], [3, -4]]))
         // Output: tensor([[1., 4.],
         //                 [9., 16.]])
-        const matrix = await tensor([
-          [1, -2],
-          [3, -4]
-        ] as const, { device, dtype: float32 });
+        const matrix = await tensor(
+          [
+            [1, -2],
+            [3, -4],
+          ] as const,
+          { device, dtype: float32 },
+        );
         const squares = await matrix.square();
 
         const result = await squares.toArray();
@@ -343,10 +370,13 @@ export function generateUnaryOperationTests(
 
     describe('property preservation', () => {
       it('should preserve tensor metadata across unary operations', async () => {
-        const original = await tensor([
-          [1, 2, 3],
-          [4, 5, 6]
-        ] as const, { device, dtype: float32 });
+        const original = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+          ] as const,
+          { device, dtype: float32 },
+        );
 
         const neg = await original.neg();
         const abs = await original.abs();
@@ -378,13 +408,10 @@ export function generateUnaryOperationTests(
         expect(await scalarSqrt.item()).toBeCloseTo(2, 5);
 
         // Test 3D tensor
-        const tensor3d = await tensor([
-          [[1, 4]],
-          [[9, 16]]
-        ] as const, { device, dtype: float32 });
+        const tensor3d = await tensor([[[1, 4]], [[9, 16]]] as const, { device, dtype: float32 });
         const tensor3dSqrt = await tensor3d.sqrt();
         expect(tensor3dSqrt.shape).toEqual([2, 1, 2]);
-        
+
         const result3d = await tensor3dSqrt.toArray();
         expect(result3d[0][0][0]).toBeCloseTo(1, 5);
         expect(result3d[0][0][1]).toBeCloseTo(2, 5);
@@ -399,12 +426,12 @@ export function generateUnaryOperationTests(
         // Output: tensor([nan, nan, nan])
         // Note: Square root of negative numbers produces NaN
         const negativeValues = await tensor([-1, -4, -9] as const, { device, dtype: float32 });
-        
+
         // Note: Implementation may handle this differently (NaN, error, etc.)
         // This test ensures it doesn't crash and produces some result
         const sqrts = await negativeValues.sqrt();
         expect(sqrts.shape).toEqual([3]);
-        
+
         // The actual values might be NaN - that's acceptable behavior
         const result = await sqrts.toArray();
         expect(Array.isArray(result)).toBe(true);
@@ -416,11 +443,11 @@ export function generateUnaryOperationTests(
         // Output: tensor([-inf, nan, nan])
         // log(0) = -inf, log(negative) = nan
         const problematicValues = await tensor([0, -1, -5] as const, { device, dtype: float32 });
-        
+
         // Implementation may return -Infinity for log(0), NaN for log(negative)
         const logs = await problematicValues.log();
         expect(logs.shape).toEqual([3]);
-        
+
         const result = await logs.toArray();
         expect(Array.isArray(result)).toBe(true);
         expect(result.length).toBe(3);
@@ -437,7 +464,7 @@ export function generateUnaryOperationTests(
 
         expect(chained.shape).toEqual([3]);
         const result = await chained.toArray();
-        
+
         expect(result[0]).toBeCloseTo(1, 5);
         expect(result[1]).toBeCloseTo(4, 5);
         expect(result[2]).toBeCloseTo(9, 5);
@@ -452,7 +479,7 @@ export function generateUnaryOperationTests(
 
         expect(chained.shape).toEqual([3]);
         const result = await chained.toArray();
-        
+
         expect(result[0]).toBeCloseTo(4, 5);
         expect(result[1]).toBeCloseTo(9, 5);
         expect(result[2]).toBeCloseTo(16, 5);

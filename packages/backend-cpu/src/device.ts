@@ -138,7 +138,7 @@ export class CPUDevice implements Device {
 
   /**
    * Check if CPU backend supports non-contiguous tensors for a specific operation
-   * 
+   *
    * For the CPU demo backend, we don't support non-contiguous tensors for any operations
    * to keep the implementation simple. All operations expect contiguous data.
    */

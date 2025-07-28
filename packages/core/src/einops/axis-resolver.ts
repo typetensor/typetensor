@@ -63,7 +63,7 @@ export class AxisResolutionError extends Error {
  * Resolves einops patterns to concrete dimensions
  */
 export class AxisResolver {
-  private originalPattern: string = '';
+  private originalPattern = '';
 
   /**
    * Resolve a parsed einops pattern against a tensor shape
@@ -122,7 +122,9 @@ export class AxisResolver {
 
     for (let i = 0; i < patterns.length; i++) {
       const pattern = patterns[i];
-      if (!pattern) continue; // Skip undefined patterns
+      if (!pattern) {
+        continue;
+      } // Skip undefined patterns
 
       if (isSimpleAxis(pattern)) {
         // Simple axis: direct mapping
@@ -259,7 +261,7 @@ export class AxisResolver {
   ): void {
     // Flatten nested composites to get all simple axes
     const simpleAxes = this.flattenComposite(composite);
-    const innerAxes: Array<{ axis: SimpleAxis; value?: number }> = [];
+    const innerAxes: { axis: SimpleAxis; value?: number }[] = [];
     let knownProduct = 1;
     let unknownCount = 0;
 

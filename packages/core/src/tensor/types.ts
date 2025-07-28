@@ -204,14 +204,17 @@ export function bufferToNestedArray<D extends AnyDType, S extends Shape>(
   shape: S,
   dtype: D,
   strides?: readonly number[],
-  offset: number = 0,
+  offset = 0,
 ): NestedArray<DTypeValue<D>, S> {
   const TypedArrayConstructor = dtype.__typedArray;
   const typedArray = new TypedArrayConstructor(buffer);
 
   // If strides are provided, use stride-aware access
   if (strides && strides.length > 0) {
-    return buildNestedArrayWithStrides(typedArray, shape, strides, offset, dtype) as NestedArray<DTypeValue<D>, S>;
+    return buildNestedArrayWithStrides(typedArray, shape, strides, offset, dtype) as NestedArray<
+      DTypeValue<D>,
+      S
+    >;
   }
 
   // Otherwise, use the existing C-contiguous logic
@@ -295,11 +298,7 @@ function buildNestedArrayWithStrides<D extends AnyDType>(
     const stride = currentStrides[0]!;
     for (let i = 0; i < dim; i++) {
       result.push(
-        buildLevel(
-          currentShape.slice(1),
-          currentStrides.slice(1),
-          currentOffset + i * stride,
-        ),
+        buildLevel(currentShape.slice(1), currentStrides.slice(1), currentOffset + i * stride),
       );
     }
     return result;

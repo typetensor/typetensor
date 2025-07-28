@@ -41,21 +41,22 @@ export type SoftmaxOp<
   Input extends AnyTensorStorage,
   Axis extends number,
   OutputDType extends AnyDType = ToFloat<Input['__dtype']>,
-> = ValidateDim<Axis, Input['__shape']> extends DimensionError<string>
-  ? never // Invalid axis results in never type
-  : StorageTransformation<
-      'softmax',
-      TensorStorage<
-        OutputDType,
-        Input['__shape'], // Shape is preserved
-        ComputeStrides<Input['__shape']> | Input['__strides'], // Union type for stride flexibility
-        SoftmaxOpLayout<Input['__layout']>
-      >,
-      readonly [Input]
-    > & {
-      // Store the normalized axis as metadata for device implementation
-      readonly __softmaxAxis: ValidateDim<Axis, Input['__shape']>;
-    };
+> =
+  ValidateDim<Axis, Input['__shape']> extends DimensionError<string>
+    ? never // Invalid axis results in never type
+    : StorageTransformation<
+        'softmax',
+        TensorStorage<
+          OutputDType,
+          Input['__shape'], // Shape is preserved
+          ComputeStrides<Input['__shape']> | Input['__strides'], // Union type for stride flexibility
+          SoftmaxOpLayout<Input['__layout']>
+        >,
+        readonly [Input]
+      > & {
+        // Store the normalized axis as metadata for device implementation
+        readonly __softmaxAxis: ValidateDim<Axis, Input['__shape']>;
+      };
 
 /**
  * Log-softmax operation interface
@@ -65,21 +66,22 @@ export type LogSoftmaxOp<
   Input extends AnyTensorStorage,
   Axis extends number,
   OutputDType extends AnyDType = ToFloat<Input['__dtype']>,
-> = ValidateDim<Axis, Input['__shape']> extends DimensionError<string>
-  ? never // Invalid axis results in never type
-  : StorageTransformation<
-      'log_softmax',
-      TensorStorage<
-        OutputDType,
-        Input['__shape'], // Shape is preserved
-        ComputeStrides<Input['__shape']> | Input['__strides'], // Union type for stride flexibility
-        SoftmaxOpLayout<Input['__layout']>
-      >,
-      readonly [Input]
-    > & {
-      // Store the normalized axis as metadata for device implementation
-      readonly __logSoftmaxAxis: ValidateDim<Axis, Input['__shape']>;
-    };
+> =
+  ValidateDim<Axis, Input['__shape']> extends DimensionError<string>
+    ? never // Invalid axis results in never type
+    : StorageTransformation<
+        'log_softmax',
+        TensorStorage<
+          OutputDType,
+          Input['__shape'], // Shape is preserved
+          ComputeStrides<Input['__shape']> | Input['__strides'], // Union type for stride flexibility
+          SoftmaxOpLayout<Input['__layout']>
+        >,
+        readonly [Input]
+      > & {
+        // Store the normalized axis as metadata for device implementation
+        readonly __logSoftmaxAxis: ValidateDim<Axis, Input['__shape']>;
+      };
 
 // =============================================================================
 // Type-Level Softmax Functions
@@ -87,14 +89,14 @@ export type LogSoftmaxOp<
 
 /**
  * Standard softmax function: softmax(x) = exp(x) / sum(exp(x))
- * 
+ *
  * @template T - Input tensor storage type
  * @template Axis - The axis along which to apply softmax (supports negative indexing)
- * 
+ *
  * @example
  * type Input = TensorStorage<Float32, [32, 10], [10, 1], DefaultLayoutFlags>;
  * type Result = Softmax<Input, -1>; // Softmax over classes (last dimension)
- * 
+ *
  * @example
  * type AttentionScores = TensorStorage<Float32, [32, 8, 128, 128], [131072, 16384, 128, 1], DefaultLayoutFlags>;
  * type AttentionWeights = Softmax<AttentionScores, -1>; // Softmax over key sequence
@@ -103,13 +105,13 @@ export type Softmax<T extends AnyTensorStorage, Axis extends number> = SoftmaxOp
 
 /**
  * Log-softmax function: log_softmax(x) = log(softmax(x)) = x - log(sum(exp(x)))
- * 
+ *
  * Numerically more stable than computing log(softmax(x)) separately.
  * Commonly used in cross-entropy loss computation.
- * 
+ *
  * @template T - Input tensor storage type
  * @template Axis - The axis along which to apply log-softmax (supports negative indexing)
- * 
+ *
  * @example
  * type Logits = TensorStorage<Float32, [32, 1000], [1000, 1], DefaultLayoutFlags>;
  * type LogProbs = LogSoftmax<Logits, -1>; // Log probabilities over classes

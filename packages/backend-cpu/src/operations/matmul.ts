@@ -73,30 +73,51 @@ export async function executeMatmulOp(
   } else if (rankA === 1 && rankB === 2) {
     // 1D × 2D → 1D (vector-matrix multiply)
     executeVectorMatrixMultiply(
-      arrayA, arrayB, arrayOut,
-      shapeA[0]!, shapeB[0]!, shapeB[1]!,
-      stridesA, stridesB
+      arrayA,
+      arrayB,
+      arrayOut,
+      shapeA[0]!,
+      shapeB[0]!,
+      shapeB[1]!,
+      stridesA,
+      stridesB,
     );
   } else if (rankA === 2 && rankB === 1) {
     // 2D × 1D → 1D (matrix-vector multiply)
     executeMatrixVectorMultiply(
-      arrayA, arrayB, arrayOut,
-      shapeA[0]!, shapeA[1]!, shapeB[0]!,
-      stridesA, stridesB
+      arrayA,
+      arrayB,
+      arrayOut,
+      shapeA[0]!,
+      shapeA[1]!,
+      shapeB[0]!,
+      stridesA,
+      stridesB,
     );
   } else if (rankA === 2 && rankB === 2) {
     // 2D × 2D → 2D (matrix-matrix multiply)
     executeMatrixMatrixMultiply(
-      arrayA, arrayB, arrayOut,
-      shapeA[0]!, shapeA[1]!, shapeB[0]!, shapeB[1]!,
-      stridesA, stridesB
+      arrayA,
+      arrayB,
+      arrayOut,
+      shapeA[0]!,
+      shapeA[1]!,
+      shapeB[0]!,
+      shapeB[1]!,
+      stridesA,
+      stridesB,
     );
   } else {
     // ND × ND → ND (batched matrix multiply)
     executeBatchedMatrixMultiply(
-      arrayA, arrayB, arrayOut,
-      shapeA, shapeB, shapeOut,
-      stridesA, stridesB
+      arrayA,
+      arrayB,
+      arrayOut,
+      shapeA,
+      shapeB,
+      shapeOut,
+      stridesA,
+      stridesB,
     );
   }
 
@@ -118,9 +139,19 @@ function getNumericValue(arr: ArrayLike<number | bigint>, index: number): number
  * Helper to set value handling BigInt conversion
  */
 function setNumericValue(
-  arr: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array,
+  arr:
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+    | BigInt64Array
+    | BigUint64Array,
   index: number,
-  value: number
+  value: number,
 ): void {
   if (arr instanceof BigInt64Array || arr instanceof BigUint64Array) {
     arr[index] = BigInt(Math.trunc(value));
@@ -135,7 +166,17 @@ function setNumericValue(
 function executeVectorDotProduct(
   arrayA: ArrayLike<number | bigint>,
   arrayB: ArrayLike<number | bigint>,
-  arrayOut: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array,
+  arrayOut:
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+    | BigInt64Array
+    | BigUint64Array,
   length: number,
 ): void {
   let sum = 0;
@@ -152,10 +193,20 @@ function executeVectorDotProduct(
 function executeVectorMatrixMultiply(
   arrayA: ArrayLike<number | bigint>,
   arrayB: ArrayLike<number | bigint>,
-  arrayOut: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array,
-  K: number,  // length of vector A and rows of matrix B
+  arrayOut:
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+    | BigInt64Array
+    | BigUint64Array,
+  K: number, // length of vector A and rows of matrix B
   _M: number, // rows of matrix B (unused, but kept for clarity)
-  N: number,  // columns of matrix B
+  N: number, // columns of matrix B
   stridesA: number[],
   stridesB: number[],
 ): void {
@@ -181,9 +232,19 @@ function executeVectorMatrixMultiply(
 function executeMatrixVectorMultiply(
   arrayA: ArrayLike<number | bigint>,
   arrayB: ArrayLike<number | bigint>,
-  arrayOut: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array,
-  M: number,  // rows of matrix A
-  K: number,  // columns of matrix A and length of vector B
+  arrayOut:
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+    | BigInt64Array
+    | BigUint64Array,
+  M: number, // rows of matrix A
+  K: number, // columns of matrix A and length of vector B
   _N: number, // length of vector B (same as K, but kept for clarity)
   stridesA: number[],
   stridesB: number[],
@@ -210,11 +271,21 @@ function executeMatrixVectorMultiply(
 function executeMatrixMatrixMultiply(
   arrayA: ArrayLike<number | bigint>,
   arrayB: ArrayLike<number | bigint>,
-  arrayOut: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array,
-  M: number,  // rows of matrix A
-  K: number,  // columns of matrix A / rows of matrix B
+  arrayOut:
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+    | BigInt64Array
+    | BigUint64Array,
+  M: number, // rows of matrix A
+  K: number, // columns of matrix A / rows of matrix B
   _K2: number, // rows of matrix B (same as K)
-  N: number,  // columns of matrix B
+  N: number, // columns of matrix B
   stridesA: number[],
   stridesB: number[],
 ): void {
@@ -225,7 +296,7 @@ function executeMatrixMatrixMultiply(
 
   // Output is always C-contiguous
   let outIdx = 0;
-  
+
   for (let i = 0; i < M; i++) {
     for (let j = 0; j < N; j++) {
       let sum = 0;
@@ -246,7 +317,17 @@ function executeMatrixMatrixMultiply(
 function executeBatchedMatrixMultiply(
   arrayA: ArrayLike<number | bigint>,
   arrayB: ArrayLike<number | bigint>,
-  arrayOut: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array,
+  arrayOut:
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+    | BigInt64Array
+    | BigUint64Array,
   shapeA: number[],
   shapeB: number[],
   shapeOut: number[],
@@ -276,7 +357,7 @@ function executeBatchedMatrixMultiply(
 
   // Compute strides for batch dimensions
   const batchStridesOut = computeStrides(shapeOut.slice(0, -2));
-  
+
   // For each batch
   for (let batch = 0; batch < batchSize; batch++) {
     // Compute batch indices
@@ -291,17 +372,17 @@ function executeBatchedMatrixMultiply(
     // Compute offsets for this batch
     let offsetA = 0;
     let offsetB = 0;
-    
+
     // Map batch indices to input tensors (handle broadcasting)
     for (let i = 0; i < batchIndices.length; i++) {
       const batchIdx = batchIndices[i]!;
-      
+
       // For A: map from output batch dims to A's batch dims
       const dimIdxA = rankA - rankOut + i;
       if (dimIdxA >= 0 && (shapeA[dimIdxA] ?? 0) > 1) {
         offsetA += batchIdx * (stridesA[dimIdxA] ?? 0);
       }
-      
+
       // For B: map from output batch dims to B's batch dims
       const dimIdxB = rankB - rankOut + i;
       if (dimIdxB >= 0 && (shapeB[dimIdxB] ?? 0) > 1) {
@@ -311,7 +392,7 @@ function executeBatchedMatrixMultiply(
 
     // Perform matrix multiplication for this batch
     const baseOutIdx = batch * M * N;
-    
+
     for (let i = 0; i < M; i++) {
       for (let j = 0; j < N; j++) {
         let sum = 0;

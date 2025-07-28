@@ -99,7 +99,7 @@ export function parseTokens(tokens: readonly EinopsToken[], originalPattern?: st
 class TokenParser {
   constructor(
     private readonly tokens: readonly EinopsToken[],
-    private readonly originalPattern?: string
+    private readonly originalPattern?: string,
   ) {}
 
   /**
@@ -159,7 +159,9 @@ class TokenParser {
     while (i < end) {
       const token = this.tokens[i];
 
-      if (!token) break;
+      if (!token) {
+        break;
+      }
 
       // Skip whitespace tokens
       if (token.type === 'whitespace') {
@@ -282,7 +284,9 @@ class TokenParser {
     for (let i = lparenIndex; i < this.tokens.length; i++) {
       const token = this.tokens[i];
 
-      if (!token) break;
+      if (!token) {
+        break;
+      }
 
       if (token.type === 'lparen') {
         depth++;
@@ -340,8 +344,10 @@ class TokenParser {
     if (this.originalPattern !== undefined) {
       return this.originalPattern;
     }
-    
-    if (this.tokens.length === 0) return '';
+
+    if (this.tokens.length === 0) {
+      return '';
+    }
 
     const firstToken = this.tokens[0]!;
     const lastToken = this.tokens[this.tokens.length - 1]!;

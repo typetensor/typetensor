@@ -1,6 +1,6 @@
 /**
  * Test generators for tensor property assertions
- * 
+ *
  * These generators test tensor metadata properties like shape, dtype, device,
  * strides, and other structural information.
  */
@@ -10,7 +10,7 @@ import { tensor, zeros, float32, int32, bool, int64 } from '@typetensor/core';
 
 /**
  * Generates tests for tensor property access and validation
- * 
+ *
  * @param device - Device instance to test against
  * @param testFramework - Test framework object with describe/it/expect functions
  */
@@ -27,12 +27,11 @@ export function generateTensorPropertyTests(
       toBeFalsy: () => void;
       toBeInstanceOf?: (constructor: any) => void;
     };
-  }
+  },
 ) {
   const { describe, it, expect } = testFramework;
 
   describe(`Tensor Properties Tests (${device.type}:${device.id})`, () => {
-    
     describe('shape properties', () => {
       it('should report correct shape for scalars', async () => {
         // PyTorch: scalar = torch.tensor(42.0)
@@ -55,13 +54,16 @@ export function generateTensorPropertyTests(
       it('should report correct shape for matrices', async () => {
         // PyTorch: matrix = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]])
         // matrix.shape = torch.Size([4, 3]), matrix.ndim = 2, matrix.numel() = 12
-        const matrix = await tensor([
-          [1, 2, 3],
-          [4, 5, 6],
-          [7, 8, 9],
-          [10, 11, 12]
-        ] as const, { device, dtype: float32 });
-        
+        const matrix = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+            [7, 8, 9],
+            [10, 11, 12],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
         expect(matrix.shape).toEqual([4, 3]);
         expect(matrix.ndim).toBe(2);
         expect(matrix.size).toBe(12);
@@ -121,11 +123,14 @@ export function generateTensorPropertyTests(
         // PyTorch: matrix = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.float32)
         // matrix.stride() = (3, 1)  # row-major/C-order
         // matrix.is_contiguous() = True
-        const matrix = await tensor([
-          [1, 2, 3],
-          [4, 5, 6]
-        ] as const, { device, dtype: float32 });
-        
+        const matrix = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
         expect(Array.isArray(matrix.strides)).toBe(true);
         expect(matrix.strides.length).toBe(2);
         expect(matrix.strides[0]).toBe(3); // stride for rows
@@ -137,19 +142,19 @@ export function generateTensorPropertyTests(
         // tensor3d.stride() = (12, 4, 1)
         // Shape [2, 3, 4] -> strides [3*4, 4, 1] = [12, 4, 1]
         const tensor3d = await zeros([2, 3, 4] as const, { device, dtype: float32 });
-        
+
         expect(Array.isArray(tensor3d.strides)).toBe(true);
         expect(tensor3d.strides.length).toBe(3);
         expect(tensor3d.strides[0]).toBe(12); // 3*4 = 12
-        expect(tensor3d.strides[1]).toBe(4);  // 4
-        expect(tensor3d.strides[2]).toBe(1);  // 1
+        expect(tensor3d.strides[1]).toBe(4); // 4
+        expect(tensor3d.strides[2]).toBe(1); // 1
       });
 
       it('should have zero offset for new tensors', async () => {
         // PyTorch: tensor1 = torch.tensor([1, 2, 3])
         // tensor1.storage_offset() = 0  # New tensors start at offset 0
         const tensor1 = await tensor([1, 2, 3] as const, { device, dtype: float32 });
-        
+
         // New tensors should start at offset 0
         expect(typeof tensor1.storage.__offset).toBe('number');
         expect(tensor1.storage.__offset).toBe(0);
@@ -162,12 +167,12 @@ export function generateTensorPropertyTests(
         const float32Matrix = await zeros([10, 10] as const, { device, dtype: float32 });
         expect(float32Matrix.size).toBe(100);
         expect(float32Matrix.dtype).toBe(float32);
-        
+
         // int32 vector
         const int32Vector = await zeros([50] as const, { device, dtype: int32 });
         expect(int32Vector.size).toBe(50);
         expect(int32Vector.dtype).toBe(int32);
-        
+
         // bool vector
         const boolVector = await zeros([8] as const, { device, dtype: bool });
         expect(boolVector.size).toBe(8);
@@ -176,12 +181,12 @@ export function generateTensorPropertyTests(
 
       it('should maintain device association', async () => {
         const tensor1 = await tensor([1, 2, 3] as const, { device, dtype: float32 });
-        
+
         // Tensor should be associated with the correct device
         expect(tensor1.device).toBe(device);
         expect(tensor1.device.id).toBe(device.id);
         expect(tensor1.device.type).toBe(device.type);
-        
+
         // Tensor should have correct structural properties
         expect(tensor1.size).toBe(3);
         expect(tensor1.ndim).toBe(1);
@@ -193,10 +198,10 @@ export function generateTensorPropertyTests(
       it('should create independent tensor instances', async () => {
         const tensor1 = await tensor([1, 2, 3] as const, { device, dtype: float32 });
         const tensor2 = await tensor([1, 2, 3] as const, { device, dtype: float32 });
-        
+
         // Different tensor instances should not be the same object
         expect(tensor1 === tensor2).toBeFalsy();
-        
+
         // But should have equivalent properties
         expect(tensor1.shape).toEqual(tensor2.shape);
         expect(tensor1.ndim).toBe(tensor2.ndim);
@@ -204,7 +209,7 @@ export function generateTensorPropertyTests(
         expect(tensor1.dtype).toBe(tensor2.dtype);
         expect(tensor1.device).toBe(tensor2.device);
         expect(tensor1.strides).toEqual(tensor2.strides);
-        
+
         // And should have the same data when extracted
         const data1 = await tensor1.toArray();
         const data2 = await tensor2.toArray();
@@ -212,17 +217,23 @@ export function generateTensorPropertyTests(
       });
 
       it('should provide consistent property access', async () => {
-        const tensor1 = await tensor([[1, 2], [3, 4]] as const, { device, dtype: float32 });
-        
+        const tensor1 = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
         // Multiple accesses should return identical values (stable references)
         const shape1 = tensor1.shape;
         const shape2 = tensor1.shape;
         expect(shape1).toEqual(shape2);
-        
+
         const strides1 = tensor1.strides;
         const strides2 = tensor1.strides;
         expect(strides1).toEqual(strides2);
-        
+
         // Properties should be immutable references
         expect(tensor1.ndim).toBe(2);
         expect(tensor1.size).toBe(4);

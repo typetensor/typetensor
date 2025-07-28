@@ -415,7 +415,7 @@ export function generateEinopsOperationTests(
 
     describe('complex rearrangements', () => {
       it('should handle split and reorder simultaneously', async () => {
-        // PyTorch einops: 
+        // PyTorch einops:
         // >>> t = torch.tensor([[[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]], dtype=torch.float32)
         // >>> result = rearrange(t, 'batch (h w) c -> batch c h w', h=2)
         // >>> result.shape

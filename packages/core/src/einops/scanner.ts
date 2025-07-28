@@ -39,7 +39,6 @@ const AXIS_START_CHARS = /^[a-zA-Z_]$/;
  */
 const AXIS_CONTINUE_CHARS = /^[a-zA-Z0-9_]$/;
 
-
 // =============================================================================
 // Scanner Class
 // =============================================================================
@@ -55,7 +54,7 @@ const AXIS_CONTINUE_CHARS = /^[a-zA-Z0-9_]$/;
 export class EinopsScanner {
   private readonly chars: readonly string[];
   private readonly pattern: string;
-  private index: number = 0;
+  private index = 0;
 
   constructor(pattern: string) {
     this.pattern = pattern;
@@ -251,21 +250,23 @@ export class EinopsScanner {
    */
   private scanEllipsis(): EllipsisToken {
     const start = this.index;
-    
+
     // Must be exactly "..."
-    if (this.lookahead === '.' && 
-        this.nextLookahead === '.' && 
-        this.chars[this.index + 2] === '.') {
+    if (
+      this.lookahead === '.' &&
+      this.nextLookahead === '.' &&
+      this.chars[this.index + 2] === '.'
+    ) {
       this.shift(); // consume first '.'
       this.shift(); // consume second '.'
       this.shift(); // consume third '.'
-      
+
       return {
         type: 'ellipsis',
         position: { start, end: this.index },
       };
     }
-    
+
     throw new InvalidCharacterError(this.lookahead, this.pattern, {
       start: this.index,
       end: this.index + 1,
@@ -278,9 +279,9 @@ export class EinopsScanner {
   private scanSingleton(): SingletonToken {
     const start = this.index;
     this.shift(); // consume '1'
-    
+
     return {
-      type: 'singleton', 
+      type: 'singleton',
       position: { start, end: this.index },
     };
   }

@@ -43,7 +43,12 @@ export async function executeSoftmaxOp(
   }
 
   // Execute softmax with numerical stability
-  executeSoftmax(inputArray as ArrayLike<number>, outputArray as { [index: number]: number; length: number }, shape, axis);
+  executeSoftmax(
+    inputArray as ArrayLike<number>,
+    outputArray as { [index: number]: number; length: number },
+    shape,
+    axis,
+  );
 
   return outputData;
 }
@@ -82,14 +87,19 @@ export async function executeLogSoftmaxOp(
   }
 
   // Execute log-softmax with numerical stability
-  executeLogSoftmax(inputArray as ArrayLike<number>, outputArray as { [index: number]: number; length: number }, shape, axis);
+  executeLogSoftmax(
+    inputArray as ArrayLike<number>,
+    outputArray as { [index: number]: number; length: number },
+    shape,
+    axis,
+  );
 
   return outputData;
 }
 
 /**
  * Execute softmax along specified axis with numerical stability
- * 
+ *
  * Uses the numerically stable formulation:
  * softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
  */
@@ -100,7 +110,7 @@ function executeSoftmax(
   axis: number,
 ): void {
   const rank = shape.length;
-  
+
   // Handle 1D case (simple softmax over entire array)
   if (rank === 1) {
     executeSoftmax1D(input, output);
@@ -117,7 +127,7 @@ function executeSoftmax(
   if (axisStride === undefined) {
     throw new Error(`Failed to compute stride for axis ${axis}`);
   }
-  
+
   // Calculate number of softmax operations needed
   const totalSize = input.length;
   const axisElements = axisSize;
@@ -126,7 +136,7 @@ function executeSoftmax(
   // Iterate through each slice along the axis
   for (let op = 0; op < numOperations; op++) {
     const baseIdx = getBaseIndex(op, shape, axis, strides);
-    
+
     // Find max for numerical stability
     let maxVal = -Infinity;
     for (let i = 0; i < axisElements; i++) {
@@ -164,7 +174,7 @@ function executeSoftmax(
 
 /**
  * Execute log-softmax along specified axis with numerical stability
- * 
+ *
  * Uses the numerically stable formulation:
  * log_softmax(x) = x - max(x) - log(sum(exp(x - max(x))))
  */
@@ -175,7 +185,7 @@ function executeLogSoftmax(
   axis: number,
 ): void {
   const rank = shape.length;
-  
+
   // Handle 1D case (simple log-softmax over entire array)
   if (rank === 1) {
     executeLogSoftmax1D(input, output);
@@ -192,7 +202,7 @@ function executeLogSoftmax(
   if (axisStride === undefined) {
     throw new Error(`Failed to compute stride for axis ${axis}`);
   }
-  
+
   // Calculate number of softmax operations needed
   const totalSize = input.length;
   const axisElements = axisSize;
@@ -201,7 +211,7 @@ function executeLogSoftmax(
   // Iterate through each slice along the axis
   for (let op = 0; op < numOperations; op++) {
     const baseIdx = getBaseIndex(op, shape, axis, strides);
-    
+
     // Find max for numerical stability
     let maxVal = -Infinity;
     for (let i = 0; i < axisElements; i++) {
@@ -313,7 +323,7 @@ function executeLogSoftmax1D(
 function computeStrides(shape: readonly number[]): number[] {
   const strides = new Array<number>(shape.length);
   let stride = 1;
-  
+
   for (let i = shape.length - 1; i >= 0; i--) {
     strides[i] = stride;
     const dim = shape[i];
@@ -322,7 +332,7 @@ function computeStrides(shape: readonly number[]): number[] {
     }
     stride *= dim;
   }
-  
+
   return strides;
 }
 
@@ -343,14 +353,14 @@ function getBaseIndex(
     if (dim === axis) {
       continue; // Skip the axis dimension
     }
-    
+
     // Calculate stride for this reduced dimension
     const dimSize = shape[dim];
     const stride = strides[dim];
     if (dimSize === undefined || stride === undefined) {
       throw new Error(`Invalid dimension or stride at index ${dim}`);
     }
-    
+
     const coord = remaining % dimSize;
     remaining = Math.floor(remaining / dimSize);
     baseIdx += coord * stride;

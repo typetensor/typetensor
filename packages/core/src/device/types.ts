@@ -13,23 +13,23 @@ import type { AnyStorageTransformation, AllOperationTypes } from '../storage/lay
 
 /**
  * Utility type to validate that a device supports all required operations
- * 
+ *
  * This helps catch missing operation implementations at compile time.
  * If a device doesn't support an operation, TypeScript will show which ones are missing.
- * 
+ *
  * @template DeviceOps - The operations that the device claims to support
- * 
+ *
  * @example
  * // This will show a compile error listing missing operations
  * type Validation = ValidateDeviceOperations<'add' | 'sub'>;
  * // Error: __missing_operations: 'create' | 'neg' | 'abs' | ...
  */
-export type ValidateDeviceOperations<DeviceOps extends AllOperationTypes> = 
-  AllOperationTypes extends DeviceOps 
-    ? true 
+export type ValidateDeviceOperations<DeviceOps extends AllOperationTypes> =
+  AllOperationTypes extends DeviceOps
+    ? true
     : {
         __missing_operations: Exclude<AllOperationTypes, DeviceOps>;
-        __error: "Device implementation missing operations";
+        __error: 'Device implementation missing operations';
         __help: "Add cases for missing operations in your device's execute() method";
       };
 
@@ -136,7 +136,7 @@ export interface Device {
    * // CPU device might not support non-contiguous for most ops
    * cpuDevice.supportsNonContiguous('matmul'); // false
    * cpuDevice.supportsNonContiguous('neg'); // false
-   * 
+   *
    * // GPU device might support non-contiguous for all ops
    * gpuDevice.supportsNonContiguous('matmul'); // true
    * gpuDevice.supportsNonContiguous('neg'); // true
