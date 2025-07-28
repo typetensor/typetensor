@@ -63,6 +63,7 @@ import type { Mod } from 'ts-arithmetic';
  * const result2 = await a.add(b).mul(c);          // Chainable
  */
 class ChainablePromise<S extends AnyStorageTransformation> extends Promise<Tensor<S>> {
+  // eslint-disable-next-line @typescript-eslint/no-useless-constructor
   constructor(
     executor: (
       resolve: (value: Tensor<S> | PromiseLike<Tensor<S>>) => void,
@@ -154,7 +155,9 @@ class ChainablePromise<S extends AnyStorageTransformation> extends Promise<Tenso
         this,
         other instanceof ChainablePromise ? other : Promise.resolve(other as Tensor<T>),
       ])
-        .then(([tensor, otherTensor]) => tensor.add(otherTensor as any))
+        // Unsafe cast here out of ... necessity? runtime tests validate this properly.
+        // If you are reading this and you have an idea please fix :)
+        .then(([tensor, otherTensor]) => tensor.add(otherTensor as never))
         .then(resolve)
         .catch(reject);
     });
