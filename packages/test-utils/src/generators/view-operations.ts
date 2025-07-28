@@ -581,7 +581,7 @@ export function generateViewOperationTests(
         );
 
         // Permute [0, 1] -> [1, 0] (same as transpose)
-        const permuted = matrix.permute([1, 0] as const);
+        const permuted = await matrix.permute([1, 0] as const);
 
         expect(permuted.shape).toEqual([3, 2]);
         expect(permuted.dtype).toBe(float32);
@@ -623,7 +623,7 @@ export function generateViewOperationTests(
 
         // Permute [0, 1, 2] -> [2, 0, 1]
         // Shape should become [4, 2, 3]
-        const permuted = tensor3d.permute([2, 0, 1] as const);
+        const permuted = await tensor3d.permute([2, 0, 1] as const);
 
         expect(permuted.shape).toEqual([4, 2, 3]);
         expect(permuted.dtype).toBe(float32);
@@ -650,7 +650,7 @@ export function generateViewOperationTests(
         );
 
         // Identity permutation [0, 1] should not change anything
-        const permuted = matrix.permute([0, 1] as const);
+        const permuted = await matrix.permute([0, 1] as const);
 
         expect(permuted.shape).toEqual([2, 2]);
 
@@ -665,7 +665,7 @@ export function generateViewOperationTests(
         const vector = await tensor([1, 2, 3, 4] as const, { device, dtype: float32 });
 
         // Vector permutation should be identity
-        const permuted = vector.permute([0] as const);
+        const permuted = await vector.permute([0] as const);
 
         expect(permuted.shape).toEqual([4]);
 
@@ -690,8 +690,8 @@ export function generateViewOperationTests(
         );
 
         // Multiple permutations should preserve total elements
-        const permuted1 = tensor3d.permute([1, 2, 0] as const);
-        const permuted2 = permuted1.permute([2, 0, 1] as const);
+        const permuted1 = await tensor3d.permute([1, 2, 0] as const);
+        const permuted2 = await permuted1.permute([2, 0, 1] as const);
 
         expect(tensor3d.shape).toEqual([2, 2, 2]);
         expect(permuted1.shape).toEqual([2, 2, 2]);
@@ -727,7 +727,7 @@ export function generateViewOperationTests(
         expect(bchw.shape).toEqual([1, 1, 2, 2]);
 
         // Convert BCHW to BHWC (batch, height, width, channels)
-        const bhwc = bchw.permute([0, 2, 3, 1] as const);
+        const bhwc = await bchw.permute([0, 2, 3, 1] as const);
 
         expect(bhwc.shape).toEqual([1, 2, 2, 1]);
         expect(bhwc.dtype).toBe(float32);
@@ -785,8 +785,8 @@ export function generateViewOperationTests(
           { device, dtype: float32 },
         );
 
-        const transposed = matrix.transpose();
-        const reshaped = transposed.reshape([4] as const);
+        const transposed = await matrix.transpose();
+        const reshaped = await transposed.reshape([4] as const);
 
         const data = await reshaped.toArray();
         expect(data).toEqual([1, 3, 2, 4]);
@@ -813,7 +813,7 @@ export function generateViewOperationTests(
           { device, dtype: float32 },
         );
 
-        const permuted = tensor3d.permute([2, 0, 1] as const);
+        const permuted = await tensor3d.permute([2, 0, 1] as const);
         const flattened = await permuted.flatten();
 
         expect(tensor3d.shape).toEqual([2, 2, 2]);

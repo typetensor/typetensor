@@ -278,7 +278,10 @@ export class ChainablePromise<S extends AnyStorageTransformation> extends Promis
   ): ChainablePromise<PermuteOp<S['__output'], Axes>> {
     return new ChainablePromise((resolve, reject) => {
       this.then((tensor) => {
-        resolve(tensor.permute(axes as any) as Tensor<PermuteOp<S['__output'], Axes>>);
+        tensor
+          .permute(axes as any)
+          .then(resolve)
+          .catch(reject);
       }).catch(reject);
     });
   }
@@ -1411,30 +1414,32 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
   view<NewShape extends readonly (number | -1)[]>(
     shape: IsValidViewShape<S['__output']['__shape'], NewShape> extends true ? NewShape : never,
   ): ChainablePromise<View<S['__output'], NewShape>> {
-    // Infer shape if -1 is present
-    const inferredShape = this.inferShape(shape);
-
-    const viewOp = {
-      __op: 'view' as const,
-      __output: {
-        __dtype: this.storage.__dtype,
-        __shape: inferredShape,
-        __strides: computeStrides(inferredShape),
-        __size: this.storage.__size, // Size remains the same
-        __layout: {
-          ...this.storage.__layout,
-          is_view: true,
-        },
-        __offset: this.storage.__offset,
-      } as View<S['__output'], NewShape>['__output'],
-      __inputs: [this.storage] as const,
-    } as View<S['__output'], NewShape>;
-
     return new ChainablePromise((resolve, reject) => {
       void (async () => {
         try {
-          const tensor = await this._ensureContiguousIfNeeded('view');
-          resolve(new Tensor(viewOp, tensor.data));
+          // First ensure the tensor is contiguous if needed
+          const contiguousTensor = await this._ensureContiguousIfNeeded('view');
+
+          // Infer shape if -1 is present (using contiguous tensor's size)
+          const inferredShape = this.inferShapeForTensor(shape, contiguousTensor.size);
+
+          const viewOp = {
+            __op: 'view' as const,
+            __output: {
+              __dtype: contiguousTensor.storage.__dtype,
+              __shape: inferredShape,
+              __strides: computeStrides(inferredShape),
+              __size: contiguousTensor.storage.__size, // Size remains the same
+              __layout: {
+                ...contiguousTensor.storage.__layout,
+                is_view: true,
+              },
+              __offset: contiguousTensor.storage.__offset,
+            } as View<S['__output'], NewShape>['__output'],
+            __inputs: [contiguousTensor.storage] as const,
+          } as View<S['__output'], NewShape>;
+
+          resolve(new Tensor(viewOp, contiguousTensor.data));
         } catch (error) {
           reject(error);
         }
@@ -1443,10 +1448,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
   }
 
   /**
-   * Infer shape dimension when -1 is present
+   * Infer shape dimension when -1 is present for a given tensor size
    */
-  private inferShape(shape: readonly (number | -1)[]): readonly number[] {
-    const totalSize = this.size;
+  private inferShapeForTensor(
+    shape: readonly (number | -1)[],
+    totalSize: number,
+  ): readonly number[] {
     let inferIndex = -1;
     let knownSize = 1;
     let minusOneCount = 0;
@@ -1606,10 +1613,13 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
         try {
           // First ensure the tensor is contiguous if needed
           const contiguousTensor = await this._ensureContiguousIfNeeded('transpose');
-          
+
           // Compute transposed shape and strides based on the contiguous tensor
           const transposedShape = computeTransposedShape(contiguousTensor.shape);
-          const transposedStrides = computeTransposedStrides(contiguousTensor.shape, contiguousTensor.strides);
+          const transposedStrides = computeTransposedStrides(
+            contiguousTensor.shape,
+            contiguousTensor.strides,
+          );
 
           const transposeOp = {
             __op: 'transpose' as const,
@@ -1671,39 +1681,52 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
    */
   permute<Axes extends readonly number[]>(
     axes: Axes & (Axes['length'] extends S['__output']['__shape']['length'] ? Axes : never),
-  ): Tensor<PermuteOp<S['__output'], Axes>> {
-    // Validate axes at runtime
-    validatePermutationAxes(this.ndim, axes);
+  ): ChainablePromise<PermuteOp<S['__output'], Axes>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Validate axes at runtime
+          validatePermutationAxes(this.ndim, axes);
 
-    // Normalize negative indices
-    const normalizedAxes = normalizePermutationAxes(axes, this.ndim);
+          // Normalize negative indices
+          const normalizedAxes = normalizePermutationAxes(axes, this.ndim);
 
-    // Compute permuted shape and strides
-    const permutedShape = computePermutedShape(this.shape, normalizedAxes);
-    const permutedStrides = computePermutedStrides(this.strides, normalizedAxes);
+          // First ensure the tensor is contiguous if needed
+          const contiguousTensor = await this._ensureContiguousIfNeeded('permute');
 
-    const permuteOp = {
-      __op: 'permute' as const,
-      __output: {
-        __dtype: this.storage.__dtype,
-        __shape: permutedShape as unknown as Permute<S['__output']['__shape'], Axes>,
-        __strides: permutedStrides as unknown as Permute<S['__output']['__strides'], Axes>,
-        __size: this.storage.__size,
-        __layout: {
-          c_contiguous: false,
-          f_contiguous: false,
-          is_view: true,
-          writeable: this.storage.__layout.writeable,
-          aligned: this.storage.__layout.aligned,
-        },
-        __offset: this.storage.__offset,
-        // Include the permutation axes as metadata
-        __permuteAxes: normalizedAxes as unknown as Axes,
-      } as PermuteOp<S['__output'], Axes>['__output'],
-      __inputs: [this.storage] as const,
-    } as PermuteOp<S['__output'], Axes>;
+          // Compute permuted shape and strides based on the contiguous tensor
+          const permutedShape = computePermutedShape(contiguousTensor.shape, normalizedAxes);
+          const permutedStrides = computePermutedStrides(contiguousTensor.strides, normalizedAxes);
 
-    return new Tensor(permuteOp, this.data) as Tensor<PermuteOp<S['__output'], Axes>>;
+          const permuteOp = {
+            __op: 'permute' as const,
+            __output: {
+              __dtype: contiguousTensor.storage.__dtype,
+              __shape: permutedShape as unknown as Permute<S['__output']['__shape'], Axes>,
+              __strides: permutedStrides as unknown as Permute<S['__output']['__strides'], Axes>,
+              __size: contiguousTensor.storage.__size,
+              __layout: {
+                c_contiguous: false,
+                f_contiguous: false,
+                is_view: true,
+                writeable: contiguousTensor.storage.__layout.writeable,
+                aligned: contiguousTensor.storage.__layout.aligned,
+              },
+              __offset: contiguousTensor.storage.__offset,
+              // Include the permutation axes as metadata
+              __permuteAxes: normalizedAxes as unknown as Axes,
+            } as PermuteOp<S['__output'], Axes>['__output'],
+            __inputs: [contiguousTensor.storage] as const,
+          } as PermuteOp<S['__output'], Axes>;
+
+          resolve(
+            new Tensor(permuteOp, contiguousTensor.data) as Tensor<PermuteOp<S['__output'], Axes>>,
+          );
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   // =============================================================================

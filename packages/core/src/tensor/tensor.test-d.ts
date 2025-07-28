@@ -593,7 +593,7 @@ expectTypeOf(permuteRotate.shape).toEqualTypeOf<readonly [3, 4, 5, 2]>();
 
 // Test 6: Preserves dtype
 declare const permuteInt64Tensor: Tensor<CreateOp<TensorStorage<Int64, readonly [5, 6, 7]>>>;
-const permuteInt64Result = permuteInt64Tensor.permute([2, 1, 0] as const);
+const permuteInt64Result = await permuteInt64Tensor.permute([2, 1, 0] as const);
 expectTypeOf(permuteInt64Result.dtype).toEqualTypeOf<Int64>();
 expectTypeOf(permuteInt64Result.shape).toEqualTypeOf<readonly [7, 6, 5]>();
 
@@ -604,17 +604,17 @@ expectTypeOf(permuteResult1.layout.f_contiguous).toEqualTypeOf<false>();
 
 // Test 8: 1D permutation
 declare const permute1DTensor: Tensor<CreateOp<TensorStorage<Float32, readonly [10]>>>;
-const permute1DResult = permute1DTensor.permute([0] as const);
+const permute1DResult = await permute1DTensor.permute([0] as const);
 expectTypeOf(permute1DResult.shape).toEqualTypeOf<readonly [10]>();
 
 // Test 9: Different permutation patterns
-const permutePattern1 = permute3DTensor.permute([1, 0, 2] as const);
+const permutePattern1 = await permute3DTensor.permute([1, 0, 2] as const);
 expectTypeOf(permutePattern1.shape).toEqualTypeOf<readonly [3, 2, 4]>();
 
-const permutePattern2 = permute3DTensor.permute([1, 2, 0] as const);
+const permutePattern2 = await permute3DTensor.permute([1, 2, 0] as const);
 expectTypeOf(permutePattern2.shape).toEqualTypeOf<readonly [3, 4, 2]>();
 
-const permutePattern3 = permute3DTensor.permute([2, 1, 0] as const);
+const permutePattern3 = await permute3DTensor.permute([2, 1, 0] as const);
 expectTypeOf(permutePattern3.shape).toEqualTypeOf<readonly [4, 3, 2]>();
 
 // Test 10: Type-level validation
