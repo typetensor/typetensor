@@ -220,6 +220,7 @@ function resolveAxes(
 function computeIntermediateShape(
   patterns: readonly AxisPattern[],
   axisDimensions: Map<string, number>,
+  ellipsisDimensions?: readonly number[],
 ): number[] {
   const shape: number[] = [];
 
@@ -232,13 +233,19 @@ function computeIntermediateShape(
       shape.push(dim);
     } else if (isCompositeAxis(pattern)) {
       // Expand composite to its constituent axes
-      const expandedShape = computeIntermediateShape(pattern.axes, axisDimensions);
+      const expandedShape = computeIntermediateShape(
+        pattern.axes,
+        axisDimensions,
+        ellipsisDimensions,
+      );
       shape.push(...expandedShape);
     } else if (isSingletonAxis(pattern)) {
       shape.push(1);
     } else if (isEllipsisAxis(pattern)) {
-      // Ellipsis handling would go here - for now throw error
-      throw new Error('Ellipsis in intermediate shape computation not yet implemented');
+      // Ellipsis: insert all ellipsis dimensions
+      if (ellipsisDimensions) {
+        shape.push(...ellipsisDimensions);
+      }
     }
   }
 
@@ -248,19 +255,23 @@ function computeIntermediateShape(
 /**
  * Build a flat list of all axis names in order, expanding composites
  */
-function flattenPatternToAxisNames(patterns: readonly AxisPattern[]): string[] {
+function flattenPatternToAxisNames(patterns: readonly AxisPattern[], ellipsisDimensions?: readonly number[]): string[] {
   const names: string[] = [];
 
   for (const pattern of patterns) {
     if (isSimpleAxis(pattern)) {
       names.push(pattern.name);
     } else if (isCompositeAxis(pattern)) {
-      names.push(...flattenPatternToAxisNames(pattern.axes));
+      names.push(...flattenPatternToAxisNames(pattern.axes, ellipsisDimensions));
     } else if (isSingletonAxis(pattern)) {
       names.push(`__singleton_${names.length}`);
     } else if (isEllipsisAxis(pattern)) {
-      // Skip ellipsis for now
-      continue;
+      // Ellipsis: expand to individual dimension names
+      if (ellipsisDimensions) {
+        for (let i = 0; i < ellipsisDimensions.length; i++) {
+          names.push(`__ellipsis_${i}`);
+        }
+      }
     }
   }
 
@@ -273,9 +284,10 @@ function flattenPatternToAxisNames(patterns: readonly AxisPattern[]): string[] {
 function computeGeneralPermutation(
   inputPatterns: readonly AxisPattern[],
   outputPatterns: readonly AxisPattern[],
+  ellipsisDimensions?: readonly number[],
 ): number[] | null {
-  const inputNames = flattenPatternToAxisNames(inputPatterns);
-  const outputNames = flattenPatternToAxisNames(outputPatterns);
+  const inputNames = flattenPatternToAxisNames(inputPatterns, ellipsisDimensions);
+  const outputNames = flattenPatternToAxisNames(outputPatterns, ellipsisDimensions);
 
   if (inputNames.length !== outputNames.length) {
     return null; // Can't compute permutation if different lengths
@@ -350,15 +362,16 @@ function planOperations(
   // Check if we need complex operations (reshape + permute)
   if (needsComplexOperations(ast)) {
     // Step 1: Compute intermediate shape with all composites expanded
-    const intermediateShapeInput = computeIntermediateShape(ast.input, resolved.axisDimensions);
-    const intermediateShapeOutput = computeIntermediateShape(ast.output, resolved.axisDimensions);
-
-    // Debug logging
-    console.log('[DEBUG] Complex operations needed');
-    console.log('[DEBUG] Input shape:', inputShape);
-    console.log('[DEBUG] Intermediate shape (input):', intermediateShapeInput);
-    console.log('[DEBUG] Intermediate shape (output):', intermediateShapeOutput);
-    console.log('[DEBUG] Final shape:', resolved.outputShape);
+    const intermediateShapeInput = computeIntermediateShape(
+      ast.input,
+      resolved.axisDimensions,
+      resolved.ellipsisDimensions,
+    );
+    const intermediateShapeOutput = computeIntermediateShape(
+      ast.output,
+      resolved.axisDimensions,
+      resolved.ellipsisDimensions,
+    );
 
     // Step 2: Reshape to intermediate shape if needed
     if (!arraysEqual(inputShape, intermediateShapeInput)) {
@@ -369,8 +382,7 @@ function planOperations(
     }
 
     // Step 3: Compute and apply permutation
-    const permutation = computeGeneralPermutation(ast.input, ast.output);
-    console.log('[DEBUG] Permutation:', permutation);
+    const permutation = computeGeneralPermutation(ast.input, ast.output, resolved.ellipsisDimensions);
     if (permutation !== null) {
       operations.push({
         type: 'permute',
