@@ -29,7 +29,6 @@
     "eslint-plugin-prettier": "^5.2.2",
     "expect-type": "^1.1.0",
     "license-checker": "^25.0.1",
-    "ml-matrix": "^6.12.1",
     "prettier": "^3.4.2",
     "ts-arithmetic": "^0.1.1",
     "tsup": "^8.5.0",

@@ -1,6 +1,12 @@
-# TypeTensor
+<div align="center">
+  <img src="media/favicon/web-app-manifest-192x192.png" alt="TypeTensor Logo" width="128" height="128">
+  
+  # TypeTensor
 
-**TypeScript's compile-time tensor library - catch shape errors before runtime**
+  **TypeScript's compile-time tensor library - catch shape errors before runtime**
+</div>
+
+<br>
 
 [![CI](https://github.com/typetensor/typetensor/actions/workflows/ci.yml/badge.svg)](https://github.com/typetensor/typetensor/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@typetensor/core.svg)](https://www.npmjs.com/package/@typetensor/core)

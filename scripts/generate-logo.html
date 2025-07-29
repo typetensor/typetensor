@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeTensor Spring Logo Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .canvas-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .controls {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input[type="range"] {
+            width: 200px;
+        }
+        button {
+            background: #3B82F6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563EB;
+        }
+        .value {
+            color: #666;
+            font-family: monospace;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TypeTensor Spring Logo Generator</h1>
+        
+        <div class="controls">
+            <h3>Spring Configuration</h3>
+            
+            <div class="control-group">
+                <label>Coils: <span class="value" id="coilsValue">8</span></label>
+                <input type="range" id="coilsSlider" min="2" max="30" value="8">
+            </div>
+            
+            <div class="control-group">
+                <label>Spring Radius: <span class="value" id="radiusValue">80</span></label>
+                <input type="range" id="radiusSlider" min="20" max="200" value="80">
+            </div>
+            
+            <div class="control-group">
+                <label>Spring Height: <span class="value" id="heightValue">300</span></label>
+                <input type="range" id="heightSlider" min="100" max="600" value="300">
+            </div>
+            
+            <div class="control-group">
+                <label>Wire Thickness: <span class="value" id="thicknessValue">12</span></label>
+                <input type="range" id="thicknessSlider" min="2" max="40" value="12">
+            </div>
+            
+            <div class="control-group">
+                <label>Compression (0.2 = compressed, 2.0 = stretched): <span class="value" id="compressionValue">1.0</span></label>
+                <input type="range" id="compressionSlider" min="0.2" max="2.0" step="0.1" value="1.0">
+            </div>
+            
+            <div class="control-group">
+                <label>Border Thickness: <span class="value" id="borderThicknessValue">15</span></label>
+                <input type="range" id="borderThicknessSlider" min="2" max="60" value="15">
+            </div>
+            
+            <div class="control-group">
+                <label>Border Width: <span class="value" id="borderWidthValue">3.0</span></label>
+                <input type="range" id="borderWidthSlider" min="1.0" max="8.0" step="0.1" value="3.0">
+            </div>
+            
+            <div class="control-group">
+                <button onclick="updateSpring()">Update Spring</button>
+                <button onclick="downloadImage()">Download PNG (512x512)</button>
+                <button onclick="downloadImage(1024)">Download PNG (1024x1024)</button>
+            </div>
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="springCanvas" width="512" height="512" style="display: block; margin: 0 auto; border: 1px solid #ddd;"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        let config = {
+            coils: 8,
+            springRadius: 80,
+            springHeight: 300,
+            wireThickness: 12,
+            compression: 1.0,
+            borderThickness: 15,
+            borderWidth: 3.0,
+            color: {
+                primary: '#8B8B8B',  // Dull metal grey for spring
+                border: '#3178C6',   // TypeScript blue for borders
+            }
+        };
+
+        // Three.js setup
+        let scene, camera, renderer, spring, topBorder, bottomBorder;
+        
+        function initThreeJS() {
+            const canvas = document.getElementById('springCanvas');
+            
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color('#ffffff');
+            
+            // Camera - using OrthographicCamera for flat appearance
+            const frustumSize = 400;
+            camera = new THREE.OrthographicCamera(
+                -frustumSize / 2, frustumSize / 2,
+                frustumSize / 2, -frustumSize / 2,
+                0.1, 1000
+            );
+            camera.position.set(400, 0, 0);
+            camera.lookAt(0, 0, 0);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: canvas, 
+                antialias: true,
+                preserveDrawingBuffer: true // Important for downloading
+            });
+            renderer.setSize(512, 512);
+            renderer.setClearColor('#ffffff');
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight('#ffffff', 0.8);
+            const directionalLight = new THREE.DirectionalLight('#ffffff', 0.6);
+            directionalLight.position.set(100, 100, 100);
+            
+            scene.add(ambientLight);
+            scene.add(directionalLight);
+            
+            createSpring();
+        }
+        
+        function createSpringGeometry() {
+            const points = [];
+            const segments = config.coils * 32;
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const angle = t * Math.PI * 2 * config.coils;
+                const y = (t - 0.5) * config.springHeight * config.compression;
+                
+                const x = Math.cos(angle) * config.springRadius;
+                const z = Math.sin(angle) * config.springRadius;
+                
+                points.push(new THREE.Vector3(x, y, z));
+            }
+            
+            return new THREE.BufferGeometry().setFromPoints(points);
+        }
+        
+        function createBorderGeometry(isTop) {
+            const borderWidth = config.springRadius * config.borderWidth;
+            const borderHeight = config.borderThickness;
+            const borderDepth = config.springRadius * config.borderWidth;
+            
+            const y = isTop ? 
+                config.springHeight * config.compression / 2 + config.borderThickness / 2 : 
+                -config.springHeight * config.compression / 2 - config.borderThickness / 2;
+            
+            const geometry = new THREE.BoxGeometry(borderWidth, borderHeight, borderDepth);
+            geometry.translate(0, y, 0);
+            
+            return geometry;
+        }
+        
+        function createSpring() {
+            // Remove existing spring and borders
+            if (spring) scene.remove(spring);
+            if (topBorder) scene.remove(topBorder);
+            if (bottomBorder) scene.remove(bottomBorder);
+            
+            // Create borders first
+            const borderMaterial = new THREE.MeshBasicMaterial({
+                color: config.color.border,
+            });
+            
+            topBorder = new THREE.Mesh(createBorderGeometry(true), borderMaterial);
+            bottomBorder = new THREE.Mesh(createBorderGeometry(false), borderMaterial);
+            
+            scene.add(topBorder);
+            scene.add(bottomBorder);
+            
+            // Create spring with modified endpoints to connect to borders
+            const springMaterial = new THREE.MeshBasicMaterial({
+                color: config.color.primary,
+            });
+            
+            const points = [];
+            const segments = config.coils * 32;
+            
+            // Calculate spring endpoints to properly connect with borders
+            const topBorderY = config.springHeight * config.compression / 2;
+            const bottomBorderY = -config.springHeight * config.compression / 2;
+            
+            // Define the transition zones (as fraction of total)
+            const transitionZone = 0.03; // 3% for smooth transition
+            const straightSegments = Math.floor(segments * 0.02); // 2% for straight parts
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                let x, y, z;
+                
+                // Full coil angle calculation
+                const fullAngle = t * Math.PI * 2 * config.coils;
+                
+                if (i < straightSegments) {
+                    // Bottom straight section
+                    const progress = i / straightSegments;
+                    x = config.springRadius;
+                    y = bottomBorderY + progress * (config.springHeight * 0.05);
+                    z = 0;
+                } else if (i > segments - straightSegments) {
+                    // Top straight section - continue from where the coil ends
+                    const lastCoilIndex = segments - straightSegments;
+                    const lastCoilT = lastCoilIndex / segments;
+                    const lastAngle = lastCoilT * Math.PI * 2 * config.coils;
+                    
+                    const progress = (i - lastCoilIndex) / straightSegments;
+                    x = Math.cos(lastAngle) * config.springRadius;
+                    y = topBorderY - (config.springHeight * 0.05) + progress * (config.springHeight * 0.05);
+                    z = Math.sin(lastAngle) * config.springRadius;
+                } else if (i < straightSegments + transitionZone * segments) {
+                    // Bottom transition zone - smooth blend from straight to coil
+                    const transitionProgress = (i - straightSegments) / (transitionZone * segments);
+                    const blendFactor = Math.sin(transitionProgress * Math.PI / 2); // Smooth ease-in
+                    
+                    x = config.springRadius * (1 - blendFactor + blendFactor * Math.cos(fullAngle));
+                    y = bottomBorderY + (t * config.springHeight * config.compression);
+                    z = config.springRadius * blendFactor * Math.sin(fullAngle);
+                } else if (i > segments - straightSegments - transitionZone * segments) {
+                    // Top transition zone - smooth blend from coil to straight
+                    const transitionStart = segments - straightSegments - transitionZone * segments;
+                    const transitionProgress = (i - transitionStart) / (transitionZone * segments);
+                    const blendFactor = Math.cos(transitionProgress * Math.PI / 2); // Smooth ease-out
+                    
+                    x = Math.cos(fullAngle) * config.springRadius * blendFactor + 
+                        Math.cos(fullAngle) * config.springRadius * (1 - blendFactor);
+                    y = bottomBorderY + (t * config.springHeight * config.compression);
+                    z = Math.sin(fullAngle) * config.springRadius * blendFactor;
+                } else {
+                    // Middle coil section - normal spring
+                    x = Math.cos(fullAngle) * config.springRadius;
+                    y = bottomBorderY + (t * config.springHeight * config.compression);
+                    z = Math.sin(fullAngle) * config.springRadius;
+                }
+                
+                points.push(new THREE.Vector3(x, y, z));
+            }
+            
+            const curve = new THREE.CatmullRomCurve3(points);
+            const tubeGeometry = new THREE.TubeGeometry(curve, points.length - 1, config.wireThickness / 2, 8, false);
+            
+            spring = new THREE.Mesh(tubeGeometry, springMaterial);
+            scene.add(spring);
+            
+            // Render
+            renderer.render(scene, camera);
+        }
+        
+        function updateSpring() {
+            // Update config from sliders
+            config.coils = parseInt(document.getElementById('coilsSlider').value);
+            config.springRadius = parseInt(document.getElementById('radiusSlider').value);
+            config.springHeight = parseInt(document.getElementById('heightSlider').value);
+            config.wireThickness = parseInt(document.getElementById('thicknessSlider').value);
+            config.compression = parseFloat(document.getElementById('compressionSlider').value);
+            config.borderThickness = parseInt(document.getElementById('borderThicknessSlider').value);
+            config.borderWidth = parseFloat(document.getElementById('borderWidthSlider').value);
+            
+            // Update display values
+            document.getElementById('coilsValue').textContent = config.coils;
+            document.getElementById('radiusValue').textContent = config.springRadius;
+            document.getElementById('heightValue').textContent = config.springHeight;
+            document.getElementById('thicknessValue').textContent = config.wireThickness;
+            document.getElementById('compressionValue').textContent = config.compression;
+            document.getElementById('borderThicknessValue').textContent = config.borderThickness;
+            document.getElementById('borderWidthValue').textContent = config.borderWidth;
+            
+            createSpring();
+        }
+        
+        function downloadImage(size = 512) {
+            // Temporarily resize for download
+            const originalSize = renderer.getSize(new THREE.Vector2());
+            renderer.setSize(size, size);
+            renderer.render(scene, camera);
+            
+            // Download
+            const canvas = renderer.domElement;
+            const link = document.createElement('a');
+            link.download = `typetensor-spring-${size}x${size}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            
+            // Restore original size
+            renderer.setSize(originalSize.x, originalSize.y);
+            renderer.render(scene, camera);
+        }
+        
+        // Event listeners
+        document.getElementById('coilsSlider').addEventListener('input', updateSpring);
+        document.getElementById('radiusSlider').addEventListener('input', updateSpring);
+        document.getElementById('heightSlider').addEventListener('input', updateSpring);
+        document.getElementById('thicknessSlider').addEventListener('input', updateSpring);
+        document.getElementById('compressionSlider').addEventListener('input', updateSpring);
+        document.getElementById('borderThicknessSlider').addEventListener('input', updateSpring);
+        document.getElementById('borderWidthSlider').addEventListener('input', updateSpring);
+        
+        // Initialize
+        initThreeJS();
+    </script>
+</body>
+</html> 

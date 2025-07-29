@@ -1,6 +1,7 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "name": "TypeTensor",
+  "favicon": "media/favicon/favicon.ico",
   "entryPoints": [
     "packages/core",
     "packages/backend-cpu",
