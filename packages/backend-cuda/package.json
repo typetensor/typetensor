@@ -1,0 +1,64 @@
+{
+  "name": "@typetensor/backend-cuda",
+  "version": "0.1.0",
+  "description": "NVIDIA CUDA backend for TypedTensor",
+  "license": "MIT",
+  "author": "Thomas Santerre <thomas@santerre.xyz>",
+  "homepage": "https://github.com/typetensor/typetensor/tree/main/packages/backend-cuda#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typetensor/typetensor.git",
+    "directory": "packages/backend-cuda"
+  },
+  "bugs": {
+    "url": "https://github.com/typetensor/typetensor/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "typetensor-dev": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "bun": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json",
+    "./*": {
+      "typetensor-dev": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "bun": "./dist/*.js",
+      "import": "./dist/*.js",
+      "require": "./dist/*.cjs",
+      "default": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@typetensor/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.9.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch --preserveWatchOutput",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "bun test",
+    "test:watch": "bun test --watch --no-clear-screen",
+    "prepublishOnly": "bun run clean && bun run build"
+  }
+}

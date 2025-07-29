@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.lock
+*.log
+.DS_Store
+.env
+.vscode/
+.idea/
+*.min.js
+*.min.css

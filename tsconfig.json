@@ -1,0 +1,88 @@
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+
+    // Base directory for module resolution
+    "baseUrl": "./",
+
+    // Path mappings for direct TypeScript source resolution
+    "paths": {
+      "@typetensor/core": ["./packages/core/src/index.ts"],
+      "@typetensor/core/*": ["./packages/core/src/*"],
+      "@typetensor/backend-cpu": ["./packages/backend-cpu/src/index.ts"],
+      "@typetensor/backend-cpu/*": ["./packages/backend-cpu/src/*"],
+      "@typetensor/backend-cuda": ["./packages/backend-cuda/src/index.ts"],
+      "@typetensor/backend-cuda/*": ["./packages/backend-cuda/src/*"],
+      "@typetensor/backend-metal": ["./packages/backend-metal/src/index.ts"],
+      "@typetensor/backend-metal/*": ["./packages/backend-metal/src/*"],
+      "@typetensor/backend-vulkan": ["./packages/backend-vulkan/src/index.ts"],
+      "@typetensor/backend-vulkan/*": ["./packages/backend-vulkan/src/*"],
+      "@typetensor/backend-wasm": ["./packages/backend-wasm/src/index.ts"],
+      "@typetensor/backend-wasm/*": ["./packages/backend-wasm/src/*"],
+      "@typetensor/backend-webgpu": ["./packages/backend-webgpu/src/index.ts"],
+      "@typetensor/backend-webgpu/*": ["./packages/backend-webgpu/src/*"],
+      "@typetensor/test-utils": ["./packages/test-utils/src/index.ts"],
+      "@typetensor/test-utils/*": ["./packages/test-utils/src/*"]
+    },
+
+    // Custom conditions for development
+    "customConditions": ["typetensor-dev"],
+
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    // Strict type checking - ALL enabled
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+
+    // Additional strict checks
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    // Best practices
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    // Output
+    "outDir": "./dist",
+    "rootDir": "./",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": true,
+
+    // Advanced
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    // Disable project references - we use custom conditions instead
+    "composite": false
+  },
+  "files": []
+}
