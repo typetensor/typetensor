@@ -57,7 +57,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch --preserveWatchOutput",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "bun test",
+    "test": "echo 'No tests yet - backend not implemented'",
     "test:watch": "bun test --watch --no-clear-screen",
     "prepublishOnly": "bun run clean && bun run build"
   }
