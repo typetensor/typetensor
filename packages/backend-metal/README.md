@@ -1,46 +1,32 @@
 # @typetensor/backend-metal
 
-Apple Metal backend for TypedTensor, providing GPU-accelerated tensor operations on Apple devices.
+**Apple Metal GPU backend for TypeTensor tensor operations**
 
-## Installation
+> Part of [TypeTensor](https://github.com/typetensor/typetensor)
+
+## Status
+
+🚧 **TODO** - This backend is planned but not yet implemented.
+
+## Install
 
 ```bash
 npm install @typetensor/backend-metal
 ```
 
-## Features
+## Planned Features
 
-- Hardware-accelerated tensor operations using Apple Metal
-- Optimized kernels for Apple Silicon
-- Efficient memory management
-- Support for all core tensor operations
+- Apple Metal GPU acceleration
+- Optimized kernels for Apple Silicon (M1/M2/M3/M4)
+- Native performance on macOS and iOS
+- Unified memory architecture support
+- Metal Performance Shaders integration
 
-## Usage
+**Requirements:** Apple device with Metal support (macOS 11+, iOS 14+)
 
-```typescript
-import { tensor } from '@typetensor/core';
-import { MetalBackend } from '@typetensor/backend-metal';
+## Contributing
 
-// Initialize Metal backend
-const backend = await MetalBackend.create();
-
-// Create tensors that will run on Metal GPU
-const a = tensor([1, 2, 3, 4], { shape: [2, 2], backend });
-const b = tensor([5, 6, 7, 8], { shape: [2, 2], backend });
-
-// Operations automatically run on Metal GPU
-const result = a.add(b);
-```
-
-## Requirements
-
-- Apple Silicon Mac or iOS device
-- macOS 11+ or iOS 14+
-- TypeScript 5.9.0 or higher
-
-## Status
-
-⚠️ This package is currently a placeholder and under development.
+Interested in helping implement the Metal backend? See the [contribution guidelines](https://github.com/typetensor/typetensor/blob/main/CONTRIBUTING.md).
 
 ## License
 

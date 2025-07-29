@@ -13,7 +13,7 @@ async function main() {
 
   // Attempt to reshape to [3, 3]
   await t.reshape([3, 3] as const);
-  //                         ^ error: [TypeTensor ❌] Cannot reshape: 6 ≠ 9 elements
+  //              ^ error: [TypeTensor ❌] Cannot reshape: 6 ≠ 9 elements
   // Error is automatically detected at compile time for invalid reshapes!
 
   // Attempt to add two tensors with different shapes that cannot be broadcasted

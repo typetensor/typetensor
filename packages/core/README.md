@@ -1,33 +1,29 @@
 # @typetensor/core
 
-Core tensor operations library with compile-time type safety for TypeScript.
+**Core tensor operations with compile-time type safety for TypeScript**
 
-## Installation
+> Part of [TypeTensor](https://github.com/typetensor/typetensor)
+
+## Install
 
 ```bash
 npm install @typetensor/core
 ```
 
-## Features
-
-- Type-safe tensor operations with compile-time shape checking
-- Support for various data types (float32, int32, etc.)
-- Broadcasting operations
-- Shape manipulation and views
+**Key Features:**
+- Compile-time shape validation using TypeScript's type system
+- NumPy-compatible broadcasting and operations  
+- Einstein notation (einops) for tensor transformations
+- Full numeric type system with automatic promotion
 - Zero runtime overhead for type checking
 
-## Usage
+**Core Operations:**
+- Tensor creation, arithmetic, and linear algebra
+- Shape manipulation: reshape, transpose, slice, permute
+- Reductions: sum, mean, max, min along axes
+- Activation functions: softmax, log-softmax
 
-```typescript
-import { tensor } from '@typetensor/core';
-
-// Create tensors with automatic shape inference
-const a = tensor([1, 2, 3, 4], { shape: [2, 2] });
-const b = tensor([5, 6, 7, 8], { shape: [2, 2] });
-
-// Operations are type-safe - shapes must match
-const result = a.add(b);
-```
+**[See examples →](https://github.com/typetensor/typetensor/tree/main/examples)**
 
 ## License
 

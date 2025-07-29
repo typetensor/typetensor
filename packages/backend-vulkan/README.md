@@ -1,46 +1,32 @@
 # @typetensor/backend-vulkan
 
-Vulkan backend for TypedTensor, providing GPU-accelerated tensor operations across platforms.
+**Vulkan GPU backend for TypeTensor tensor operations**
 
-## Installation
+> Part of [TypeTensor](https://github.com/typetensor/typetensor)
+
+## Status
+
+🚧 **TODO** - This backend is planned but not yet implemented.
+
+## Install
 
 ```bash
 npm install @typetensor/backend-vulkan
 ```
 
-## Features
+## Planned Features
 
-- Hardware-accelerated tensor operations using Vulkan
-- Cross-platform GPU support
-- Efficient memory management
-- Support for all core tensor operations
+- Cross-platform GPU acceleration via Vulkan
+- Support for NVIDIA, AMD, Intel, and mobile GPUs
+- High-performance compute shaders
+- Advanced memory management
+- Multi-GPU and multi-queue support
 
-## Usage
+**Requirements:** GPU with Vulkan support and drivers
 
-```typescript
-import { tensor } from '@typetensor/core';
-import { VulkanBackend } from '@typetensor/backend-vulkan';
+## Contributing
 
-// Initialize Vulkan backend
-const backend = await VulkanBackend.create();
-
-// Create tensors that will run on Vulkan GPU
-const a = tensor([1, 2, 3, 4], { shape: [2, 2], backend });
-const b = tensor([5, 6, 7, 8], { shape: [2, 2], backend });
-
-// Operations automatically run on Vulkan GPU
-const result = a.add(b);
-```
-
-## Requirements
-
-- GPU with Vulkan support
-- Vulkan drivers installed
-- TypeScript 5.9.0 or higher
-
-## Status
-
-⚠️ This package is currently a placeholder and under development.
+Interested in helping implement the Vulkan backend? See the [contribution guidelines](https://github.com/typetensor/typetensor/blob/main/CONTRIBUTING.md).
 
 ## License
 

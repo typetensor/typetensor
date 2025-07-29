@@ -1,46 +1,32 @@
 # @typetensor/backend-cuda
 
-NVIDIA CUDA backend for TypedTensor, providing GPU-accelerated tensor operations in modern browsers.
+**NVIDIA CUDA GPU backend for TypeTensor tensor operations**
 
-## Installation
+> Part of [TypeTensor](https://github.com/typetensor/typetensor)
+
+## Status
+
+🚧 **TODO** - This backend is planned but not yet implemented.
+
+## Install
 
 ```bash
 npm install @typetensor/backend-cuda
 ```
 
-## Features
+## Planned Features
 
-- Hardware-accelerated tensor operations using NVIDIA CUDA
-- Optimized kernels for common operations
-- Efficient memory management
-- Support for all core tensor operations
+- NVIDIA GPU acceleration via CUDA
+- High-performance tensor operations on GPU
+- Memory management between CPU and GPU
+- Optimized kernels for deep learning workloads
+- Support for multi-GPU operations
 
-## Usage
+**Requirements:** NVIDIA GPU with CUDA drivers
 
-```typescript
-import { tensor } from '@typetensor/core';
-import { CUDABackend } from '@typetensor/backend-cuda';
+## Contributing
 
-// Initialize NVIDIA CUDA backend
-const backend = await CUDABackend.create();
-
-// Create tensors that will run on CUDA
-const a = tensor([1, 2, 3, 4], { shape: [2, 2], backend });
-const b = tensor([5, 6, 7, 8], { shape: [2, 2], backend });
-
-// Operations automatically run on CUDA
-const result = a.add(b);
-```
-
-## Requirements
-
-- NVIDIA GPU with CUDA support
-- CUDA runtime and drivers
-- TypeScript 5.9.0 or higher
-
-## Status
-
-⚠️ This package is currently a placeholder and under development.
+Interested in helping implement the CUDA backend? See the [contribution guidelines](https://github.com/typetensor/typetensor/blob/main/CONTRIBUTING.md).
 
 ## License
 

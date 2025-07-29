@@ -1,45 +1,32 @@
 # @typetensor/backend-wasm
 
-WebAssembly backend for TypedTensor, providing high-performance tensor operations in browsers and Node.js.
+**WebAssembly backend for TypeTensor tensor operations**
 
-## Installation
+> Part of [TypeTensor](https://github.com/typetensor/typetensor)
+
+## Status
+
+🚧 **TODO** - This backend is planned but not yet implemented.
+
+## Install
 
 ```bash
 npm install @typetensor/backend-wasm
 ```
 
-## Features
+## Planned Features
 
-- High-performance tensor operations compiled to WebAssembly
+- High-performance tensor operations via WebAssembly
 - Cross-platform support (browsers and Node.js)
-- SIMD optimizations where available
-- Smaller bundle size compared to GPU backends
+- SIMD optimizations for vectorized operations
+- Smaller bundle size alternative to GPU backends
+- Rust or C++ implementation compiled to WASM
 
-## Usage
+**Requirements:** Modern browser or Node.js with WebAssembly support
 
-```typescript
-import { tensor } from '@typetensor/core';
-import { WASMBackend } from '@typetensor/backend-wasm';
+## Contributing
 
-// Initialize WASM backend
-const backend = await WASMBackend.create();
-
-// Create tensors that will run on WASM
-const a = tensor([1, 2, 3, 4], { shape: [2, 2], backend });
-const b = tensor([5, 6, 7, 8], { shape: [2, 2], backend });
-
-// Operations run in WebAssembly
-const result = a.add(b);
-```
-
-## Requirements
-
-- Modern browser or Node.js with WebAssembly support
-- TypeScript 5.9.0 or higher
-
-## Status
-
-⚠️ This package is currently a placeholder and under development.
+Interested in helping implement the WebAssembly backend? See the [contribution guidelines](https://github.com/typetensor/typetensor/blob/main/CONTRIBUTING.md).
 
 ## License
 
