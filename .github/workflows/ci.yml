@@ -34,3 +34,21 @@ jobs:
       
       - name: Run tests
         run: bun run test
+      
+      - name: Check for changeset (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Check if there are code changes that require a changeset
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} || true)
+          PACKAGE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^packages/.*\.(ts|js|json)$' | grep -v -E '(test|spec|\.d\.ts)' || true)
+          
+          if [ -n "$PACKAGE_CHANGES" ]; then
+            echo "Package changes detected, checking for changeset..."
+            if ! ls .changeset/*.md 2>/dev/null | grep -v README.md > /dev/null; then
+              echo "::error::This PR includes package changes but no changeset. Please run 'bun changeset' to add one."
+              exit 1
+            fi
+            echo "✅ Changeset found"
+          else
+            echo "No package changes requiring a changeset"
+          fi
