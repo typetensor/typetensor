@@ -214,6 +214,47 @@ export type MinOp<
       }
     : never; // Invalid reduction parameters result in never type
 
+/**
+ * Product reduction operation
+ * Computes the product of tensor elements along specified axes
+ *
+ * @template Input - Input tensor storage type
+ * @template Axes - Axes to reduce along (undefined means reduce all)
+ * @template KeepDims - Whether to keep reduced dimensions as size 1
+ * @template OutputDType - Output data type (defaults to same as input)
+ *
+ * @example
+ * // Product along axis 1, remove dimension
+ * type Input = TensorStorage<Float32, [2, 3, 4], [12, 4, 1], DefaultLayoutFlags>;
+ * type Result = ProdOp<Input, [1], false>; // Shape: [2, 4]
+ *
+ * @example
+ * // Global product (all elements)
+ * type GlobalProd = ProdOp<Input, undefined, false>; // Shape: []
+ */
+export type ProdOp<
+  Input extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined,
+  KeepDims extends boolean = false,
+  OutputDType extends AnyDType = Input['__dtype'],
+> =
+  ValidateReduction<Input['__shape'], Axes> extends true
+    ? StorageTransformation<
+        'prod',
+        TensorStorage<
+          OutputDType,
+          ComputeReductionShape<Input['__shape'], Axes, KeepDims>,
+          ComputeStrides<ComputeReductionShape<Input['__shape'], Axes, KeepDims>>,
+          ReductionOpLayout<Input['__layout']>
+        >,
+        readonly [Input]
+      > & {
+        // Store reduction metadata for device implementation
+        readonly __prodAxes: Axes;
+        readonly __keepDims: KeepDims;
+      }
+    : never; // Invalid reduction parameters result in never type
+
 // =============================================================================
 // Type-Level Reduction Functions
 // =============================================================================
@@ -285,6 +326,23 @@ export type Min<
   Axes extends readonly number[] | undefined = undefined,
   KeepDims extends boolean = false,
 > = MinOp<T, Axes, KeepDims>;
+
+/**
+ * Type-level prod function for use in other type computations
+ *
+ * @template T - Input tensor storage type
+ * @template Axes - Axes to reduce along
+ * @template KeepDims - Whether to keep reduced dimensions
+ *
+ * @example
+ * type Input = TensorStorage<Int32, [32, 128], [128, 1], DefaultLayoutFlags>;
+ * type FeatureProd = Prod<Input, [-1], true>; // Product over features, keep dim
+ */
+export type Prod<
+  T extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined = undefined,
+  KeepDims extends boolean = false,
+> = ProdOp<T, Axes, KeepDims>;
 
 // =============================================================================
 // Convenience Types for Common Use Cases
@@ -361,3 +419,21 @@ export type MaxBatch<T extends AnyTensorStorage> = Max<T, readonly [0], false>;
  * Removes the first dimension
  */
 export type MinBatch<T extends AnyTensorStorage> = Min<T, readonly [0], false>;
+
+/**
+ * Product over all dimensions (global product)
+ * Returns scalar result
+ */
+export type GlobalProd<T extends AnyTensorStorage> = Prod<T, undefined, false>;
+
+/**
+ * Product over the last dimension (most common for features)
+ * Removes the last dimension
+ */
+export type ProdLastDim<T extends AnyTensorStorage> = Prod<T, readonly [-1], false>;
+
+/**
+ * Product over the first dimension (batch reduction)
+ * Removes the first dimension
+ */
+export type ProdBatch<T extends AnyTensorStorage> = Prod<T, readonly [0], false>;

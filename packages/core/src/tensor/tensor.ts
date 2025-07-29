@@ -25,7 +25,7 @@ import type { Add, Sub, Mul, Div } from '../storage/binary';
 import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from '../storage/view';
 import type { MatmulOp } from '../storage/matmul';
 import type { SoftmaxOp, LogSoftmaxOp } from '../storage/softmax';
-import type { SumOp, MeanOp, MaxOp, MinOp } from '../storage/reduction';
+import type { SumOp, MeanOp, MaxOp, MinOp, ProdOp } from '../storage/reduction';
 import type { DTypeValue } from '../dtype/types';
 import type { NestedArray } from './types';
 import { bufferToNestedArray } from './types';
@@ -385,6 +385,19 @@ export class ChainablePromise<S extends AnyStorageTransformation> extends Promis
   ): ChainablePromise<MinOp<S['__output'], Axes, KeepDims>> {
     return new ChainablePromise((resolve, reject) => {
       this.then((tensor) => tensor.min(axes, keepdims))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  prod<Axes extends readonly number[] | undefined = undefined, KeepDims extends boolean = false>(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for prod reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): ChainablePromise<ProdOp<S['__output'], Axes, KeepDims>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.prod(axes, keepdims))
         .then(resolve)
         .catch(reject);
     });
@@ -2569,6 +2582,79 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
 
     const resultData = await tensor.data.device.execute(minOp as any, [tensor.data]);
     return new Tensor(minOp, resultData) as Tensor<MinOp<S['__output'], Axes, KeepDims>>;
+  }
+
+  /**
+   * Product of tensor elements along specified axes
+   *
+   * Computes the product of tensor elements along the given axes.
+   * If no axes are specified, computes the product of all elements to produce
+   * a scalar result. The output preserves the input data type.
+   *
+   * @param axes - Axes along which to compute product (supports negative indexing)
+   * @param keepdims - Whether to keep reduced dimensions as size 1
+   * @returns New tensor with product values
+   *
+   * @example
+   * // Product along specific axis
+   * const x = await tensor([[1, 2, 3], [4, 5, 6]]);  // shape: [2, 3]
+   * const rowProds = await x.prod([1]);              // shape: [2] - product of each row
+   * const colProds = await x.prod([0]);              // shape: [3] - product of each column
+   *
+   * @example
+   * // Global product (all elements)
+   * const totalProd = await x.prod();                // shape: [] - scalar result
+   *
+   * @example
+   * // Neural network weight regularization pattern
+   * const weights = await tensor([[[0.1, 0.9], [0.8, 0.2]]]); // shape: [1, 2, 2]
+   * const layerProd = await weights.prod([-1], true);          // shape: [1, 2, 1]
+   */
+  async prod<
+    Axes extends readonly number[] | undefined = undefined,
+    KeepDims extends boolean = false,
+  >(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for prod reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): Promise<Tensor<ProdOp<S['__output'], Axes, KeepDims>>> {
+    // Normalize and validate axes at runtime
+    const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
+    const keepDimsFlag = keepdims ?? false;
+
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('prod');
+
+    // Compute output shape based on reduction
+    const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
+    const outputStrides = computeStrides(outputShape);
+    const outputSize = computeSize(outputShape);
+
+    // Build the prod operation with proper output metadata
+    const prodOp = {
+      __op: 'prod' as const,
+      __output: {
+        __dtype: tensor.storage.__dtype,
+        __shape: outputShape as any, // Runtime shape
+        __strides: outputStrides as any, // Runtime strides
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      },
+      __inputs: [tensor.storage] as const,
+      __prodAxes: axes,
+      __keepDims: keepDimsFlag,
+    } as unknown as ProdOp<S['__output'], Axes, KeepDims>;
+
+    const resultData = await tensor.data.device.execute(prodOp as any, [tensor.data]);
+    return new Tensor(prodOp, resultData) as Tensor<ProdOp<S['__output'], Axes, KeepDims>>;
   }
 
   // =============================================================================

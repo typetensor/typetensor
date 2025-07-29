@@ -115,7 +115,8 @@ export type AllOperationTypes =
   | 'mean' // Mean reduction
   | 'max' // Max reduction
   | 'min' // Min reduction
-  | 'rearrange'; // Einops rearrange operation
+  | 'rearrange' // Einops rearrange operation
+  | 'prod'; // Product reduction
 
 /**
  * Base interface for all storage transformations
