@@ -107,6 +107,7 @@ export async function executeOperation(
     // Transpose operation - view operation that swaps last two dimensions
     case 'transpose':
     // Permute operation - view operation that rearranges dimensions
+    // fallthrough
     case 'permute': {
       if (inputs.length !== 1) {
         throw new Error(`${op.__op} operation requires exactly 1 input, got ${inputs.length}`);

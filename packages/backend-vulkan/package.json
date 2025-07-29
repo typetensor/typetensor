@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/backend-vulkan",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Vulkan backend for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",

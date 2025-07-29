@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/backend-webgpu",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WebGPU backend for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",
