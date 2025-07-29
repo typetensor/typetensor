@@ -1,5 +1,6 @@
 # @typetensor/backend-metal
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/backend-metal.svg)](https://www.npmjs.com/package/@typetensor/backend-metal)
 **Apple Metal GPU backend for TypeTensor tensor operations**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)

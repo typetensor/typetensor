@@ -1,5 +1,7 @@
 # @typetensor/backend-cpu
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/backend-cpu.svg)](https://www.npmjs.com/package/@typetensor/backend-cpu)
+
 **CPU backend for TypeTensor tensor operations**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)

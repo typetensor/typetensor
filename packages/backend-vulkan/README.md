@@ -1,5 +1,6 @@
 # @typetensor/backend-vulkan
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/backend-vulkan.svg)](https://www.npmjs.com/package/@typetensor/backend-vulkan)
 **Vulkan GPU backend for TypeTensor tensor operations**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)

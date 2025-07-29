@@ -1,5 +1,6 @@
 # @typetensor/backend-wasm
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/backend-wasm.svg)](https://www.npmjs.com/package/@typetensor/backend-wasm)
 **WebAssembly backend for TypeTensor tensor operations**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)

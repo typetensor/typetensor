@@ -2,6 +2,7 @@
 
 **TypeScript's compile-time tensor library - catch shape errors before runtime**
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/core.svg)](https://www.npmjs.com/package/@typetensor/core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
 
@@ -82,15 +83,15 @@ TypeTensor is designed with a clear separation of concerns:
 
 ## Packages
 
-| Package                                                   | Status       | Description                            |
-| --------------------------------------------------------- | ------------ | -------------------------------------- |
-| [`@typetensor/core`](./packages/core)                     | ✅ **Alpha** | Core tensor operations and type system |
-| [`@typetensor/backend-cpu`](./packages/backend-cpu)       | ✅ **Alpha** | CPU backend implementation             |
-| [`@typetensor/backend-cuda`](./packages/backend-cuda)     | 🚧 **TODO**  | NVIDIA CUDA GPU backend                |
-| [`@typetensor/backend-webgpu`](./packages/backend-webgpu) | 🚧 **TODO**  | WebGPU backend for browsers            |
-| [`@typetensor/backend-metal`](./packages/backend-metal)   | 🚧 **TODO**  | Apple Metal GPU backend                |
-| [`@typetensor/backend-vulkan`](./packages/backend-vulkan) | 🚧 **TODO**  | Vulkan GPU backend                     |
-| [`@typetensor/backend-wasm`](./packages/backend-wasm)     | 🚧 **TODO**  | WebAssembly backend                    |
+| Package | NPM | Status | Description |
+| ------- | --- | ------ | ----------- |
+| [`@typetensor/core`](./packages/core) | [![npm](https://img.shields.io/npm/v/@typetensor/core.svg)](https://www.npmjs.com/package/@typetensor/core) | ✅ **Alpha** | Core tensor operations and type system |
+| [`@typetensor/backend-cpu`](./packages/backend-cpu) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-cpu.svg)](https://www.npmjs.com/package/@typetensor/backend-cpu) | ✅ **Alpha** | CPU backend implementation |
+| [`@typetensor/backend-cuda`](./packages/backend-cuda) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-cuda.svg)](https://www.npmjs.com/package/@typetensor/backend-cuda) | 🚧 **TODO** | NVIDIA CUDA GPU backend |
+| [`@typetensor/backend-webgpu`](./packages/backend-webgpu) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-webgpu.svg)](https://www.npmjs.com/package/@typetensor/backend-webgpu) | 🚧 **TODO** | WebGPU backend for browsers |
+| [`@typetensor/backend-metal`](./packages/backend-metal) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-metal.svg)](https://www.npmjs.com/package/@typetensor/backend-metal) | 🚧 **TODO** | Apple Metal GPU backend |
+| [`@typetensor/backend-vulkan`](./packages/backend-vulkan) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-vulkan.svg)](https://www.npmjs.com/package/@typetensor/backend-vulkan) | 🚧 **TODO** | Vulkan GPU backend |
+| [`@typetensor/backend-wasm`](./packages/backend-wasm) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-wasm.svg)](https://www.npmjs.com/package/@typetensor/backend-wasm) | 🚧 **TODO** | WebAssembly backend |
 
 ## Core Capabilities
 

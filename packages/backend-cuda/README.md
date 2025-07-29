@@ -1,5 +1,6 @@
 # @typetensor/backend-cuda
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/backend-cuda.svg)](https://www.npmjs.com/package/@typetensor/backend-cuda)
 **NVIDIA CUDA GPU backend for TypeTensor tensor operations**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)

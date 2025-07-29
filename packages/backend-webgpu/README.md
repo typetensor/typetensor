@@ -1,5 +1,6 @@
 # @typetensor/backend-webgpu
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/backend-webgpu.svg)](https://www.npmjs.com/package/@typetensor/backend-webgpu)
 **WebGPU backend for TypeTensor tensor operations**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)

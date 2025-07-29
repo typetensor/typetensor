@@ -1,5 +1,7 @@
 # @typetensor/core
 
+[![npm version](https://img.shields.io/npm/v/@typetensor/core.svg)](https://www.npmjs.com/package/@typetensor/core)
+
 **Core tensor operations with compile-time type safety for TypeScript**
 
 > Part of [TypeTensor](https://github.com/typetensor/typetensor)
