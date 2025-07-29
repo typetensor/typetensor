@@ -34,6 +34,7 @@
     "ts-arithmetic": "^0.1.1",
     "tsup": "^8.5.0",
     "turbo": "^2.3.3",
+    "typedoc": "^0.28.8",
     "typescript": "beta",
     "typescript-eslint": "^8.21.0"
   },
@@ -52,7 +53,11 @@
     "watch": "turbo run typecheck:watch test:watch --parallel",
     "license:summary": "license-checker --summary --excludePrivatePackages",
     "release": "turbo run build --filter='!@typetensor/test-utils' --filter='!typetensor-examples' && changeset publish",
-    "version": "changeset version"
+    "version": "changeset version",
+    "docs": "typedoc",
+    "docs:build": "bun run build && bun run docs",
+    "docs:watch": "typedoc --watch",
+    "docs:serve": "bunx serve docs"
   },
   "packageManager": "bun@1.2.18"
 }

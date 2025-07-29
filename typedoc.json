@@ -1,0 +1,54 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "TypeTensor",
+  "entryPoints": [
+    "packages/core",
+    "packages/backend-cpu",
+    "packages/backend-cuda",
+    "packages/backend-metal",
+    "packages/backend-vulkan",
+    "packages/backend-wasm",
+    "packages/backend-webgpu"
+  ],
+  "entryPointStrategy": "packages",
+  "exclude": [
+    "**/node_modules/**",
+    "**/*.test.ts",
+    "**/*.test-d.ts",
+    "**/*.spec.ts",
+    "**/test-utils/**",
+    "**/examples/**",
+    "**/dist/**",
+    "**/*.config.ts",
+    "**/tsconfig.build.json"
+  ],
+  "packageOptions": {
+    "entryPoints": ["src/index.ts"],
+    "exclude": ["**/*.test.ts", "**/*.test-d.ts", "**/*.spec.ts", "**/dist/**"]
+  },
+  "out": "docs",
+  "readme": "README.md",
+  "theme": "default",
+  "skipErrorChecking": false,
+  "validation": {
+    "invalidLink": true,
+    "notDocumented": false
+  },
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "plugin": [],
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeInternal": true,
+  "excludeExternals": false,
+  "treatWarningsAsErrors": false,
+  "gitRevision": "main",
+  "githubPages": true,
+  "hideGenerator": false,
+  "searchInComments": true,
+  "cleanOutputDir": true
+}
