@@ -1,0 +1,18 @@
+# This file defines code ownership for automatic review requests
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owners - will be requested for review on all changes
+* @tsanterre
+
+# GitHub Actions workflows - extra protection for CI/CD
+.github/ @tsanterre
+
+# Release configuration - protect release process
+.changeset/ @tsanterre
+package.json @tsanterre
+*/package.json @tsanterre
+RELEASE.md @tsanterre
+
+# Security files
+SECURITY.md @tsanterre
+.github/SECURITY.md @tsanterre
