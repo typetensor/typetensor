@@ -1543,6 +1543,13 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     }
 
     if (inferIndex === -1) {
+      // No -1 dimension, validate that the total size matches
+      const newSize = shape.reduce((a, b) => a * (b as number), 1);
+      if (newSize !== totalSize) {
+        throw new Error(
+          `Cannot reshape tensor of size ${totalSize} into shape [${shape.join(', ')}] (size ${newSize})`
+        );
+      }
       return shape as readonly number[];
     }
 
