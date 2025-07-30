@@ -2,7 +2,7 @@
  * Type-level tests for einops shape resolver
  */
 
-import type { ResolveEinopsShape } from './type-shape-resolver';
+import type { ResolveEinopsShape } from './type-shape-resolver-rearrange';
 import { expectTypeOf } from 'expect-type';
 
 // =============================================================================

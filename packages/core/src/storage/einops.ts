@@ -13,7 +13,9 @@ import type {
   AnyTensorStorage,
   ComputeStrides,
 } from './layout';
-import type { ResolveEinopsShape } from '../einops/type-shape-resolver';
+import type { ResolveEinopsShape } from '../einops/type-shape-resolver-rearrange';
+import type { ResolveReduceShape } from '../einops/type-shape-resolver-reduce';
+import type { ReductionOp } from '../einops/reduce';
 
 // =============================================================================
 // Layout Types
@@ -70,6 +72,59 @@ export type RearrangeOp<
       : never & {
           __error: 'Failed to resolve einops pattern';
           __pattern: Pattern;
+          __inputShape: ShapeToString<Input['__shape']>;
+        }
+    : never;
+
+// =============================================================================
+// Reduce Operation
+// =============================================================================
+
+/**
+ * Compute output layout for reduce operations
+ * Reduce operations always produce new data (not views)
+ */
+interface ReduceLayout extends LayoutFlags {
+  // Reduce operations typically produce contiguous output
+  readonly c_contiguous: true;
+  readonly f_contiguous: false;
+  // Reduce operations create new data, not views
+  readonly is_view: false;
+  // New data is always writeable
+  readonly writeable: true;
+  // New data is aligned
+  readonly aligned: true;
+}
+
+/**
+ * Reduce operation with einops pattern-based aggregation
+ *
+ * Reduces tensor dimensions according to an einops pattern and aggregation operation.
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 3, 4]>;
+ * type B = ReduceEinopsOp<A, 'h w c -> c', 'mean'>; // Shape: [4]
+ * type C = ReduceEinopsOp<A, 'h w c -> h', 'sum'>; // Shape: [2]
+ * type D = ReduceEinopsOp<A, '(h 2) w c -> h w c', 'max', false, {h: 1}>; // Shape: [1, 3, 4]
+ */
+export type ReduceEinopsOp<
+  Input extends AnyTensorStorage,
+  Pattern extends string,
+  Operation extends ReductionOp,
+  KeepDims extends boolean = false,
+  Axes extends Record<string, number> | undefined = undefined,
+> =
+  ResolveReduceShape<Pattern, Input['__shape'], KeepDims, Axes> extends infer OutputShape
+    ? OutputShape extends Shape
+      ? StorageTransformation<
+          'reduce',
+          TensorStorage<Input['__dtype'], OutputShape, ComputeStrides<OutputShape>, ReduceLayout>,
+          readonly [Input]
+        >
+      : never & {
+          __error: 'Failed to resolve reduce pattern';
+          __pattern: Pattern;
+          __operation: Operation;
           __inputShape: ShapeToString<Input['__shape']>;
         }
     : never;

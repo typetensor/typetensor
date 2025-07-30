@@ -116,6 +116,7 @@ export type AllOperationTypes =
   | 'max' // Max reduction
   | 'min' // Min reduction
   | 'rearrange' // Einops rearrange operation
+  | 'reduce' // Einops reduce operation
   | 'prod' // Product reduction
   | 'squeeze' // Remove size-1 dimensions
   | 'unsqueeze' // Add size-1 dimensions

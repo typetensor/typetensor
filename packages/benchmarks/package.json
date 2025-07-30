@@ -1,0 +1,57 @@
+{
+  "name": "@typetensor/benchmarks",
+  "version": "0.1.0",
+  "description": "Internal benchmarking utilities for TypedTensor packages (development only)",
+  "license": "MIT",
+  "author": "Thomas Santerre <thomas@santerre.xyz>",
+  "homepage": "https://github.com/typetensor/typetensor/tree/main/packages/benchmarks#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typetensor/typetensor.git",
+    "directory": "packages/benchmarks"
+  },
+  "bugs": {
+    "url": "https://github.com/typetensor/typetensor/issues"
+  },
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@typetensor/core": "workspace:*",
+    "@typetensor/backend-cpu": "workspace:*",
+    "tinybench": "^3.0.2"
+  },
+  "devDependencies": {
+    "@codspeed/vitest-plugin": "^4.0.0",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.9.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch --preserveWatchOutput",
+    "lint": "eslint . --ext .ts,.tsx",
+    "bench": "vitest bench",
+    "bench:watch": "vitest bench --watch",
+    "bench:creation": "bun run src/runners/tensor-creation.ts"
+  }
+}

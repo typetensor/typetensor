@@ -10,3 +10,5 @@ export type { SliceIndex } from './shape/types';
 // Einops operations
 export { rearrange } from './einops/rearrange';
 export type { RearrangeOptions } from './einops/rearrange';
+export { reduce } from './einops/reduce';
+export type { ReduceOptions, ReductionOp } from './einops/reduce';
