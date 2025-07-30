@@ -1547,7 +1547,7 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       const newSize = shape.reduce((a, b) => a * (b as number), 1);
       if (newSize !== totalSize) {
         throw new Error(
-          `Cannot reshape tensor of size ${totalSize} into shape [${shape.join(', ')}] (size ${newSize})`
+          `Cannot reshape tensor of size ${totalSize} into shape [${shape.join(', ')}] (size ${newSize})`,
         );
       }
       return shape as readonly number[];

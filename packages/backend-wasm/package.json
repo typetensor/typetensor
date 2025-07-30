@@ -41,23 +41,34 @@
   },
   "files": [
     "dist",
+    "pkg",
     "README.md"
   ],
   "sideEffects": false,
   "dependencies": {
     "@typetensor/core": "workspace:*"
   },
+  "devDependencies": {
+    "@typetensor/test-utils": "workspace:*"
+  },
   "peerDependencies": {
     "typescript": ">=5.9.0"
   },
   "scripts": {
-    "build": "tsup",
+    "build:wasm": "cd wasm && wasm-pack build --target web --out-dir ../pkg",
+    "build:ts": "tsup",
+    "build": "bun run build:wasm && bun run build:ts",
     "build:watch": "tsup --watch",
-    "clean": "rm -rf dist",
+    "clean:wasm": "rm -rf pkg",
+    "clean:ts": "rm -rf dist",
+    "clean": "bun run clean:wasm && bun run clean:ts",
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch --preserveWatchOutput",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "echo 'No tests yet - backend not implemented'",
+    "test:rust": "cd wasm && cargo test",
+    "test:wasm": "cd wasm && wasm-pack test --node",
+    "test:ts": "bun test",
+    "test": "bun run test:rust && bun run test:wasm && bun run test:ts",
     "test:watch": "bun test --watch --no-clear-screen",
     "prepublishOnly": "bun run clean && bun run build"
   }

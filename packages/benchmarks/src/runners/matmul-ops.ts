@@ -2,7 +2,7 @@
 
 /**
  * Matrix Multiplication Operations Benchmark Runner
- * 
+ *
  * Benchmarks performance of matrix multiplication operations (dot product, matmul)
  */
 
@@ -33,11 +33,11 @@ function generateRandomData(shape: readonly number[]): any {
   if (shape.length === 0) {
     return Math.random();
   }
-  
+
   if (shape.length === 1) {
     return Array.from({ length: shape[0]! }, () => Math.random());
   }
-  
+
   const result = [];
   for (let i = 0; i < shape[0]!; i++) {
     result.push(generateRandomData(shape.slice(1)));
@@ -57,19 +57,19 @@ const matmulCases = [
   { name: 'dot small vectors', shapeA: [100] as const, shapeB: [100] as const },
   { name: 'dot medium vectors', shapeA: [1000] as const, shapeB: [1000] as const },
   { name: 'dot large vectors', shapeA: [10000] as const, shapeB: [10000] as const },
-  
+
   // Vector-matrix multiplication (1D × 2D → 1D)
   { name: 'vec-mat tiny', shapeA: [10] as const, shapeB: [10, 10] as const },
   { name: 'vec-mat small', shapeA: [32] as const, shapeB: [32, 32] as const },
   { name: 'vec-mat medium', shapeA: [100] as const, shapeB: [100, 100] as const },
   { name: 'vec-mat large', shapeA: [256] as const, shapeB: [256, 256] as const },
-  
+
   // Matrix-vector multiplication (2D × 1D → 1D)
   { name: 'mat-vec tiny', shapeA: [10, 10] as const, shapeB: [10] as const },
   { name: 'mat-vec small', shapeA: [32, 32] as const, shapeB: [32] as const },
   { name: 'mat-vec medium', shapeA: [100, 100] as const, shapeB: [100] as const },
   { name: 'mat-vec large', shapeA: [256, 256] as const, shapeB: [256] as const },
-  
+
   // Matrix-matrix multiplication (2D × 2D → 2D)
   { name: 'mat-mat tiny', shapeA: [10, 10] as const, shapeB: [10, 10] as const },
   { name: 'mat-mat small', shapeA: [32, 32] as const, shapeB: [32, 32] as const },
@@ -87,7 +87,9 @@ for (const testCase of matmulCases) {
   const tensorA = await tensor(dataA, { device: cpu, dtype: float32 });
   const tensorB = await tensor(dataB, { device: cpu, dtype: float32 });
   tensorPairs.set(testCase.name, { a: tensorA, b: tensorB });
-  console.log(`✓ Created ${testCase.name}: ${testCase.shapeA.join('×')} × ${testCase.shapeB.join('×')}`);
+  console.log(
+    `✓ Created ${testCase.name}: ${testCase.shapeA.join('×')} × ${testCase.shapeB.join('×')}`,
+  );
 }
 
 console.log('\nSetting up benchmarks...');
@@ -95,10 +97,13 @@ console.log('\nSetting up benchmarks...');
 // Add benchmarks for each matrix multiplication case
 for (const testCase of matmulCases) {
   const { a, b } = tensorPairs.get(testCase.name);
-  
-  bench.add(`${testCase.name} (${testCase.shapeA.join('×')} × ${testCase.shapeB.join('×')})`, async () => {
-    await a.matmul(b);
-  });
+
+  bench.add(
+    `${testCase.name} (${testCase.shapeA.join('×')} × ${testCase.shapeB.join('×')})`,
+    async () => {
+      await a.matmul(b);
+    },
+  );
 }
 
 console.log(`\nRunning ${bench.tasks.length} benchmarks...\n`);
@@ -115,7 +120,7 @@ bench.addEventListener('cycle', (e) => {
 await bench.run();
 
 console.log('\n📊 Benchmark Results\n');
-console.log('=' .repeat(80));
+console.log('='.repeat(80));
 console.table(bench.table());
 
 // Also show individual task details

@@ -22,15 +22,17 @@ export interface FormattedResult {
  */
 export function formatTaskResult(name: string, task: Task): FormattedResult | null {
   const result = task.result;
-  if (!result) return null;
+  if (!result) {
+    return null;
+  }
 
-  // Convert from seconds to nanoseconds 
+  // Convert from seconds to nanoseconds
   const meanNs = (result.mean || 0) * 1_000_000_000;
   const stdDevNs = (result.sd || 0) * 1_000_000_000;
   const p75Ns = (result.p75 || 0) * 1_000_000_000; // tinybench provides p75, not p50
   const p99Ns = (result.p99 || 0) * 1_000_000_000; // this exists
   const marginNs = (result.moe || 0) * 1_000_000_000;
-  
+
   const cv = meanNs > 0 ? stdDevNs / meanNs : 0; // Coefficient of variation
 
   return {
@@ -102,28 +104,35 @@ export function resultsToMarkdownTable(results: FormattedResult[]): string {
  */
 export function formatIndividualResults(results: FormattedResult[]): string {
   const lines: string[] = [];
-  
+
   lines.push('## Individual Scenario Results\n');
-  
+
   for (const result of results) {
-    const stability = result.cv < 0.05 ? '🟢 Stable' : result.cv < 0.10 ? '🟡 Moderate' : '🔴 High variance';
-    
+    const stability =
+      result.cv < 0.05 ? '🟢 Stable' : result.cv < 0.1 ? '🟡 Moderate' : '🔴 High variance';
+
     // Choose appropriate unit based on magnitude
     const formatLatency = (ns: number) => {
-      if (ns >= 1_000_000) return `${(ns / 1_000_000).toFixed(3)}ms`;
-      if (ns >= 1_000) return `${(ns / 1_000).toFixed(1)}μs`;
+      if (ns >= 1_000_000) {
+        return `${(ns / 1_000_000).toFixed(3)}ms`;
+      }
+      if (ns >= 1_000) {
+        return `${(ns / 1_000).toFixed(1)}μs`;
+      }
       return `${ns.toFixed(0)}ns`;
     };
-    
+
     lines.push(`### ${result.name}`);
     lines.push(`- **Ops/sec**: ${result.ops.toFixed(2)}`);
     lines.push(`- **Mean latency**: ${formatLatency(result.mean)}`);
     lines.push(`- **P95 latency**: ${formatLatency(result.p95)}`);
-    lines.push(`- **Samples**: ${result.samples} (CV: ${(result.cv * 100).toFixed(1)}%) ${stability}`);
+    lines.push(
+      `- **Samples**: ${result.samples} (CV: ${(result.cv * 100).toFixed(1)}%) ${stability}`,
+    );
     lines.push(`- **Standard deviation**: ±${formatLatency(result.stdDev)}`);
     lines.push('');
   }
-  
+
   return lines.join('\n');
 }
 
@@ -135,9 +144,9 @@ export function exportForTracking(results: FormattedResult[]): Record<string, an
   const data: Record<string, any> = {
     timestamp,
     commit: process.env.GITHUB_SHA || 'local',
-    scenarios: {}
+    scenarios: {},
   };
-  
+
   for (const result of results) {
     data.scenarios[result.name] = {
       ops_per_sec: result.ops,
@@ -148,9 +157,9 @@ export function exportForTracking(results: FormattedResult[]): Record<string, an
       std_dev_ns: result.stdDev,
       margin_of_error_ns: result.margin,
       samples: result.samples,
-      cv: result.cv
+      cv: result.cv,
     };
   }
-  
+
   return data;
 }

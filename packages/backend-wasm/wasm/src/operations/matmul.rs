@@ -1,0 +1,456 @@
+/*!
+ * Matrix multiplication implementation for WebAssembly backend
+ * 
+ * Provides optimized matrix multiplication with support for:
+ * - Different input dimensions (1D×1D, 1D×2D, 2D×1D, 2D×2D, ND×ND)
+ * - Batched operations
+ * - SIMD optimizations where available
+ */
+
+use crate::types::{WasmTensorMeta, WasmDType, WasmResult, WasmError};
+use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+
+/// Execute matrix multiplication operation
+pub fn execute_matmul_op(
+    memory_manager: &mut WasmMemoryManager,
+    operation: crate::types::WasmOperation,
+    input_a: &WasmBufferHandle,
+    input_b: &WasmBufferHandle,
+    input_meta_a: &WasmTensorMeta,
+    input_meta_b: &WasmTensorMeta,
+    output: &WasmBufferHandle,
+    output_meta: &WasmTensorMeta,
+) -> WasmResult<()> {
+    let input_a_ptr = memory_manager.get_read_ptr(input_a);
+    let input_b_ptr = memory_manager.get_read_ptr(input_b);
+    let output_ptr = memory_manager.get_write_ptr(output);
+
+    let shape_a = input_meta_a.shape();
+    let shape_b = input_meta_b.shape();
+    let shape_out = output_meta.shape();
+
+    let rank_a = shape_a.len();
+    let rank_b = shape_b.len();
+
+    match input_meta_a.dtype() {
+        WasmDType::Float32 => {
+            let a_slice = unsafe { 
+                std::slice::from_raw_parts(input_a_ptr as *const f32, input_meta_a.size()) 
+            };
+            let b_slice = unsafe { 
+                std::slice::from_raw_parts(input_b_ptr as *const f32, input_meta_b.size()) 
+            };
+            let out_slice = unsafe { 
+                std::slice::from_raw_parts_mut(output_ptr as *mut f32, output_meta.size()) 
+            };
+
+            execute_matmul_f32(
+                a_slice, b_slice, out_slice,
+                &shape_a, &shape_b, &shape_out,
+                &input_meta_a.strides(), &input_meta_b.strides(),
+                rank_a, rank_b,
+            )?;
+        }
+        WasmDType::Float64 => {
+            let a_slice = unsafe { 
+                std::slice::from_raw_parts(input_a_ptr as *const f64, input_meta_a.size()) 
+            };
+            let b_slice = unsafe { 
+                std::slice::from_raw_parts(input_b_ptr as *const f64, input_meta_b.size()) 
+            };
+            let out_slice = unsafe { 
+                std::slice::from_raw_parts_mut(output_ptr as *mut f64, output_meta.size()) 
+            };
+
+            execute_matmul_f64(
+                a_slice, b_slice, out_slice,
+                &shape_a, &shape_b, &shape_out,
+                &input_meta_a.strides(), &input_meta_b.strides(),
+                rank_a, rank_b,
+            )?;
+        }
+        _ => return Err(WasmError::NotImplemented),
+    }
+
+    Ok(())
+}
+
+/// Matrix multiplication for f32 arrays
+fn execute_matmul_f32(
+    a: &[f32], b: &[f32], out: &mut [f32],
+    shape_a: &[usize], shape_b: &[usize], shape_out: &[usize],
+    strides_a: &[usize], strides_b: &[usize],
+    rank_a: usize, rank_b: usize,
+) -> WasmResult<()> {
+    match (rank_a, rank_b) {
+        (1, 1) => {
+            // 1D × 1D → scalar (dot product)
+            let n = shape_a[0];
+            let mut sum = 0.0f32;
+            for i in 0..n {
+                sum += a[i] * b[i];
+            }
+            out[0] = sum;
+        }
+        (1, 2) => {
+            // 1D × 2D → 1D (vector-matrix multiply)
+            let k = shape_a[0]; // vector length
+            let n = shape_b[1]; // matrix columns
+            
+            for j in 0..n {
+                let mut sum = 0.0f32;
+                for i in 0..k {
+                    let a_idx = i * strides_a[0];
+                    let b_idx = i * strides_b[0] + j * strides_b[1];
+                    sum += a[a_idx] * b[b_idx];
+                }
+                out[j] = sum;
+            }
+        }
+        (2, 1) => {
+            // 2D × 1D → 1D (matrix-vector multiply)
+            let m = shape_a[0]; // matrix rows
+            let k = shape_a[1]; // matrix columns / vector length
+            
+            for i in 0..m {
+                let mut sum = 0.0f32;
+                for j in 0..k {
+                    let a_idx = i * strides_a[0] + j * strides_a[1];
+                    let b_idx = j * strides_b[0];
+                    sum += a[a_idx] * b[b_idx];
+                }
+                out[i] = sum;
+            }
+        }
+        (2, 2) => {
+            // 2D × 2D → 2D (matrix-matrix multiply)
+            let m = shape_a[0]; // A rows
+            let k = shape_a[1]; // A cols / B rows
+            let n = shape_b[1]; // B cols
+            
+            execute_gemm_f32(a, b, out, m, k, n, strides_a, strides_b);
+        }
+        _ => {
+            // ND × ND → ND (batched matrix multiply)
+            execute_batched_matmul_f32(
+                a, b, out, shape_a, shape_b, shape_out, strides_a, strides_b
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Matrix multiplication for f64 arrays
+fn execute_matmul_f64(
+    a: &[f64], b: &[f64], out: &mut [f64],
+    shape_a: &[usize], shape_b: &[usize], shape_out: &[usize],
+    strides_a: &[usize], strides_b: &[usize],
+    rank_a: usize, rank_b: usize,
+) -> WasmResult<()> {
+    match (rank_a, rank_b) {
+        (1, 1) => {
+            // 1D × 1D → scalar (dot product)
+            let n = shape_a[0];
+            let mut sum = 0.0f64;
+            for i in 0..n {
+                sum += a[i] * b[i];
+            }
+            out[0] = sum;
+        }
+        (1, 2) => {
+            // 1D × 2D → 1D (vector-matrix multiply)
+            let k = shape_a[0]; // vector length
+            let n = shape_b[1]; // matrix columns
+            
+            for j in 0..n {
+                let mut sum = 0.0f64;
+                for i in 0..k {
+                    let a_idx = i * strides_a[0];
+                    let b_idx = i * strides_b[0] + j * strides_b[1];
+                    sum += a[a_idx] * b[b_idx];
+                }
+                out[j] = sum;
+            }
+        }
+        (2, 1) => {
+            // 2D × 1D → 1D (matrix-vector multiply)
+            let m = shape_a[0]; // matrix rows
+            let k = shape_a[1]; // matrix columns / vector length
+            
+            for i in 0..m {
+                let mut sum = 0.0f64;
+                for j in 0..k {
+                    let a_idx = i * strides_a[0] + j * strides_a[1];
+                    let b_idx = j * strides_b[0];
+                    sum += a[a_idx] * b[b_idx];
+                }
+                out[i] = sum;
+            }
+        }
+        (2, 2) => {
+            // 2D × 2D → 2D (matrix-matrix multiply)
+            let m = shape_a[0]; // A rows
+            let k = shape_a[1]; // A cols / B rows
+            let n = shape_b[1]; // B cols
+            
+            execute_gemm_f64(a, b, out, m, k, n, strides_a, strides_b);
+        }
+        _ => {
+            // ND × ND → ND (batched matrix multiply)
+            execute_batched_matmul_f64(
+                a, b, out, shape_a, shape_b, shape_out, strides_a, strides_b
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Optimized GEMM (General Matrix Multiply) for f32
+fn execute_gemm_f32(
+    a: &[f32], b: &[f32], c: &mut [f32],
+    m: usize, k: usize, n: usize,
+    strides_a: &[usize], strides_b: &[usize],
+) {
+    // Simple implementation - could be optimized with tiling, SIMD, etc.
+    let stride_a_row = strides_a[0];
+    let stride_a_col = strides_a[1];
+    let stride_b_row = strides_b[0];
+    let stride_b_col = strides_b[1];
+    
+    for i in 0..m {
+        for j in 0..n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                let a_idx = i * stride_a_row + p * stride_a_col;
+                let b_idx = p * stride_b_row + j * stride_b_col;
+                sum += a[a_idx] * b[b_idx];
+            }
+            c[i * n + j] = sum;
+        }
+    }
+}
+
+/// Optimized GEMM (General Matrix Multiply) for f64
+fn execute_gemm_f64(
+    a: &[f64], b: &[f64], c: &mut [f64],
+    m: usize, k: usize, n: usize,
+    strides_a: &[usize], strides_b: &[usize],
+) {
+    let stride_a_row = strides_a[0];
+    let stride_a_col = strides_a[1];
+    let stride_b_row = strides_b[0];
+    let stride_b_col = strides_b[1];
+    
+    for i in 0..m {
+        for j in 0..n {
+            let mut sum = 0.0f64;
+            for p in 0..k {
+                let a_idx = i * stride_a_row + p * stride_a_col;
+                let b_idx = p * stride_b_row + j * stride_b_col;
+                sum += a[a_idx] * b[b_idx];
+            }
+            c[i * n + j] = sum;
+        }
+    }
+}
+
+/// Batched matrix multiplication for f32
+fn execute_batched_matmul_f32(
+    a: &[f32], b: &[f32], out: &mut [f32],
+    shape_a: &[usize], shape_b: &[usize], shape_out: &[usize],
+    strides_a: &[usize], strides_b: &[usize],
+) -> WasmResult<()> {
+    let rank_a = shape_a.len();
+    let rank_b = shape_b.len();
+    let rank_out = shape_out.len();
+
+    // Extract matrix dimensions
+    let m = shape_a[rank_a - 2];
+    let k = shape_a[rank_a - 1];
+    let n = shape_b[rank_b - 1];
+
+    // Compute batch size
+    let mut batch_size = 1;
+    for i in 0..(rank_out - 2) {
+        batch_size *= shape_out[i];
+    }
+
+    // Compute strides for batch dimensions
+    let mut batch_strides_out = vec![1; rank_out - 2];
+    if !batch_strides_out.is_empty() {
+        let last_idx = batch_strides_out.len() - 1;
+        batch_strides_out[last_idx] = m * n;
+        for i in (0..last_idx).rev() {
+            batch_strides_out[i] = batch_strides_out[i + 1] * shape_out[i + 1];
+        }
+    }
+
+    for batch in 0..batch_size {
+        // Compute batch offsets
+        let mut offset_a = 0;
+        let mut offset_b = 0;
+        let mut temp = batch;
+
+        for i in (0..batch_strides_out.len()).rev() {
+            let coord = temp / batch_strides_out[i];
+            temp %= batch_strides_out[i];
+
+            // Map to input A
+            let dim_a = rank_a - batch_strides_out.len() + i;
+            if dim_a < rank_a && shape_a[dim_a] > 1 {
+                offset_a += coord * strides_a[dim_a];
+            }
+
+            // Map to input B
+            let dim_b = rank_b - batch_strides_out.len() + i;
+            if dim_b < rank_b && shape_b[dim_b] > 1 {
+                offset_b += coord * strides_b[dim_b];
+            }
+        }
+
+        // Perform matrix multiplication for this batch
+        let base_out_idx = batch * m * n;
+        let stride_a_row = strides_a[rank_a - 2];
+        let stride_a_col = strides_a[rank_a - 1];
+        let stride_b_row = strides_b[rank_b - 2];
+        let stride_b_col = strides_b[rank_b - 1];
+
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f32;
+                for p in 0..k {
+                    let a_idx = offset_a + i * stride_a_row + p * stride_a_col;
+                    let b_idx = offset_b + p * stride_b_row + j * stride_b_col;
+                    sum += a[a_idx] * b[b_idx];
+                }
+                out[base_out_idx + i * n + j] = sum;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Batched matrix multiplication for f64
+fn execute_batched_matmul_f64(
+    a: &[f64], b: &[f64], out: &mut [f64],
+    shape_a: &[usize], shape_b: &[usize], shape_out: &[usize],
+    strides_a: &[usize], strides_b: &[usize],
+) -> WasmResult<()> {
+    // Similar implementation to f32 version
+    let rank_a = shape_a.len();
+    let rank_b = shape_b.len();
+    let rank_out = shape_out.len();
+
+    let m = shape_a[rank_a - 2];
+    let k = shape_a[rank_a - 1];
+    let n = shape_b[rank_b - 1];
+
+    let mut batch_size = 1;
+    for i in 0..(rank_out - 2) {
+        batch_size *= shape_out[i];
+    }
+
+    let mut batch_strides_out = vec![1; rank_out - 2];
+    if !batch_strides_out.is_empty() {
+        let last_idx = batch_strides_out.len() - 1;
+        batch_strides_out[last_idx] = m * n;
+        for i in (0..last_idx).rev() {
+            batch_strides_out[i] = batch_strides_out[i + 1] * shape_out[i + 1];
+        }
+    }
+
+    for batch in 0..batch_size {
+        let mut offset_a = 0;
+        let mut offset_b = 0;
+        let mut temp = batch;
+
+        for i in (0..batch_strides_out.len()).rev() {
+            let coord = temp / batch_strides_out[i];
+            temp %= batch_strides_out[i];
+
+            let dim_a = rank_a - batch_strides_out.len() + i;
+            if dim_a < rank_a && shape_a[dim_a] > 1 {
+                offset_a += coord * strides_a[dim_a];
+            }
+
+            let dim_b = rank_b - batch_strides_out.len() + i;
+            if dim_b < rank_b && shape_b[dim_b] > 1 {
+                offset_b += coord * strides_b[dim_b];
+            }
+        }
+
+        let base_out_idx = batch * m * n;
+        let stride_a_row = strides_a[rank_a - 2];
+        let stride_a_col = strides_a[rank_a - 1];
+        let stride_b_row = strides_b[rank_b - 2];
+        let stride_b_col = strides_b[rank_b - 1];
+
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f64;
+                for p in 0..k {
+                    let a_idx = offset_a + i * stride_a_row + p * stride_a_col;
+                    let b_idx = offset_b + p * stride_b_row + j * stride_b_col;
+                    sum += a[a_idx] * b[b_idx];
+                }
+                out[base_out_idx + i * n + j] = sum;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dot_product() {
+        let a = vec![1.0f32, 2.0, 3.0];
+        let b = vec![4.0f32, 5.0, 6.0];
+        let mut out = vec![0.0f32; 1];
+        
+        execute_matmul_f32(
+            &a, &b, &mut out,
+            &[3], &[3], &[1],
+            &[1], &[1],
+            1, 1,
+        ).unwrap();
+        
+        assert_eq!(out[0], 32.0); // 1*4 + 2*5 + 3*6 = 32
+    }
+
+    #[test]
+    fn test_matrix_vector_multiply() {
+        let a = vec![1.0f32, 2.0, 3.0, 4.0]; // 2x2 matrix
+        let b = vec![5.0f32, 6.0]; // 2x1 vector
+        let mut out = vec![0.0f32; 2];
+        
+        execute_matmul_f32(
+            &a, &b, &mut out,
+            &[2, 2], &[2], &[2],
+            &[2, 1], &[1],
+            2, 1,
+        ).unwrap();
+        
+        assert_eq!(out, vec![17.0, 39.0]); // [1*5+2*6, 3*5+4*6] = [17, 39]
+    }
+
+    #[test]
+    fn test_matrix_matrix_multiply() {
+        let a = vec![1.0f32, 2.0, 3.0, 4.0]; // 2x2 matrix
+        let b = vec![5.0f32, 6.0, 7.0, 8.0]; // 2x2 matrix
+        let mut out = vec![0.0f32; 4];
+        
+        execute_matmul_f32(
+            &a, &b, &mut out,
+            &[2, 2], &[2, 2], &[2, 2],
+            &[2, 1], &[2, 1],
+            2, 2,
+        ).unwrap();
+        
+        assert_eq!(out, vec![19.0, 22.0, 43.0, 50.0]); // [[19, 22], [43, 50]]
+    }
+}

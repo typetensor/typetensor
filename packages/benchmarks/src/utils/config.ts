@@ -59,7 +59,7 @@ export const BENCHMARK_PROFILES = {
  */
 export function getBenchmarkConfig(): BenchOptions {
   const profile = process.env.BENCHMARK_PROFILE || 'standard';
-  
+
   switch (profile) {
     case 'quick':
       return BENCHMARK_PROFILES.quick;
@@ -84,33 +84,31 @@ export function analyzeResults(samples: number[]): {
 } {
   const sorted = [...samples].sort((a, b) => a - b);
   const n = samples.length;
-  
+
   // Mean
   const mean = samples.reduce((sum, val) => sum + val, 0) / n;
-  
+
   // Median
-  const median = n % 2 === 0 
-    ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2
-    : sorted[Math.floor(n / 2)];
-  
+  const median = n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
+
   // Standard deviation
   const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (n - 1);
   const stdDev = Math.sqrt(variance);
-  
+
   // Coefficient of variation (relative standard deviation)
   const cv = stdDev / mean;
-  
+
   // Outlier detection using IQR method
   const q1 = sorted[Math.floor(n * 0.25)];
   const q3 = sorted[Math.floor(n * 0.75)];
   const iqr = q3 - q1;
   const lowerBound = q1 - 1.5 * iqr;
   const upperBound = q3 + 1.5 * iqr;
-  const outliers = samples.filter(val => val < lowerBound || val > upperBound).length;
-  
+  const outliers = samples.filter((val) => val < lowerBound || val > upperBound).length;
+
   // Consider stable if CV < 5% and outliers < 5%
-  const isStable = cv < 0.05 && (outliers / n) < 0.05;
-  
+  const isStable = cv < 0.05 && outliers / n < 0.05;
+
   return {
     mean,
     median,
@@ -134,14 +132,16 @@ export function getBenchmarkRecommendations(): string[] {
     '📊 Run multiple benchmark sessions and compare results',
     '⏰ Be aware that results may vary between different times of day',
   ];
-  
+
   if (process.env.NODE_ENV === 'development') {
     recommendations.push('🚀 Use BENCHMARK_PROFILE=quick for faster development cycles');
   }
-  
+
   if (process.env.CI) {
-    recommendations.push('🏗️  CI environments may have higher variance - consider dedicated runners');
+    recommendations.push(
+      '🏗️  CI environments may have higher variance - consider dedicated runners',
+    );
   }
-  
+
   return recommendations;
 }

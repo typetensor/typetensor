@@ -2,7 +2,7 @@
 
 /**
  * Binary Operations Benchmark Runner
- * 
+ *
  * Benchmarks performance of binary tensor operations like add, sub, mul, div
  */
 
@@ -33,11 +33,11 @@ function generateRandomData(shape: readonly number[]): any {
   if (shape.length === 0) {
     return Math.random();
   }
-  
+
   if (shape.length === 1) {
     return Array.from({ length: shape[0]! }, () => Math.random());
   }
-  
+
   const result = [];
   for (let i = 0; i < shape[0]!; i++) {
     result.push(generateRandomData(shape.slice(1)));
@@ -89,7 +89,7 @@ console.log('\nSetting up benchmarks...');
 for (const op of binaryOps) {
   for (const size of sizes) {
     const { a, b } = tensorPairs.get(size.name);
-    
+
     bench.add(`${op.name} ${size.name} (${size.shape.join('×')})`, async () => {
       await op.op(a, b);
     });
@@ -104,13 +104,13 @@ const total = bench.tasks.length;
 
 bench.addEventListener('cycle', (e) => {
   completed++;
-  console.log(`[${completed}/${total}] Completed: ${e.task.name}`);
+  console.log(`[${completed}/${total}] Completed: ${e.task?.name}`);
 });
 
 await bench.run();
 
 console.log('\n📊 Benchmark Results\n');
-console.log('=' .repeat(80));
+console.log('='.repeat(80));
 console.table(bench.table());
 
 // Also show individual task details

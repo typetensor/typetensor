@@ -270,10 +270,10 @@ export function generateDeviceOperationTests(
 
         it('should handle special float values during transfer', async () => {
           // Test Inf, -Inf, and NaN if supported
-          const specialValues = await tensor(
-            [Infinity, -Infinity, 0, -0] as const,
-            { device, dtype: float32 },
-          );
+          const specialValues = await tensor([Infinity, -Infinity, 0, -0] as const, {
+            device,
+            dtype: float32,
+          });
 
           const transferred = await specialValues.to(alternativeDevice);
           const data = await transferred.toArray();

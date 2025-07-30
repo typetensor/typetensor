@@ -183,19 +183,19 @@ function executeBinaryOpFast(
         case 'add':
           for (let i = 0; i < length; i++) {
             const b = arrayB[i];
-            bigOut[i] = bigA[i]! + (typeof b === 'bigint' ? b : BigInt(Math.trunc(b as number)));
+            bigOut[i] = bigA[i]! + (typeof b === 'bigint' ? b : BigInt(Math.trunc(b!)));
           }
           break;
         case 'sub':
           for (let i = 0; i < length; i++) {
             const b = arrayB[i];
-            bigOut[i] = bigA[i]! - (typeof b === 'bigint' ? b : BigInt(Math.trunc(b as number)));
+            bigOut[i] = bigA[i]! - (typeof b === 'bigint' ? b : BigInt(Math.trunc(b!)));
           }
           break;
         case 'mul':
           for (let i = 0; i < length; i++) {
             const b = arrayB[i];
-            bigOut[i] = bigA[i]! * (typeof b === 'bigint' ? b : BigInt(Math.trunc(b as number)));
+            bigOut[i] = bigA[i]! * (typeof b === 'bigint' ? b : BigInt(Math.trunc(b!)));
           }
           break;
         case 'div':
@@ -222,19 +222,19 @@ function executeBinaryOpFast(
         case 'add':
           for (let i = 0; i < length; i++) {
             const a = arrayA[i];
-            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a as number))) + bigB[i]!;
+            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a!))) + bigB[i]!;
           }
           break;
         case 'sub':
           for (let i = 0; i < length; i++) {
             const a = arrayA[i];
-            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a as number))) - bigB[i]!;
+            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a!))) - bigB[i]!;
           }
           break;
         case 'mul':
           for (let i = 0; i < length; i++) {
             const a = arrayA[i];
-            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a as number))) * bigB[i]!;
+            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a!))) * bigB[i]!;
           }
           break;
         case 'div':
@@ -242,7 +242,7 @@ function executeBinaryOpFast(
             const a =
               typeof arrayA[i] === 'bigint'
                 ? (arrayA[i] as unknown as bigint)
-                : BigInt(Math.trunc(arrayA[i] as number));
+                : BigInt(Math.trunc(arrayA[i]!));
             const b = bigB[i]!;
             if (b === 0n) {
               bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n;

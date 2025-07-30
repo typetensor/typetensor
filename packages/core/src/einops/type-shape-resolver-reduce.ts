@@ -362,7 +362,7 @@ type CreateOnesShape<
  */
 export type ValidateReducePatternInferred<
   InputPatterns extends readonly TypeAxisPattern[],
-  OutputPatterns extends readonly TypeAxisPattern[]
+  OutputPatterns extends readonly TypeAxisPattern[],
 > =
   // Check no duplicate axes
   HasDuplicateAxisNames<InputPatterns> extends true
@@ -440,13 +440,23 @@ export type ResolveReduceShape<
                   ? EllipsisDims extends Shape
                     ? // Validate composite patterns have correct dimensions
                       ValidateComposites<InputPatterns, InputShape, Axes> extends true
-                        ? BuildReduceShape<InputPatterns, OutputPatterns, InputShape, AxisMapping, EllipsisDims, KeepDims>
-                        : never
+                      ? BuildReduceShape<
+                          InputPatterns,
+                          OutputPatterns,
+                          InputShape,
+                          AxisMapping,
+                          EllipsisDims,
+                          KeepDims
+                        >
+                      : never
                     : never
                   : never
                 : never
               : never
-            : ValidateReducePatternInferred<InputPatterns, OutputPatterns> extends { valid: false; error: infer E }
+            : ValidateReducePatternInferred<InputPatterns, OutputPatterns> extends {
+                  valid: false;
+                  error: infer E;
+                }
               ? never & { __error: E }
               : never
           : never

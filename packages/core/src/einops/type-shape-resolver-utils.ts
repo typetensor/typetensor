@@ -37,7 +37,10 @@ export type Append<T extends readonly unknown[], E> = readonly [...T, E];
 /**
  * Concatenate two tuples
  */
-export type Concat<T1 extends readonly unknown[], T2 extends readonly unknown[]> = readonly [...T1, ...T2];
+export type Concat<T1 extends readonly unknown[], T2 extends readonly unknown[]> = readonly [
+  ...T1,
+  ...T2,
+];
 
 /**
  * Take N elements from array
@@ -461,7 +464,7 @@ export type ComputeUnknownDimension<
   TotalDim extends number,
   ProvidedAxes extends Record<string, number>,
   KnownProduct extends number = 1,
-> = 
+> =
   // Only check for multiple unknowns on the first call (when KnownProduct is 1)
   KnownProduct extends 1
     ? CountUnknownAxes<AllAxes, ProvidedAxes> extends infer UnknownCount
@@ -500,7 +503,6 @@ type ComputeUnknownDimensionImpl<
         : Divide<TotalDim, KnownProduct>
     : never
   : Divide<TotalDim, KnownProduct>;
-
 
 /**
  * Extract ellipsis dimensions from input pattern and shape

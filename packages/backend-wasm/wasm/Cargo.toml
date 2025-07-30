@@ -1,0 +1,57 @@
+[package]
+name = "typetensor-wasm"
+version = "0.1.0"
+edition = "2021"
+authors = ["Thomas Santerre <thomas@santerre.xyz>"]
+description = "WebAssembly backend for TypeTensor - High-performance tensor operations"
+license = "MIT"
+repository = "https://github.com/typetensor/typetensor"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console", "Performance", "Window"] }
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1", optional = true }
+
+# Removed wee_alloc to avoid allocator conflicts
+# Using the default allocator for better performance and compatibility
+
+# Optional: Include these for advanced features
+# faer = { version = "0.18", optional = true }
+# ndarray = { version = "0.15", optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+approx = "0.5"
+
+[features]
+default = ["console_error_panic_hook"]
+simd128 = []
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
+# Enable link time optimization for smaller binary size
+lto = true
+# Less code to include into binary
+panic = "abort"
+# Optimize for speed and size
+codegen-units = 1
+
+[profile.dev]
+# Enable debug info for better debugging experience
+debug = true
+opt-level = 0
+
+# wasm-pack specific profile for release builds
+[profile.release.package."*"]
+# Optimize dependencies aggressively
+opt-level = 3

@@ -127,7 +127,7 @@ export function nestedArrayToBuffer<D extends AnyDType>(
   const elementSize = dtype.__byteSize;
   const totalBytes = expectedSize * elementSize;
   const buffer = new ArrayBuffer(totalBytes);
-  
+
   const TypedArrayConstructor = dtype.__typedArray;
   let typedArray:
     | Float32Array
@@ -154,7 +154,7 @@ export function nestedArrayToBuffer<D extends AnyDType>(
 
   while (stack.length > 0 && index < expectedSize) {
     const item = stack.pop()!;
-    
+
     if (Array.isArray(item)) {
       // Add array elements to stack in reverse order to maintain left-to-right processing
       for (let i = item.length - 1; i >= 0; i--) {
@@ -188,14 +188,11 @@ export function nestedArrayToBuffer<D extends AnyDType>(
 
   // Validate element count
   if (index !== expectedSize) {
-    throw new Error(
-      `Data size ${index.toString()} doesn't match shape [${shape.join(', ')}]`,
-    );
+    throw new Error(`Data size ${index.toString()} doesn't match shape [${shape.join(', ')}]`);
   }
 
   return buffer;
 }
-
 
 /**
  * Convert ArrayBuffer to nested array based on shape and dtype

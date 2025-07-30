@@ -104,8 +104,24 @@ function executeNeg(
     }
   } else {
     // OPTIMIZED: Direct negation without redundant checks or casting
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
-    const numOutput = output as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
+    const numOutput = output as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       numOutput[i] = -numInput[i]!;
     }
@@ -149,8 +165,24 @@ function executeAbs(
     }
   } else {
     // OPTIMIZED: Use Math.abs in tight loop
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
-    const numOutput = output as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
+    const numOutput = output as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       numOutput[i] = Math.abs(numInput[i]!);
     }
@@ -194,8 +226,24 @@ function executeSquare(
     }
   } else {
     // OPTIMIZED: Direct multiplication in tight loop
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
-    const numOutput = output as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
+    const numOutput = output as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       const value = numInput[i]!;
       numOutput[i] = value * value;
@@ -239,7 +287,15 @@ function executeSqrt(
       floatOutput[i] = Math.sqrt(Number(input[i]!));
     }
   } else {
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       floatOutput[i] = Math.sqrt(numInput[i]!);
     }
@@ -281,7 +337,15 @@ function executeExp(
       floatOutput[i] = Math.exp(Number(input[i]!));
     }
   } else {
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       floatOutput[i] = Math.exp(numInput[i]!);
     }
@@ -323,7 +387,15 @@ function executeLog(
       floatOutput[i] = Math.log(Number(input[i]!));
     }
   } else {
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       floatOutput[i] = Math.log(numInput[i]!);
     }
@@ -365,7 +437,15 @@ function executeSin(
       floatOutput[i] = Math.sin(Number(input[i]!));
     }
   } else {
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       floatOutput[i] = Math.sin(numInput[i]!);
     }
@@ -407,7 +487,15 @@ function executeCos(
       floatOutput[i] = Math.cos(Number(input[i]!));
     }
   } else {
-    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numInput = input as
+      | Float32Array
+      | Float64Array
+      | Int8Array
+      | Uint8Array
+      | Int16Array
+      | Uint16Array
+      | Int32Array
+      | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
       floatOutput[i] = Math.cos(numInput[i]!);
     }
