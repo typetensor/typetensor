@@ -201,7 +201,10 @@ function executeBinaryOpFast(
         case 'div':
           for (let i = 0; i < length; i++) {
             const a = bigA[i]!;
-            const b = typeof arrayB[i] === 'bigint' ? arrayB[i] as bigint : BigInt(Math.trunc(arrayB[i] as number));
+            const b =
+              typeof arrayB[i] === 'bigint'
+                ? (arrayB[i] as bigint)
+                : BigInt(Math.trunc(arrayB[i] as number));
             if (b === 0n) {
               bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n;
             } else {
@@ -236,7 +239,10 @@ function executeBinaryOpFast(
           break;
         case 'div':
           for (let i = 0; i < length; i++) {
-            const a = typeof arrayA[i] === 'bigint' ? arrayA[i] as bigint : BigInt(Math.trunc(arrayA[i] as number));
+            const a =
+              typeof arrayA[i] === 'bigint'
+                ? (arrayA[i] as unknown as bigint)
+                : BigInt(Math.trunc(arrayA[i] as number));
             const b = bigB[i]!;
             if (b === 0n) {
               bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n;
@@ -294,7 +300,15 @@ function executeBinaryOpFast(
       } else {
         // arrayA is BigInt, arrayB is numeric
         const bigA = arrayA as BigInt64Array | BigUint64Array;
-        const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+        const numB = arrayB as
+          | Float32Array
+          | Float64Array
+          | Int8Array
+          | Uint8Array
+          | Int16Array
+          | Uint16Array
+          | Int32Array
+          | Uint32Array;
         switch (opType) {
           case 'add':
             for (let i = 0; i < length; i++) {
@@ -322,7 +336,15 @@ function executeBinaryOpFast(
       }
     } else if (arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array) {
       // arrayA is numeric, arrayB is BigInt
-      const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+      const numA = arrayA as
+        | Float32Array
+        | Float64Array
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array;
       const bigB = arrayB as BigInt64Array | BigUint64Array;
       switch (opType) {
         case 'add':
@@ -350,8 +372,24 @@ function executeBinaryOpFast(
       }
     } else {
       // Both inputs are numeric - fastest path
-      const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
-      const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+      const numA = arrayA as
+        | Float32Array
+        | Float64Array
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array;
+      const numB = arrayB as
+        | Float32Array
+        | Float64Array
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array;
       switch (opType) {
         case 'add':
           for (let i = 0; i < length; i++) {
@@ -471,9 +509,9 @@ function executeBinaryOpBroadcast(
     } else if (isBigIntOut) {
       // Mixed types with BigInt output
       const bigOut = arrayOut as BigInt64Array | BigUint64Array;
-      
+
       // OPTIMIZED: Direct type conversion without helper functions
-      const valA = isBigIntA 
+      const valA = isBigIntA
         ? (arrayA as BigInt64Array | BigUint64Array)[idxA]!
         : BigInt(Math.trunc((arrayA as any)[idxA]!));
       const valB = isBigIntB

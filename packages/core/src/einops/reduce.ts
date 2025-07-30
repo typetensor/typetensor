@@ -16,7 +16,7 @@ import {
   getAxisNames,
 } from './ast';
 import { Tensor, ChainablePromise } from '../tensor/tensor';
-import type { AnyStorageTransformation } from '../storage/layout';
+import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
 import type { ReduceEinopsOp } from '../storage/einops';
 
 // =============================================================================
@@ -101,11 +101,11 @@ export class ReduceError extends Error {
  * ```
  */
 export function reduce<
-  S extends AnyStorageTransformation,
+  S extends AnyStorageTransformation & { __output: AnyTensorStorage },
   Pattern extends string,
   Op extends ReductionOp = 'mean',
   KeepDims extends boolean = false,
-  Axes extends Record<string, number> | undefined = undefined,
+  const Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
   pattern: Pattern,
