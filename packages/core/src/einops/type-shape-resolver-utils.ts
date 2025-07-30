@@ -266,9 +266,12 @@ export type ValidateComposites<
                     ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
                     : true
                   : false // Product mismatch
-                : Tail extends readonly TypeAxisPattern[]
-                  ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
-                  : true // Not all axes provided, skip validation
+                : // Not all axes provided - check if this is valid (0 or 1 unknown) or invalid (multiple unknowns)
+                  CountUnknownAxes<FlatAxes, ProvidedAxes> extends 0 | 1
+                  ? Tail extends readonly TypeAxisPattern[]
+                    ? ValidateComposites<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>>
+                    : true // Valid partial composite (0 or 1 unknown axes)
+                  : false // Invalid partial composite (multiple unknown axes)
               : never
             : never
           : never
@@ -369,7 +372,7 @@ export type BuildAxisMap<
             ? BuildAxisMap<Tail, InputShape, ProvidedAxes, Add<CurrentIndex, 1>, Map>
             : never
           : never
-  : Map;
+  : MergeIntersection<Map>;
 
 /**
  * Map composite axes with provided dimensions
@@ -387,6 +390,25 @@ type MapCompositeAxes<
         never
     : never
   : never;
+
+/**
+ * Count unknown axes in a composite pattern
+ */
+type CountUnknownAxes<
+  Axes extends readonly TypeSimpleAxis[],
+  ProvidedAxes extends Record<string, number>,
+  Count extends number = 0,
+> = Axes extends readonly [infer Head, ...infer Tail]
+  ? Head extends TypeSimpleAxis
+    ? Head['name'] extends keyof ProvidedAxes
+      ? Tail extends readonly TypeSimpleAxis[]
+        ? CountUnknownAxes<Tail, ProvidedAxes, Count>
+        : Count
+      : Tail extends readonly TypeSimpleAxis[]
+        ? CountUnknownAxes<Tail, ProvidedAxes, Add<Count, 1>>
+        : Add<Count, 1>
+    : never
+  : Count;
 
 /**
  * Compute axis map for composite pattern
@@ -439,12 +461,33 @@ export type ComputeUnknownDimension<
   TotalDim extends number,
   ProvidedAxes extends Record<string, number>,
   KnownProduct extends number = 1,
+> = 
+  // Only check for multiple unknowns on the first call (when KnownProduct is 1)
+  KnownProduct extends 1
+    ? CountUnknownAxes<AllAxes, ProvidedAxes> extends infer UnknownCount
+      ? UnknownCount extends number
+        ? UnknownCount extends 0 | 1
+          ? // Proceed with original logic
+            ComputeUnknownDimensionImpl<AllAxes, TotalDim, ProvidedAxes, KnownProduct>
+          : never // Multiple unknowns
+        : never
+      : never
+    : ComputeUnknownDimensionImpl<AllAxes, TotalDim, ProvidedAxes, KnownProduct>;
+
+/**
+ * Implementation of ComputeUnknownDimension (original logic)
+ */
+type ComputeUnknownDimensionImpl<
+  AllAxes extends readonly TypeSimpleAxis[],
+  TotalDim extends number,
+  ProvidedAxes extends Record<string, number>,
+  KnownProduct extends number = 1,
 > = AllAxes extends readonly [infer Head, ...infer Tail]
   ? Head extends TypeSimpleAxis
     ? Head['name'] extends keyof ProvidedAxes
       ? ProvidedAxes[Head['name']] extends number
         ? Tail extends readonly TypeSimpleAxis[]
-          ? ComputeUnknownDimension<
+          ? ComputeUnknownDimensionImpl<
               Tail,
               TotalDim,
               ProvidedAxes,
@@ -453,10 +496,11 @@ export type ComputeUnknownDimension<
           : never
         : never
       : Tail extends readonly TypeSimpleAxis[]
-        ? ComputeUnknownDimension<Tail, TotalDim, ProvidedAxes, KnownProduct>
+        ? ComputeUnknownDimensionImpl<Tail, TotalDim, ProvidedAxes, KnownProduct>
         : Divide<TotalDim, KnownProduct>
     : never
   : Divide<TotalDim, KnownProduct>;
+
 
 /**
  * Extract ellipsis dimensions from input pattern and shape

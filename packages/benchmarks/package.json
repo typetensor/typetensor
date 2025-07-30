@@ -52,6 +52,9 @@
     "lint": "eslint . --ext .ts,.tsx",
     "bench": "vitest bench",
     "bench:watch": "vitest bench --watch",
-    "bench:creation": "bun run src/runners/tensor-creation.ts"
+    "bench:creation": "bun run src/runners/tensor-creation.ts",
+    "bench:unary": "bun run src/runners/unary-ops.ts",
+    "bench:binary": "bun run src/runners/binary-ops.ts",
+    "bench:matmul": "bun run src/runners/matmul-ops.ts"
   }
 }

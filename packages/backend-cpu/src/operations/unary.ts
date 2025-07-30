@@ -69,7 +69,7 @@ export async function executeUnaryOp(
 }
 
 /**
- * Negation operation
+ * Negation operation (OPTIMIZED)
  */
 function executeNeg(
   input:
@@ -95,47 +95,25 @@ function executeNeg(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  // Handle bigint arrays separately
+  // OPTIMIZED: Branch once, then tight loop without checks
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     const bigInput = input as BigInt64Array | BigUint64Array;
     const bigOutput = output as BigInt64Array | BigUint64Array;
     for (let i = 0; i < bigInput.length; i++) {
-      const val = bigInput[i];
-      if (val !== undefined) {
-        bigOutput[i] = -val;
-      }
+      bigOutput[i] = -bigInput[i]!;
     }
   } else {
-    // Handle regular number arrays
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
-    const numOutput = output as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    // OPTIMIZED: Direct negation without redundant checks or casting
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numOutput = output as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        numOutput[i] = -val;
-      }
+      numOutput[i] = -numInput[i]!;
     }
   }
 }
 
 /**
- * Absolute value operation
+ * Absolute value operation (OPTIMIZED)
  */
 function executeAbs(
   input:
@@ -161,47 +139,26 @@ function executeAbs(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  // Handle bigint arrays separately
+  // OPTIMIZED: Branch once, then tight loop
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     const bigInput = input as BigInt64Array | BigUint64Array;
     const bigOutput = output as BigInt64Array | BigUint64Array;
     for (let i = 0; i < bigInput.length; i++) {
-      const value = bigInput[i];
-      if (value !== undefined) {
-        bigOutput[i] = value < 0n ? -value : value;
-      }
+      const value = bigInput[i]!;
+      bigOutput[i] = value < 0n ? -value : value;
     }
   } else {
-    // Handle regular number arrays
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
-    const numOutput = output as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    // OPTIMIZED: Use Math.abs in tight loop
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numOutput = output as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        numOutput[i] = Math.abs(val);
-      }
+      numOutput[i] = Math.abs(numInput[i]!);
     }
   }
 }
 
 /**
- * Square operation
+ * Square operation (OPTIMIZED)
  */
 function executeSquare(
   input:
@@ -227,47 +184,27 @@ function executeSquare(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  // Handle bigint arrays separately
+  // OPTIMIZED: Branch once, then tight loop
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     const bigInput = input as BigInt64Array | BigUint64Array;
     const bigOutput = output as BigInt64Array | BigUint64Array;
     for (let i = 0; i < bigInput.length; i++) {
-      const value = bigInput[i];
-      if (value !== undefined) {
-        bigOutput[i] = value * value;
-      }
+      const value = bigInput[i]!;
+      bigOutput[i] = value * value;
     }
   } else {
-    // Handle regular number arrays
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
-    const numOutput = output as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    // OPTIMIZED: Direct multiplication in tight loop
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numOutput = output as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const value = numInput[i];
-      if (value !== undefined) {
-        numOutput[i] = value * value;
-      }
+      const value = numInput[i]!;
+      numOutput[i] = value * value;
     }
   }
 }
 
 /**
- * Square root operation (only for float types)
+ * Square root operation (OPTIMIZED - only for float types)
  */
 function executeSqrt(
   input:
@@ -293,42 +230,24 @@ function executeSqrt(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  if (!(output instanceof Float32Array || output instanceof Float64Array)) {
-    throw new Error('sqrt operation requires float output type');
-  }
-
-  // Input can be any numeric type, but output must be float
+  // OPTIMIZED: Single type check, tight loops
   const floatOutput = output as Float32Array | Float64Array;
 
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     // Convert bigint to number for sqrt
     for (let i = 0; i < input.length; i++) {
-      const val = input[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.sqrt(Number(val));
-      }
+      floatOutput[i] = Math.sqrt(Number(input[i]!));
     }
   } else {
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.sqrt(val);
-      }
+      floatOutput[i] = Math.sqrt(numInput[i]!);
     }
   }
 }
 
 /**
- * Exponential operation (only for float types)
+ * Exponential operation (OPTIMIZED - only for float types)
  */
 function executeExp(
   input:
@@ -354,40 +273,23 @@ function executeExp(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  if (!(output instanceof Float32Array || output instanceof Float64Array)) {
-    throw new Error('exp operation requires float output type');
-  }
-
+  // OPTIMIZED: Single cast, tight loops
   const floatOutput = output as Float32Array | Float64Array;
 
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     for (let i = 0; i < input.length; i++) {
-      const val = input[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.exp(Number(val));
-      }
+      floatOutput[i] = Math.exp(Number(input[i]!));
     }
   } else {
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.exp(val);
-      }
+      floatOutput[i] = Math.exp(numInput[i]!);
     }
   }
 }
 
 /**
- * Natural logarithm operation (only for float types)
+ * Natural logarithm operation (OPTIMIZED - only for float types)
  */
 function executeLog(
   input:
@@ -413,40 +315,23 @@ function executeLog(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  if (!(output instanceof Float32Array || output instanceof Float64Array)) {
-    throw new Error('log operation requires float output type');
-  }
-
+  // OPTIMIZED: Single cast, tight loops
   const floatOutput = output as Float32Array | Float64Array;
 
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     for (let i = 0; i < input.length; i++) {
-      const val = input[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.log(Number(val));
-      }
+      floatOutput[i] = Math.log(Number(input[i]!));
     }
   } else {
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.log(val);
-      }
+      floatOutput[i] = Math.log(numInput[i]!);
     }
   }
 }
 
 /**
- * Sine operation (only for float types)
+ * Sine operation (OPTIMIZED - only for float types)
  */
 function executeSin(
   input:
@@ -472,40 +357,23 @@ function executeSin(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  if (!(output instanceof Float32Array || output instanceof Float64Array)) {
-    throw new Error('sin operation requires float output type');
-  }
-
+  // OPTIMIZED: Single cast, tight loops
   const floatOutput = output as Float32Array | Float64Array;
 
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     for (let i = 0; i < input.length; i++) {
-      const val = input[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.sin(Number(val));
-      }
+      floatOutput[i] = Math.sin(Number(input[i]!));
     }
   } else {
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.sin(val);
-      }
+      floatOutput[i] = Math.sin(numInput[i]!);
     }
   }
 }
 
 /**
- * Cosine operation (only for float types)
+ * Cosine operation (OPTIMIZED - only for float types)
  */
 function executeCos(
   input:
@@ -531,34 +399,17 @@ function executeCos(
     | BigInt64Array
     | BigUint64Array,
 ): void {
-  if (!(output instanceof Float32Array || output instanceof Float64Array)) {
-    throw new Error('cos operation requires float output type');
-  }
-
+  // OPTIMIZED: Single cast, tight loops
   const floatOutput = output as Float32Array | Float64Array;
 
   if (input instanceof BigInt64Array || input instanceof BigUint64Array) {
     for (let i = 0; i < input.length; i++) {
-      const val = input[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.cos(Number(val));
-      }
+      floatOutput[i] = Math.cos(Number(input[i]!));
     }
   } else {
-    const numInput = input as
-      | Int8Array
-      | Uint8Array
-      | Int16Array
-      | Uint16Array
-      | Int32Array
-      | Uint32Array
-      | Float32Array
-      | Float64Array;
+    const numInput = input as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
     for (let i = 0; i < numInput.length; i++) {
-      const val = numInput[i];
-      if (val !== undefined) {
-        floatOutput[i] = Math.cos(val);
-      }
+      floatOutput[i] = Math.cos(numInput[i]!);
     }
   }
 }

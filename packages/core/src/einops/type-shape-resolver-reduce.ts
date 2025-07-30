@@ -65,7 +65,7 @@ type ValidateOutputAxesExist<
 /**
  * Build output shape for reduce operation
  */
-type BuildReduceShape<
+export type BuildReduceShape<
   InputPatterns extends readonly TypeAxisPattern[],
   OutputPatterns extends readonly TypeAxisPattern[],
   InputShape extends Shape,

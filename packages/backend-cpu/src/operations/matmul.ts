@@ -124,44 +124,10 @@ export async function executeMatmulOp(
   return output;
 }
 
-/**
- * Helper to get numeric value handling BigInt conversion
- */
-function getNumericValue(arr: ArrayLike<number | bigint>, index: number): number {
-  const val = arr[index];
-  if (val === undefined) {
-    return 0;
-  }
-  return typeof val === 'bigint' ? Number(val) : val;
-}
+// OPTIMIZED: Inline helper functions removed - using direct array access with type branching
 
 /**
- * Helper to set value handling BigInt conversion
- */
-function setNumericValue(
-  arr:
-    | Int8Array
-    | Uint8Array
-    | Int16Array
-    | Uint16Array
-    | Int32Array
-    | Uint32Array
-    | Float32Array
-    | Float64Array
-    | BigInt64Array
-    | BigUint64Array,
-  index: number,
-  value: number,
-): void {
-  if (arr instanceof BigInt64Array || arr instanceof BigUint64Array) {
-    arr[index] = BigInt(Math.trunc(value));
-  } else {
-    (arr as any)[index] = value;
-  }
-}
-
-/**
- * 1D × 1D → scalar (dot product)
+ * 1D × 1D → scalar (dot product) - OPTIMIZED
  */
 function executeVectorDotProduct(
   arrayA: ArrayLike<number | bigint>,
@@ -179,15 +145,53 @@ function executeVectorDotProduct(
     | BigUint64Array,
   length: number,
 ): void {
+  // OPTIMIZED: Branch once for array types, then tight loop
+  const isBigIntA = arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array;
+  const isBigIntB = arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array;
+  const isBigIntOut = arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array;
+
   let sum = 0;
-  for (let i = 0; i < length; i++) {
-    sum += getNumericValue(arrayA, i) * getNumericValue(arrayB, i);
+  
+  if (isBigIntA && isBigIntB) {
+    // Both inputs are BigInt
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    for (let i = 0; i < length; i++) {
+      sum += Number(bigA[i]!) * Number(bigB[i]!);
+    }
+  } else if (isBigIntA) {
+    // A is BigInt, B is numeric
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    for (let i = 0; i < length; i++) {
+      sum += Number(bigA[i]!) * numB[i]!;
+    }
+  } else if (isBigIntB) {
+    // A is numeric, B is BigInt
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    for (let i = 0; i < length; i++) {
+      sum += numA[i]! * Number(bigB[i]!);
+    }
+  } else {
+    // Both inputs are numeric - fastest path
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    for (let i = 0; i < length; i++) {
+      sum += numA[i]! * numB[i]!;
+    }
   }
-  setNumericValue(arrayOut, 0, sum);
+
+  // Set output value
+  if (isBigIntOut) {
+    (arrayOut as BigInt64Array | BigUint64Array)[0] = BigInt(Math.trunc(sum));
+  } else {
+    (arrayOut as any)[0] = sum;
+  }
 }
 
 /**
- * 1D × 2D → 1D (vector-matrix multiply)
+ * 1D × 2D → 1D (vector-matrix multiply) - OPTIMIZED
  * Computes: out[j] = sum(a[k] * b[k, j])
  */
 function executeVectorMatrixMultiply(
@@ -210,23 +214,93 @@ function executeVectorMatrixMultiply(
   stridesA: number[],
   stridesB: number[],
 ): void {
+  // OPTIMIZED: Branch once for array types, precompute strides
+  const isBigIntA = arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array;
+  const isBigIntB = arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array;
+  const isBigIntOut = arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array;
+  
   const strideA = stridesA[0] ?? 1;
   const strideBRow = stridesB[0] ?? N;
   const strideBCol = stridesB[1] ?? 1;
 
-  for (let j = 0; j < N; j++) {
-    let sum = 0;
-    for (let k = 0; k < K; k++) {
-      const idxA = k * strideA;
-      const idxB = k * strideBRow + j * strideBCol;
-      sum += getNumericValue(arrayA, idxA) * getNumericValue(arrayB, idxB);
+  if (isBigIntA && isBigIntB) {
+    // Both inputs are BigInt
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    const bigOut = arrayOut as BigInt64Array | BigUint64Array;
+    
+    for (let j = 0; j < N; j++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = k * strideA;
+        const idxB = k * strideBRow + j * strideBCol;
+        sum += Number(bigA[idxA]!) * Number(bigB[idxB]!);
+      }
+      if (isBigIntOut) {
+        bigOut[j] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[j] = sum;
+      }
     }
-    setNumericValue(arrayOut, j, sum);
+  } else if (isBigIntA) {
+    // A is BigInt, B is numeric
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    
+    for (let j = 0; j < N; j++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = k * strideA;
+        const idxB = k * strideBRow + j * strideBCol;
+        sum += Number(bigA[idxA]!) * numB[idxB]!;
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[j] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[j] = sum;
+      }
+    }
+  } else if (isBigIntB) {
+    // A is numeric, B is BigInt
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    
+    for (let j = 0; j < N; j++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = k * strideA;
+        const idxB = k * strideBRow + j * strideBCol;
+        sum += numA[idxA]! * Number(bigB[idxB]!);
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[j] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[j] = sum;
+      }
+    }
+  } else {
+    // Both inputs are numeric - fastest path
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    
+    for (let j = 0; j < N; j++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = k * strideA;
+        const idxB = k * strideBRow + j * strideBCol;
+        sum += numA[idxA]! * numB[idxB]!;
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[j] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[j] = sum;
+      }
+    }
   }
 }
 
 /**
- * 2D × 1D → 1D (matrix-vector multiply)
+ * 2D × 1D → 1D (matrix-vector multiply) - OPTIMIZED
  * Computes: out[i] = sum(a[i, k] * b[k])
  */
 function executeMatrixVectorMultiply(
@@ -249,23 +323,92 @@ function executeMatrixVectorMultiply(
   stridesA: number[],
   stridesB: number[],
 ): void {
+  // OPTIMIZED: Branch once for array types
+  const isBigIntA = arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array;
+  const isBigIntB = arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array;
+  const isBigIntOut = arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array;
+  
   const strideARow = stridesA[0] ?? K;
   const strideACol = stridesA[1] ?? 1;
   const strideB = stridesB[0] ?? 1;
 
-  for (let i = 0; i < M; i++) {
-    let sum = 0;
-    for (let k = 0; k < K; k++) {
-      const idxA = i * strideARow + k * strideACol;
-      const idxB = k * strideB;
-      sum += getNumericValue(arrayA, idxA) * getNumericValue(arrayB, idxB);
+  if (isBigIntA && isBigIntB) {
+    // Both inputs are BigInt
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    
+    for (let i = 0; i < M; i++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = i * strideARow + k * strideACol;
+        const idxB = k * strideB;
+        sum += Number(bigA[idxA]!) * Number(bigB[idxB]!);
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[i] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[i] = sum;
+      }
     }
-    setNumericValue(arrayOut, i, sum);
+  } else if (isBigIntA) {
+    // A is BigInt, B is numeric
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    
+    for (let i = 0; i < M; i++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = i * strideARow + k * strideACol;
+        const idxB = k * strideB;
+        sum += Number(bigA[idxA]!) * numB[idxB]!;
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[i] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[i] = sum;
+      }
+    }
+  } else if (isBigIntB) {
+    // A is numeric, B is BigInt
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    
+    for (let i = 0; i < M; i++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = i * strideARow + k * strideACol;
+        const idxB = k * strideB;
+        sum += numA[idxA]! * Number(bigB[idxB]!);
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[i] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[i] = sum;
+      }
+    }
+  } else {
+    // Both inputs are numeric - fastest path
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    
+    for (let i = 0; i < M; i++) {
+      let sum = 0;
+      for (let k = 0; k < K; k++) {
+        const idxA = i * strideARow + k * strideACol;
+        const idxB = k * strideB;
+        sum += numA[idxA]! * numB[idxB]!;
+      }
+      if (isBigIntOut) {
+        (arrayOut as BigInt64Array | BigUint64Array)[i] = BigInt(Math.trunc(sum));
+      } else {
+        (arrayOut as any)[i] = sum;
+      }
+    }
   }
 }
 
 /**
- * 2D × 2D → 2D (matrix-matrix multiply)
+ * 2D × 2D → 2D (matrix-matrix multiply) - OPTIMIZED
  * Computes: out[i, j] = sum(a[i, k] * b[k, j])
  */
 function executeMatrixMatrixMultiply(
@@ -289,6 +432,11 @@ function executeMatrixMatrixMultiply(
   stridesA: number[],
   stridesB: number[],
 ): void {
+  // OPTIMIZED: Branch once for array types
+  const isBigIntA = arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array;
+  const isBigIntB = arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array;
+  const isBigIntOut = arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array;
+  
   const strideARow = stridesA[0] ?? K;
   const strideACol = stridesA[1] ?? 1;
   const strideBRow = stridesB[0] ?? N;
@@ -297,21 +445,91 @@ function executeMatrixMatrixMultiply(
   // Output is always C-contiguous
   let outIdx = 0;
 
-  for (let i = 0; i < M; i++) {
-    for (let j = 0; j < N; j++) {
-      let sum = 0;
-      for (let k = 0; k < K; k++) {
-        const idxA = i * strideARow + k * strideACol;
-        const idxB = k * strideBRow + j * strideBCol;
-        sum += getNumericValue(arrayA, idxA) * getNumericValue(arrayB, idxB);
+  if (isBigIntA && isBigIntB) {
+    // Both inputs are BigInt
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    
+    for (let i = 0; i < M; i++) {
+      for (let j = 0; j < N; j++) {
+        let sum = 0;
+        for (let k = 0; k < K; k++) {
+          const idxA = i * strideARow + k * strideACol;
+          const idxB = k * strideBRow + j * strideBCol;
+          sum += Number(bigA[idxA]!) * Number(bigB[idxB]!);
+        }
+        if (isBigIntOut) {
+          (arrayOut as BigInt64Array | BigUint64Array)[outIdx++] = BigInt(Math.trunc(sum));
+        } else {
+          (arrayOut as any)[outIdx++] = sum;
+        }
       }
-      setNumericValue(arrayOut, outIdx++, sum);
+    }
+  } else if (isBigIntA) {
+    // A is BigInt, B is numeric
+    const bigA = arrayA as BigInt64Array | BigUint64Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    
+    for (let i = 0; i < M; i++) {
+      for (let j = 0; j < N; j++) {
+        let sum = 0;
+        for (let k = 0; k < K; k++) {
+          const idxA = i * strideARow + k * strideACol;
+          const idxB = k * strideBRow + j * strideBCol;
+          sum += Number(bigA[idxA]!) * numB[idxB]!;
+        }
+        if (isBigIntOut) {
+          (arrayOut as BigInt64Array | BigUint64Array)[outIdx++] = BigInt(Math.trunc(sum));
+        } else {
+          (arrayOut as any)[outIdx++] = sum;
+        }
+      }
+    }
+  } else if (isBigIntB) {
+    // A is numeric, B is BigInt
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const bigB = arrayB as BigInt64Array | BigUint64Array;
+    
+    for (let i = 0; i < M; i++) {
+      for (let j = 0; j < N; j++) {
+        let sum = 0;
+        for (let k = 0; k < K; k++) {
+          const idxA = i * strideARow + k * strideACol;
+          const idxB = k * strideBRow + j * strideBCol;
+          sum += numA[idxA]! * Number(bigB[idxB]!);
+        }
+        if (isBigIntOut) {
+          (arrayOut as BigInt64Array | BigUint64Array)[outIdx++] = BigInt(Math.trunc(sum));
+        } else {
+          (arrayOut as any)[outIdx++] = sum;
+        }
+      }
+    }
+  } else {
+    // Both inputs are numeric - fastest path
+    const numA = arrayA as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    const numB = arrayB as Float32Array | Float64Array | Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+    
+    for (let i = 0; i < M; i++) {
+      for (let j = 0; j < N; j++) {
+        let sum = 0;
+        for (let k = 0; k < K; k++) {
+          const idxA = i * strideARow + k * strideACol;
+          const idxB = k * strideBRow + j * strideBCol;
+          sum += numA[idxA]! * numB[idxB]!;
+        }
+        if (isBigIntOut) {
+          (arrayOut as BigInt64Array | BigUint64Array)[outIdx++] = BigInt(Math.trunc(sum));
+        } else {
+          (arrayOut as any)[outIdx++] = sum;
+        }
+      }
     }
   }
 }
 
 /**
- * ND × ND → ND (batched matrix multiply)
+ * ND × ND → ND (batched matrix multiply) - OPTIMIZED
  * Handles arbitrary dimensional tensors with batch dimensions
  */
 function executeBatchedMatrixMultiply(
@@ -334,6 +552,11 @@ function executeBatchedMatrixMultiply(
   stridesA: number[],
   stridesB: number[],
 ): void {
+  // OPTIMIZED: Branch once for array types
+  const isBigIntA = arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array;
+  const isBigIntB = arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array;
+  const isBigIntOut = arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array;
+  
   const rankA = shapeA.length;
   const rankB = shapeB.length;
   const rankOut = shapeOut.length;
@@ -399,10 +622,20 @@ function executeBatchedMatrixMultiply(
         for (let k = 0; k < K; k++) {
           const idxA = offsetA + i * strideARow + k * strideACol;
           const idxB = offsetB + k * strideBRow + j * strideBCol;
-          sum += getNumericValue(arrayA, idxA) * getNumericValue(arrayB, idxB);
+          
+          // OPTIMIZED: Direct array access with type handling
+          const valA = isBigIntA ? Number((arrayA as BigInt64Array | BigUint64Array)[idxA]!) : (arrayA as any)[idxA]!;
+          const valB = isBigIntB ? Number((arrayB as BigInt64Array | BigUint64Array)[idxB]!) : (arrayB as any)[idxB]!;
+          sum += valA * valB;
         }
         const outIdx = baseOutIdx + i * N + j;
-        setNumericValue(arrayOut, outIdx, sum);
+        
+        // OPTIMIZED: Direct output setting with type handling
+        if (isBigIntOut) {
+          (arrayOut as BigInt64Array | BigUint64Array)[outIdx] = BigInt(Math.trunc(sum));
+        } else {
+          (arrayOut as any)[outIdx] = sum;
+        }
       }
     }
   }
