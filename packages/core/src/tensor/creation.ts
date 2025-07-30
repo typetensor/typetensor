@@ -209,8 +209,14 @@ export async function tensor<const T, D extends AnyDType, S extends Shape, Dev e
     };
 
     const buffer = nestedArrayToBuffer(data, dtype, shape);
-    const deviceData = device.createData(buffer.byteLength);
-    await device.writeData(deviceData, buffer);
+    // OPTIMIZED: Use direct buffer creation if available (no copy)
+    const deviceData =
+      device.createDataWithBuffer?.(buffer) ??
+      (await (async () => {
+        const data = device.createData(buffer.byteLength);
+        await device.writeData(data, buffer);
+        return data;
+      })());
 
     return new Tensor(createOp, deviceData);
   }
@@ -233,8 +239,14 @@ export async function tensor<const T, D extends AnyDType, S extends Shape, Dev e
   };
 
   const buffer = nestedArrayToBuffer(data, dtype, inferredShape);
-  const deviceData = device.createData(buffer.byteLength);
-  await device.writeData(deviceData, buffer);
+  // OPTIMIZED: Use direct buffer creation if available (no copy)
+  const deviceData =
+    device.createDataWithBuffer?.(buffer) ??
+    (await (async () => {
+      const data = device.createData(buffer.byteLength);
+      await device.writeData(data, buffer);
+      return data;
+    })());
 
   return new Tensor(createOp, deviceData) as Tensor<CreateOp<TensorStorage<D, InferShape<T>>>>;
 }

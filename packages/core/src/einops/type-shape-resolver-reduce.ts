@@ -358,7 +358,32 @@ type CreateOnesShape<
 // =============================================================================
 
 /**
- * Validate reduce pattern
+ * Validate reduce pattern with inferred types
+ */
+export type ValidateReducePatternInferred<
+  InputPatterns extends readonly TypeAxisPattern[],
+  OutputPatterns extends readonly TypeAxisPattern[]
+> =
+  // Check no duplicate axes
+  HasDuplicateAxisNames<InputPatterns> extends true
+    ? { valid: false; error: 'Duplicate axes in input pattern' }
+    : HasDuplicateAxisNames<OutputPatterns> extends true
+      ? { valid: false; error: 'Duplicate axes in output pattern' }
+      : // Check at most one ellipsis
+        CountEllipsis<InputPatterns> extends 0 | 1
+        ? CountEllipsis<OutputPatterns> extends 0 | 1
+          ? // Check all output axes exist in input
+            ValidateOutputAxesExist<
+              CollectAxisNames<OutputPatterns>,
+              CollectAxisNames<InputPatterns>
+            > extends true
+            ? { valid: true } // Allow patterns where nothing is reduced (like einops)
+            : { valid: false; error: 'Output contains axes not present in input' }
+          : { valid: false; error: 'Multiple ellipsis in output' }
+        : { valid: false; error: 'Multiple ellipsis in input' };
+
+/**
+ * Validate reduce pattern (legacy interface version)
  */
 export type ValidateReducePattern<AST extends TypeEinopsAST> =
   // Check no duplicate axes
@@ -405,28 +430,27 @@ export type ResolveReduceShape<
   Axes extends Record<string, number> | undefined = undefined,
 > =
   ParsePattern<Pattern> extends infer ParsedAST
-    ? ParsedAST extends TypeEinopsAST
-      ? ValidateReducePattern<ParsedAST> extends { valid: true }
-        ? BuildAxisMap<ParsedAST['input'], InputShape, Axes> extends infer AxisMapping
-          ? AxisMapping extends Record<string, number>
-            ? ExtractEllipsisDims<ParsedAST['input'], InputShape> extends infer EllipsisDims
-              ? EllipsisDims extends Shape
-                ? // Validate composite patterns have correct dimensions
-                  ValidateAndComputeOutput<
-                    ParsedAST,
-                    AxisMapping,
-                    EllipsisDims,
-                    InputShape,
-                    Axes,
-                    KeepDims
-                  >
+    ? ParsedAST extends { input: infer InputPatterns; output: infer OutputPatterns }
+      ? InputPatterns extends readonly TypeAxisPattern[]
+        ? OutputPatterns extends readonly TypeAxisPattern[]
+          ? ValidateReducePatternInferred<InputPatterns, OutputPatterns> extends { valid: true }
+            ? BuildAxisMap<InputPatterns, InputShape, Axes> extends infer AxisMapping
+              ? AxisMapping extends Record<string, number>
+                ? ExtractEllipsisDims<InputPatterns, InputShape> extends infer EllipsisDims
+                  ? EllipsisDims extends Shape
+                    ? // Validate composite patterns have correct dimensions
+                      ValidateComposites<InputPatterns, InputShape, Axes> extends true
+                        ? BuildReduceShape<InputPatterns, OutputPatterns, InputShape, AxisMapping, EllipsisDims, KeepDims>
+                        : never
+                    : never
+                  : never
                 : never
               : never
-            : never
+            : ValidateReducePatternInferred<InputPatterns, OutputPatterns> extends { valid: false; error: infer E }
+              ? never & { __error: E }
+              : never
           : never
-        : ValidateReducePattern<ParsedAST> extends { valid: false; error: infer E }
-          ? never & { __error: E }
-          : never
+        : never
       : ParsedAST extends TypeParseError<infer E>
         ? never & { __error: E }
         : never

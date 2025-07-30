@@ -98,6 +98,14 @@ export interface Device {
   createData(byteLength: number): DeviceData;
 
   /**
+   * Create data directly with a buffer (optional optimization)
+   *
+   * @param buffer - Pre-existing ArrayBuffer to use
+   * @returns Data handle wrapping the buffer
+   */
+  createDataWithBuffer?(buffer: ArrayBuffer): DeviceData;
+
+  /**
    * Free device memory
    *
    * @param data - Data to dispose

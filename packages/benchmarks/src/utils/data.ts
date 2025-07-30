@@ -6,10 +6,36 @@ export type NestedArray = number | readonly NestedArray[];
 
 /**
  * Generate random data for a given shape
+ * OPTIMIZED: Generate flat data directly instead of nested arrays
  */
 export function generateRandomData(shape: readonly number[]): NestedArray {
-  if (shape.length === 0) {
+  const totalElements = shape.reduce((a, b) => a * b, 1);
+  
+  // For single element, return scalar
+  if (totalElements === 1) {
     return Math.random();
+  }
+  
+  // Generate flat array first (much faster)
+  const flatData = new Array(totalElements);
+  for (let i = 0; i < totalElements; i++) {
+    flatData[i] = Math.random();
+  }
+  
+  // Convert to nested structure (only if needed for compatibility)
+  return reshapeFlat(flatData, shape);
+}
+
+/**
+ * Convert flat array to nested array based on shape
+ */
+function reshapeFlat(flatData: number[], shape: readonly number[]): NestedArray {
+  if (shape.length === 0) {
+    return flatData[0];
+  }
+  
+  if (shape.length === 1) {
+    return flatData;
   }
   
   const [first, ...rest] = shape;
@@ -17,7 +43,16 @@ export function generateRandomData(shape: readonly number[]): NestedArray {
     throw new Error('Invalid shape');
   }
   
-  return Array.from({ length: first }, () => generateRandomData(rest)) as NestedArray;
+  const elementsPerSlice = rest.reduce((a, b) => a * b, 1);
+  const result: NestedArray[] = [];
+  
+  for (let i = 0; i < first; i++) {
+    const startIdx = i * elementsPerSlice;
+    const slice = flatData.slice(startIdx, startIdx + elementsPerSlice);
+    result.push(reshapeFlat(slice, rest));
+  }
+  
+  return result;
 }
 
 /**

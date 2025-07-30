@@ -120,20 +120,15 @@ export function nestedArrayToBuffer<D extends AnyDType>(
   dtype: D,
   shape: readonly number[],
 ): ArrayBuffer {
-  // Flatten the nested array
-  const flat = flattenNestedArray(data);
-
-  // Validate element count
+  // Calculate expected size
   const expectedSize = shape.reduce((a, b) => a * b, 1);
-  if (flat.length !== expectedSize) {
-    throw new Error(
-      `Data size ${flat.length.toString()} doesn't match shape [${shape.join(', ')}]`,
-    );
-  }
 
-  // Create typed array based on dtype
+  // OPTIMIZED: Create ArrayBuffer and typed array directly, populate in one pass
+  const elementSize = dtype.__byteSize;
+  const totalBytes = expectedSize * elementSize;
+  const buffer = new ArrayBuffer(totalBytes);
+  
   const TypedArrayConstructor = dtype.__typedArray;
-  // Create typed array from flat data
   let typedArray:
     | Float32Array
     | Float64Array
@@ -146,50 +141,61 @@ export function nestedArrayToBuffer<D extends AnyDType>(
     | BigInt64Array
     | BigUint64Array;
 
-  // Check if it's a bigint type by checking the constructor type
+  // Create typed array view on the buffer
   if (TypedArrayConstructor === BigInt64Array || TypedArrayConstructor === BigUint64Array) {
-    // Handle bigint types - need to convert numbers to bigints
-    const bigIntFlat = flat.map((v) => BigInt(v));
-    typedArray = new TypedArrayConstructor(bigIntFlat) as BigInt64Array | BigUint64Array;
+    typedArray = new TypedArrayConstructor(buffer) as BigInt64Array | BigUint64Array;
   } else {
-    // Handle regular number types
-    typedArray = new (TypedArrayConstructor as typeof Float32Array)(flat as number[]);
+    typedArray = new (TypedArrayConstructor as typeof Float32Array)(buffer);
   }
 
-  return typedArray.buffer.slice(
-    typedArray.byteOffset,
-    typedArray.byteOffset + typedArray.byteLength,
-  ) as ArrayBuffer;
-}
+  // OPTIMIZED: Flatten directly into typed array (no intermediate array)
+  let index = 0;
+  const stack: unknown[] = [data];
 
-/**
- * Flatten a nested array to 1D
- *
- * @param arr - Nested array to flatten
- * @returns Flattened array
- */
-function flattenNestedArray(arr: unknown): number[] {
-  const result: number[] = [];
-
-  function flatten(item: unknown): void {
+  while (stack.length > 0 && index < expectedSize) {
+    const item = stack.pop()!;
+    
     if (Array.isArray(item)) {
-      for (const element of item) {
-        flatten(element);
+      // Add array elements to stack in reverse order to maintain left-to-right processing
+      for (let i = item.length - 1; i >= 0; i--) {
+        stack.push(item[i]);
       }
     } else if (typeof item === 'number') {
-      result.push(item);
+      if (TypedArrayConstructor === BigInt64Array || TypedArrayConstructor === BigUint64Array) {
+        (typedArray as BigInt64Array | BigUint64Array)[index] = BigInt(item);
+      } else {
+        (typedArray as any)[index] = item;
+      }
+      index++;
     } else if (typeof item === 'bigint') {
-      result.push(Number(item));
+      if (TypedArrayConstructor === BigInt64Array || TypedArrayConstructor === BigUint64Array) {
+        (typedArray as BigInt64Array | BigUint64Array)[index] = item;
+      } else {
+        (typedArray as any)[index] = Number(item);
+      }
+      index++;
     } else if (typeof item === 'boolean') {
-      result.push(item ? 1 : 0);
+      if (TypedArrayConstructor === BigInt64Array || TypedArrayConstructor === BigUint64Array) {
+        (typedArray as BigInt64Array | BigUint64Array)[index] = item ? 1n : 0n;
+      } else {
+        (typedArray as any)[index] = item ? 1 : 0;
+      }
+      index++;
     } else {
       throw new Error(`Invalid element type: ${typeof item}`);
     }
   }
 
-  flatten(arr);
-  return result;
+  // Validate element count
+  if (index !== expectedSize) {
+    throw new Error(
+      `Data size ${index.toString()} doesn't match shape [${shape.join(', ')}]`,
+    );
+  }
+
+  return buffer;
 }
+
 
 /**
  * Convert ArrayBuffer to nested array based on shape and dtype

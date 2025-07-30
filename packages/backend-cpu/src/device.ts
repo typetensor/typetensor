@@ -87,6 +87,13 @@ export class CPUDevice implements Device {
   }
 
   /**
+   * Create data directly with a buffer (OPTIMIZED: no copy)
+   */
+  createDataWithBuffer(buffer: ArrayBuffer): DeviceData {
+    return new CPUDeviceData(this, buffer.byteLength, buffer);
+  }
+
+  /**
    * Free CPU memory
    *
    * For CPU backend, this is mostly a no-op as JavaScript handles GC,

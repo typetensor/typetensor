@@ -6,6 +6,7 @@
  */
 
 import type { Shape, ShapeToString } from '../shape/types';
+import type { AnyDType } from '../dtype/types';
 import type {
   TensorStorage,
   StorageTransformation,
@@ -114,17 +115,23 @@ export type ReduceEinopsOp<
   KeepDims extends boolean = false,
   Axes extends Record<string, number> | undefined = undefined,
 > =
-  ResolveReduceShape<Pattern, Input['__shape'], KeepDims, Axes> extends infer OutputShape
-    ? OutputShape extends Shape
-      ? StorageTransformation<
-          'reduce',
-          TensorStorage<Input['__dtype'], OutputShape, ComputeStrides<OutputShape>, ReduceLayout>,
-          readonly [Input]
-        >
-      : never & {
-          __error: 'Failed to resolve reduce pattern';
-          __pattern: Pattern;
-          __operation: Operation;
-          __inputShape: ShapeToString<Input['__shape']>;
-        }
+  Input extends { __shape: infer InputShape; __dtype: infer InputDtype }
+    ? InputShape extends Shape
+      ? InputDtype extends AnyDType
+        ? ResolveReduceShape<Pattern, InputShape, KeepDims, Axes> extends infer OutputShape
+          ? OutputShape extends Shape
+            ? StorageTransformation<
+                'reduce',
+                TensorStorage<InputDtype, OutputShape, ComputeStrides<OutputShape>, ReduceLayout>,
+                readonly [Input]
+              >
+            : never & {
+                __error: 'Failed to resolve reduce pattern';
+                __pattern: Pattern;
+                __operation: Operation;
+                __inputShape: ShapeToString<InputShape>;
+              }
+          : never
+        : never
+      : never
     : never;
