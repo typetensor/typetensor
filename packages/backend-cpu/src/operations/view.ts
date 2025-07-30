@@ -4,6 +4,8 @@
  * Implements operations that create different views of tensor data.
  * - View operations (reshape, flatten, view): no copying, just metadata changes
  * - Slice operations: creates new data with copied sliced elements
+ * - Expand operation: broadcasts singleton dimensions (view operation)
+ * - Tile operation: repeats tensor data (copy operation)
  */
 
 import type { Device, DeviceData, AnyStorageTransformation } from '@typetensor/core';
@@ -231,6 +233,164 @@ function mapOutputToInputIndices(
       }
       outputDim++;
     }
+  }
+
+  return inputIndices;
+}
+
+/**
+ * Execute an expand operation on CPU
+ *
+ * Expand is a view operation that broadcasts singleton dimensions to larger sizes.
+ * The operation uses stride 0 for expanded dimensions, which means all elements
+ * in that dimension point to the same memory location.
+ *
+ * @param device - CPU device instance
+ * @param op - Expand operation descriptor
+ * @param input - Input tensor data
+ * @returns Same tensor data (expand is a view operation)
+ */
+export async function executeExpandOp(
+  _device: Device,
+  op: AnyStorageTransformation & { __op: 'expand' },
+  input: DeviceData,
+): Promise<DeviceData> {
+  // Validate operation type
+  if (op.__op !== 'expand') {
+    throw new Error(`Invalid expand operation: ${op.__op}`);
+  }
+
+  // Expand is a view operation - return the same data handle
+  // The tensor class handles the metadata transformation with stride 0 for expanded dims
+  return input;
+}
+
+/**
+ * Execute a tile operation on CPU
+ *
+ * Tile operation repeats the tensor data along specified dimensions.
+ * This creates a new tensor with copied data.
+ *
+ * @param device - CPU device instance
+ * @param op - Tile operation descriptor
+ * @param input - Input tensor data
+ * @returns New tensor data with tiled elements
+ */
+export async function executeTileOp(
+  device: Device,
+  op: AnyStorageTransformation & { __op: 'tile' },
+  input: DeviceData,
+): Promise<DeviceData> {
+  // Validate operation type
+  if (op.__op !== 'tile') {
+    throw new Error(`Invalid tile operation: ${op.__op}`);
+  }
+
+  // Extract metadata
+  const inputStorage = op.__inputs[0];
+  if (!inputStorage) {
+    throw new Error('Tile operation missing input storage metadata');
+  }
+
+  const inputShape = inputStorage.__shape;
+  const inputStrides = inputStorage.__strides;
+  const dtype = inputStorage.__dtype;
+
+  // Get output shape and size from operation metadata
+  const outputShape = op.__output.__shape;
+  const outputSize = op.__output.__size;
+
+  // Create output buffer
+  const outputByteLength = outputSize * dtype.__byteSize;
+  const outputData = device.createData(outputByteLength);
+
+  // Copy tiled data
+  await copyTiledData(device, input, outputData, inputShape, inputStrides, outputShape, dtype);
+
+  return outputData;
+}
+
+/**
+ * Copy tiled data from input to output buffer
+ *
+ * @param device - CPU device for data access
+ * @param input - Input tensor data
+ * @param output - Output tensor data (pre-allocated)
+ * @param inputShape - Shape of input tensor
+ * @param inputStrides - Strides of input tensor
+ * @param outputShape - Shape of output tensor
+ * @param dtype - Data type
+ */
+async function copyTiledData(
+  device: Device,
+  input: DeviceData,
+  output: DeviceData,
+  inputShape: readonly number[],
+  inputStrides: readonly number[],
+  outputShape: readonly number[],
+  dtype: any,
+): Promise<void> {
+  // Read input buffer and create output buffer
+  const inputBuffer = await device.readData(input);
+  const outputBuffer = new ArrayBuffer(output.byteLength);
+
+  // Create typed arrays for efficient data access
+  const inputArray = createTypedArray(inputBuffer, dtype);
+  const outputArray = createTypedArray(outputBuffer, dtype);
+
+  // Iterate through all output positions
+  const totalOutputElements = outputShape.reduce((a, b) => a * b, 1);
+
+  for (let outputFlatIndex = 0; outputFlatIndex < totalOutputElements; outputFlatIndex++) {
+    // Convert output flat index to multi-dimensional indices
+    const outputIndices = flatIndexToIndices(outputFlatIndex, outputShape);
+
+    // Map output indices to input indices by modulo with input shape
+    const inputIndices = mapTileOutputToInputIndices(outputIndices, inputShape, outputShape);
+
+    // Convert input indices to flat index
+    const inputFlatIndex = computeFlatIndex(inputIndices, inputStrides);
+
+    // Copy the element
+    (outputArray as any)[outputFlatIndex] = (inputArray as any)[inputFlatIndex];
+  }
+
+  // Write the result back to the output device data
+  await device.writeData(output, outputBuffer);
+}
+
+/**
+ * Map output indices to input indices for tile operation
+ *
+ * @param outputIndices - Position in output tensor
+ * @param inputShape - Shape of input tensor
+ * @param outputShape - Shape of output tensor
+ * @returns Corresponding position in input tensor
+ */
+function mapTileOutputToInputIndices(
+  outputIndices: number[],
+  inputShape: readonly number[],
+  outputShape: readonly number[],
+): number[] {
+  const inputIndices: number[] = [];
+  const outputRank = outputShape.length;
+  const inputRank = inputShape.length;
+
+  // Tile operation aligns dimensions from the right
+  // If reps has more dimensions than input, input is treated as having 1s on the left
+  const dimOffset = outputRank - inputRank;
+
+  for (let i = 0; i < inputRank; i++) {
+    const outputDim = i + dimOffset;
+    const outputIdx = outputIndices[outputDim];
+    const inputDim = inputShape[i];
+
+    if (outputIdx === undefined || inputDim === undefined) {
+      throw new Error(`Invalid dimension mapping at index ${i}`);
+    }
+
+    // The output index maps to input index by taking modulo of input dimension
+    inputIndices[i] = outputIdx % inputDim;
   }
 
   return inputIndices;

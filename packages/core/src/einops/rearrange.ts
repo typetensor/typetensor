@@ -147,16 +147,16 @@ export function rearrange<
  */
 function validateRearrangePattern(ast: EinopsAST): void {
   // Check for multiple ellipsis in same side
-  const inputEllipsisCount = ast.input.filter(p => isEllipsisAxis(p)).length;
-  const outputEllipsisCount = ast.output.filter(p => isEllipsisAxis(p)).length;
-  
+  const inputEllipsisCount = ast.input.filter((p) => isEllipsisAxis(p)).length;
+  const outputEllipsisCount = ast.output.filter((p) => isEllipsisAxis(p)).length;
+
   if (inputEllipsisCount > 1) {
     throw new RearrangeError(
       'Multiple ellipsis (...) in input pattern is not allowed',
       ast.metadata.originalPattern,
     );
   }
-  
+
   if (outputEllipsisCount > 1) {
     throw new RearrangeError(
       'Multiple ellipsis (...) in output pattern is not allowed',
@@ -273,7 +273,10 @@ function computeIntermediateShape(
 /**
  * Build a flat list of all axis names in order, expanding composites
  */
-function flattenPatternToAxisNames(patterns: readonly AxisPattern[], ellipsisDimensions?: readonly number[]): string[] {
+function flattenPatternToAxisNames(
+  patterns: readonly AxisPattern[],
+  ellipsisDimensions?: readonly number[],
+): string[] {
   const names: string[] = [];
 
   for (const pattern of patterns) {
@@ -379,10 +382,14 @@ function planOperations(
   }
 
   // Handle ellipsis patterns that need permutation
-  const hasEllipsis = [...ast.input, ...ast.output].some(p => isEllipsisAxis(p));
+  const hasEllipsis = [...ast.input, ...ast.output].some((p) => isEllipsisAxis(p));
   if (hasEllipsis && !needsComplexOperations(ast)) {
     // Simple ellipsis case: compute permutation directly
-    const permutation = computeGeneralPermutation(ast.input, ast.output, resolved.ellipsisDimensions);
+    const permutation = computeGeneralPermutation(
+      ast.input,
+      ast.output,
+      resolved.ellipsisDimensions,
+    );
     if (permutation !== null) {
       operations.push({
         type: 'permute',
@@ -415,7 +422,11 @@ function planOperations(
     }
 
     // Step 3: Compute and apply permutation
-    const permutation = computeGeneralPermutation(ast.input, ast.output, resolved.ellipsisDimensions);
+    const permutation = computeGeneralPermutation(
+      ast.input,
+      ast.output,
+      resolved.ellipsisDimensions,
+    );
     if (permutation !== null) {
       operations.push({
         type: 'permute',

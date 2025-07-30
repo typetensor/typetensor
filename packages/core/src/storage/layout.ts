@@ -116,7 +116,11 @@ export type AllOperationTypes =
   | 'max' // Max reduction
   | 'min' // Min reduction
   | 'rearrange' // Einops rearrange operation
-  | 'prod'; // Product reduction
+  | 'prod' // Product reduction
+  | 'squeeze' // Remove size-1 dimensions
+  | 'unsqueeze' // Add size-1 dimensions
+  | 'expand' // Expand singleton dimensions
+  | 'tile'; // Repeat tensor along dimensions
 
 /**
  * Base interface for all storage transformations

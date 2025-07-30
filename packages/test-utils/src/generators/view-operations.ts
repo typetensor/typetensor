@@ -152,10 +152,12 @@ export function generateViewOperationTests(
         // PyTorch: torch.arange(12).reshape(3, 5)
         // Error: RuntimeError: shape '[3, 5]' is invalid for input of size 12
 
+        // @ts-expect-error - test error
         await expect(tensor12.reshape([3, 5] as const)).rejects.toThrow(
           /different number of elements/,
         );
 
+        // @ts-expect-error - test error
         await expect(tensor12.reshape([2, 2] as const)).rejects.toThrow(
           /different number of elements/,
         );
@@ -743,6 +745,688 @@ export function generateViewOperationTests(
       });
     });
 
+    describe('squeeze operations', () => {
+      it('should squeeze all size-1 dimensions', async () => {
+        // PyTorch: torch.tensor([[[1], [2]], [[3], [4]]]).squeeze()
+        // Input shape: torch.Size([2, 2, 1])
+        // Output: tensor([[1, 2],
+        //                 [3, 4]])
+        // Output shape: torch.Size([2, 2])
+        const tensor3d = await tensor(
+          [
+            [[1], [2]],
+            [[3], [4]],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const squeezed = await tensor3d.squeeze();
+
+        expect(tensor3d.shape).toEqual([2, 2, 1]);
+        expect(squeezed.shape).toEqual([2, 2]);
+        expect(squeezed.ndim).toBe(2);
+        expect(squeezed.size).toBe(4);
+        expect(squeezed.dtype).toBe(float32);
+        expect(squeezed.device).toBe(device);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([
+          [1, 2],
+          [3, 4],
+        ]);
+      });
+
+      it('should squeeze specific axis with size 1', async () => {
+        // PyTorch: torch.tensor([[[1, 2, 3]]]).squeeze(0)
+        // Input shape: torch.Size([1, 1, 3])
+        // Output shape: torch.Size([1, 3])
+        const tensor3d = await tensor([[[1, 2, 3]]] as const, { device, dtype: float32 });
+        const squeezed = await tensor3d.squeeze([0] as const);
+
+        expect(tensor3d.shape).toEqual([1, 1, 3]);
+        expect(squeezed.shape).toEqual([1, 3]);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([[1, 2, 3]]);
+      });
+
+      it('should squeeze multiple specific axes', async () => {
+        // PyTorch: torch.tensor([[[[5]]]]).squeeze([0, 3])
+        // Input shape: torch.Size([1, 1, 1, 1])
+        // Output shape: torch.Size([1, 1])
+        const tensor4d = await tensor([[[[5]]]] as const, { device, dtype: float32 });
+        const squeezed = await tensor4d.squeeze([0, 3] as const);
+
+        expect(tensor4d.shape).toEqual([1, 1, 1, 1]);
+        expect(squeezed.shape).toEqual([1, 1]);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([[5]]);
+      });
+
+      it('should handle squeeze on tensor with no size-1 dimensions', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).squeeze()
+        // No change - no dimensions with size 1
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const squeezed = await matrix.squeeze();
+
+        expect(matrix.shape).toEqual([2, 2]);
+        expect(squeezed.shape).toEqual([2, 2]);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([
+          [1, 2],
+          [3, 4],
+        ]);
+      });
+
+      it('should handle squeeze on scalar (no-op)', async () => {
+        // PyTorch: torch.tensor(42).squeeze()
+        // Output: tensor(42) - scalars remain unchanged
+        const scalar = await tensor(42, { device, dtype: float32 });
+        const squeezed = await scalar.squeeze();
+
+        expect(scalar.shape).toEqual([]);
+        expect(squeezed.shape).toEqual([]);
+
+        expect(await squeezed.item()).toBe(42);
+      });
+
+      it('should handle negative axis indices', async () => {
+        // PyTorch: torch.tensor([[[1, 2, 3]]]).squeeze(-3)
+        // Same as squeeze(0) - removes first dimension
+        const tensor3d = await tensor([[[1, 2, 3]]] as const, { device, dtype: float32 });
+        const squeezed = await tensor3d.squeeze([-3] as const);
+
+        expect(tensor3d.shape).toEqual([1, 1, 3]);
+        expect(squeezed.shape).toEqual([1, 3]);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([[1, 2, 3]]);
+      });
+
+      it('should preserve data through squeeze operation', async () => {
+        // PyTorch: Complex squeeze preserving data integrity
+        const tensor5d = await tensor(
+          [
+            [
+              [[[1]], [[2]]],
+              [[[3]], [[4]]],
+            ],
+          ] as const,
+          { device, dtype: int32 },
+        );
+
+        expect(tensor5d.shape).toEqual([1, 2, 2, 1, 1]);
+
+        // Squeeze all dimensions
+        const squeezed = await tensor5d.squeeze();
+        expect(squeezed.shape).toEqual([2, 2]);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([
+          [1, 2],
+          [3, 4],
+        ]);
+      });
+
+      it('should error when trying to squeeze non-unit dimension', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).squeeze(0)
+        // RuntimeError: cannot select an axis to squeeze out which has size not equal to one
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Should throw an error when trying to squeeze a dimension with size != 1
+        await expect(matrix.squeeze([0] as const)).rejects.toThrow(/size.*must be 1/);
+      });
+    });
+
+    describe('unsqueeze operations', () => {
+      it('should unsqueeze at position 0', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).unsqueeze(0)
+        // Input shape: torch.Size([3])
+        // Output: tensor([[1, 2, 3]])
+        // Output shape: torch.Size([1, 3])
+        const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
+        const unsqueezed = await vector.unsqueeze(0);
+
+        expect(vector.shape).toEqual([3]);
+        expect(unsqueezed.shape).toEqual([1, 3]);
+        expect(unsqueezed.ndim).toBe(2);
+        expect(unsqueezed.size).toBe(3);
+        expect(unsqueezed.dtype).toBe(float32);
+        expect(unsqueezed.device).toBe(device);
+
+        const data = await unsqueezed.toArray();
+        expect(data).toEqual([[1, 2, 3]]);
+      });
+
+      it('should unsqueeze at last position', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).unsqueeze(1)
+        // or: torch.tensor([1, 2, 3]).unsqueeze(-1)
+        // Output: tensor([[1],
+        //                 [2],
+        //                 [3]])
+        // Output shape: torch.Size([3, 1])
+        const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
+        const unsqueezed = await vector.unsqueeze(1);
+
+        expect(vector.shape).toEqual([3]);
+        expect(unsqueezed.shape).toEqual([3, 1]);
+
+        const data = await unsqueezed.toArray();
+        expect(data).toEqual([[1], [2], [3]]);
+      });
+
+      it('should unsqueeze in the middle', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).unsqueeze(1)
+        // Input shape: torch.Size([2, 2])
+        // Output shape: torch.Size([2, 1, 2])
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const unsqueezed = await matrix.unsqueeze(1);
+
+        expect(matrix.shape).toEqual([2, 2]);
+        expect(unsqueezed.shape).toEqual([2, 1, 2]);
+
+        const data = await unsqueezed.toArray();
+        expect(data).toEqual([[[1, 2]], [[3, 4]]]);
+      });
+
+      it('should unsqueeze scalar tensor', async () => {
+        // PyTorch: torch.tensor(42).unsqueeze(0)
+        // Output: tensor([42])
+        // Output shape: torch.Size([1])
+        const scalar = await tensor(42, { device, dtype: float32 });
+        const unsqueezed = await scalar.unsqueeze(0);
+
+        expect(scalar.shape).toEqual([]);
+        expect(unsqueezed.shape).toEqual([1]);
+
+        const data = await unsqueezed.toArray();
+        expect(data).toEqual([42]);
+      });
+
+      it('should handle negative axis for unsqueeze', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).unsqueeze(-1)
+        // Same as unsqueeze(1) for 1D tensor
+        const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
+        const unsqueezed = await vector.unsqueeze(-1);
+
+        expect(vector.shape).toEqual([3]);
+        expect(unsqueezed.shape).toEqual([3, 1]);
+
+        const data = await unsqueezed.toArray();
+        expect(data).toEqual([[1], [2], [3]]);
+      });
+
+      it('should handle multiple unsqueeze operations', async () => {
+        // PyTorch: torch.tensor([1, 2]).unsqueeze(0).unsqueeze(2)
+        // Step 1: [1, 2] -> [[1, 2]] (shape: [1, 2])
+        // Step 2: [[1, 2]] -> [[[1], [2]]] (shape: [1, 2, 1])
+        const vector = await tensor([1, 2] as const, { device, dtype: float32 });
+        const unsqueezed1 = await vector.unsqueeze(0);
+        const unsqueezed2 = await unsqueezed1.unsqueeze(2);
+
+        expect(vector.shape).toEqual([2]);
+        expect(unsqueezed1.shape).toEqual([1, 2]);
+        expect(unsqueezed2.shape).toEqual([1, 2, 1]);
+
+        const data = await unsqueezed2.toArray();
+        expect(data).toEqual([[[1], [2]]]);
+      });
+
+      it('should preserve data through unsqueeze operations', async () => {
+        // Test that data is preserved correctly through unsqueeze
+        const matrix = await tensor(
+          [
+            [10, 20, 30],
+            [40, 50, 60],
+          ] as const,
+          { device, dtype: int32 },
+        );
+
+        const unsqueezed = await matrix.unsqueeze(1);
+        expect(unsqueezed.shape).toEqual([2, 1, 3]);
+
+        const data = await unsqueezed.toArray();
+        expect(data).toEqual([[[10, 20, 30]], [[40, 50, 60]]]);
+      });
+
+      it('should error on invalid unsqueeze axis', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).unsqueeze(5)
+        // IndexError: Dimension out of range (expected to be in range of [-2, 1], but got 5)
+        const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
+
+        // Axis 5 is out of bounds for a 1D tensor
+        await expect(vector.unsqueeze(5)).rejects.toThrow(/out of bounds/);
+      });
+    });
+
+    describe('expand operations', () => {
+      it('should expand singleton dimensions', async () => {
+        // PyTorch: torch.tensor([[1], [2]]).expand(2, 3)
+        // Output: tensor([[1, 1, 1],
+        //                 [2, 2, 2]])
+        const matrix = await tensor([[1], [2]] as const, { device, dtype: float32 });
+        const expanded = await matrix.expand([2, 3] as const);
+
+        expect(matrix.shape).toEqual([2, 1]);
+        expect(expanded.shape).toEqual([2, 3]);
+        expect(expanded.ndim).toBe(2);
+        expect(expanded.size).toBe(6);
+        expect(expanded.dtype).toBe(float32);
+        expect(expanded.device).toBe(device);
+
+        const data = await expanded.toArray();
+        expect(data).toEqual([
+          [1, 1, 1],
+          [2, 2, 2],
+        ]);
+      });
+
+      it('should expand with -1 to keep dimensions', async () => {
+        // PyTorch: torch.tensor([[1], [2], [3]]).expand(-1, 4)
+        // Output: tensor([[1, 1, 1, 1],
+        //                 [2, 2, 2, 2],
+        //                 [3, 3, 3, 3]])
+        const matrix = await tensor([[1], [2], [3]] as const, { device, dtype: float32 });
+        const expanded = await matrix.expand([-1, 4] as const);
+
+        expect(matrix.shape).toEqual([3, 1]);
+        expect(expanded.shape).toEqual([3, 4]);
+
+        const data = await expanded.toArray();
+        expect(data).toEqual([
+          [1, 1, 1, 1],
+          [2, 2, 2, 2],
+          [3, 3, 3, 3],
+        ]);
+      });
+
+      it('should expand by adding new dimensions', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).expand(2, 3)
+        // Output: tensor([[1, 2, 3],
+        //                 [1, 2, 3]])
+        const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
+        const expanded = await vector.expand([2, 3] as const);
+
+        expect(vector.shape).toEqual([3]);
+        expect(expanded.shape).toEqual([2, 3]);
+
+        const data = await expanded.toArray();
+        expect(data).toEqual([
+          [1, 2, 3],
+          [1, 2, 3],
+        ]);
+      });
+
+      it('should expand scalar tensor', async () => {
+        // PyTorch: torch.tensor(42).expand(3, 4)
+        // Output: tensor([[42, 42, 42, 42],
+        //                 [42, 42, 42, 42],
+        //                 [42, 42, 42, 42]])
+        const scalar = await tensor(42, { device, dtype: float32 });
+        const expanded = await scalar.expand([3, 4] as const);
+
+        expect(scalar.shape).toEqual([]);
+        expect(expanded.shape).toEqual([3, 4]);
+
+        const data = await expanded.toArray();
+        expect(data).toEqual([
+          [42, 42, 42, 42],
+          [42, 42, 42, 42],
+          [42, 42, 42, 42],
+        ]);
+      });
+
+      it('should expand higher dimensional tensors', async () => {
+        // PyTorch: torch.tensor([[[1]], [[2]]]).expand(2, 3, 4)
+        // Shape: [2, 1, 1] -> [2, 3, 4]
+        const tensor3d = await tensor([[[1]], [[2]]] as const, { device, dtype: float32 });
+        const expanded = await tensor3d.expand([2, 3, 4] as const);
+
+        expect(tensor3d.shape).toEqual([2, 1, 1]);
+        expect(expanded.shape).toEqual([2, 3, 4]);
+
+        const data = await expanded.toArray();
+        expect(data[0]).toEqual([
+          [1, 1, 1, 1],
+          [1, 1, 1, 1],
+          [1, 1, 1, 1],
+        ]);
+        expect(data[1]).toEqual([
+          [2, 2, 2, 2],
+          [2, 2, 2, 2],
+          [2, 2, 2, 2],
+        ]);
+      });
+
+      it('should error on invalid expansion', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).expand(2, 5)
+        // RuntimeError: The expanded size of the tensor (5) must match the existing size (2) at non-singleton dimension 1
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Cannot expand non-singleton dimension 2 to 5
+        await expect(matrix.expand([2, 5] as const)).rejects.toThrow(/Cannot expand dimension/);
+      });
+
+      it('should handle complex expand patterns', async () => {
+        // PyTorch: Broadcasting pattern for attention masks
+        // mask of shape [1, 1, seq_len, seq_len] expanded to [batch, heads, seq_len, seq_len]
+        const mask = await tensor(
+          [
+            [
+              [
+                [1, 0],
+                [1, 1],
+              ],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const expanded = await mask.expand([32, 8, 2, 2] as const);
+
+        expect(mask.shape).toEqual([1, 1, 2, 2]);
+        expect(expanded.shape).toEqual([32, 8, 2, 2]);
+
+        // Check a sample of the expanded data
+        const data = await expanded.toArray();
+        expect(data[0][0]).toEqual([
+          [1, 0],
+          [1, 1],
+        ]);
+        expect(data[31][7]).toEqual([
+          [1, 0],
+          [1, 1],
+        ]);
+      });
+    });
+
+    describe('tile operations', () => {
+      it('should tile vectors', async () => {
+        // PyTorch: torch.tensor([1, 2, 3]).repeat(2)
+        // Output: tensor([1, 2, 3, 1, 2, 3])
+        const vector = await tensor([1, 2, 3] as const, { device, dtype: float32 });
+        const tiled = await vector.tile([2] as const);
+
+        expect(vector.shape).toEqual([3]);
+        expect(tiled.shape).toEqual([6]);
+        expect(tiled.ndim).toBe(1);
+        expect(tiled.size).toBe(6);
+        expect(tiled.dtype).toBe(float32);
+        expect(tiled.device).toBe(device);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([1, 2, 3, 1, 2, 3]);
+      });
+
+      it('should tile matrices', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).repeat(2, 3)
+        // Output: tensor([[1, 2, 1, 2, 1, 2],
+        //                 [3, 4, 3, 4, 3, 4],
+        //                 [1, 2, 1, 2, 1, 2],
+        //                 [3, 4, 3, 4, 3, 4]])
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const tiled = await matrix.tile([2, 3] as const);
+
+        expect(matrix.shape).toEqual([2, 2]);
+        expect(tiled.shape).toEqual([4, 6]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [1, 2, 1, 2, 1, 2],
+          [3, 4, 3, 4, 3, 4],
+          [1, 2, 1, 2, 1, 2],
+          [3, 4, 3, 4, 3, 4],
+        ]);
+      });
+
+      it('should tile with more repetitions than dimensions', async () => {
+        // PyTorch: torch.tensor([1, 2]).repeat(2, 3)
+        // Shape: [2] -> [2, 6]
+        const vector = await tensor([1, 2] as const, { device, dtype: float32 });
+        const tiled = await vector.tile([2, 3] as const);
+
+        expect(vector.shape).toEqual([2]);
+        expect(tiled.shape).toEqual([2, 6]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [1, 2, 1, 2, 1, 2],
+          [1, 2, 1, 2, 1, 2],
+        ]);
+      });
+
+      it('should tile scalar tensor', async () => {
+        // PyTorch: torch.tensor(42).repeat(3, 4)
+        // Output: tensor([[42, 42, 42, 42],
+        //                 [42, 42, 42, 42],
+        //                 [42, 42, 42, 42]])
+        const scalar = await tensor(42, { device, dtype: float32 });
+        const tiled = await scalar.tile([3, 4] as const);
+
+        expect(scalar.shape).toEqual([]);
+        expect(tiled.shape).toEqual([3, 4]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [42, 42, 42, 42],
+          [42, 42, 42, 42],
+          [42, 42, 42, 42],
+        ]);
+      });
+
+      it('should tile with identity repetitions', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).repeat(1, 1)
+        // No change - all reps are 1
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const tiled = await matrix.tile([1, 1] as const);
+
+        expect(matrix.shape).toEqual([2, 2]);
+        expect(tiled.shape).toEqual([2, 2]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [1, 2],
+          [3, 4],
+        ]);
+      });
+
+      it('should handle partial dimension tiling', async () => {
+        // PyTorch: torch.tensor([[1, 2, 3], [4, 5, 6]]).repeat(1, 2)
+        // Only tile the last dimension
+        const matrix = await tensor(
+          [
+            [1, 2, 3],
+            [4, 5, 6],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const tiled = await matrix.tile([1, 2] as const);
+
+        expect(matrix.shape).toEqual([2, 3]);
+        expect(tiled.shape).toEqual([2, 6]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [1, 2, 3, 1, 2, 3],
+          [4, 5, 6, 4, 5, 6],
+        ]);
+      });
+
+      it('should handle zero repetitions', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]]).repeat(0, 2)
+        // Output shape: [0, 4]
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const tiled = await matrix.tile([0, 2] as const);
+
+        expect(matrix.shape).toEqual([2, 2]);
+        expect(tiled.shape).toEqual([0, 4]);
+        expect(tiled.size).toBe(0);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([]);
+      });
+
+      it('should tile 3D tensors', async () => {
+        // PyTorch: torch.tensor([[[1, 2]], [[3, 4]]]).repeat(1, 2, 3)
+        // Shape: [2, 1, 2] -> [2, 2, 6]
+        const tensor3d = await tensor([[[1, 2]], [[3, 4]]] as const, { device, dtype: float32 });
+        const tiled = await tensor3d.tile([1, 2, 3] as const);
+
+        expect(tensor3d.shape).toEqual([2, 1, 2]);
+        expect(tiled.shape).toEqual([2, 2, 6]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [
+            [1, 2, 1, 2, 1, 2],
+            [1, 2, 1, 2, 1, 2],
+          ],
+          [
+            [3, 4, 3, 4, 3, 4],
+            [3, 4, 3, 4, 3, 4],
+          ],
+        ]);
+      });
+    });
+
+    describe('expand and tile interaction', () => {
+      it('should combine expand and tile operations', async () => {
+        // PyTorch: Create a pattern by expanding then tiling
+        const vector = await tensor([1, 2] as const, { device, dtype: float32 });
+
+        // First expand to add a dimension
+        const expanded = await vector.expand([3, 2] as const);
+        expect(expanded.shape).toEqual([3, 2]);
+
+        // Then tile the expanded result
+        const tiled = await expanded.tile([2, 2] as const);
+        expect(tiled.shape).toEqual([6, 4]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [1, 2, 1, 2],
+          [1, 2, 1, 2],
+          [1, 2, 1, 2],
+          [1, 2, 1, 2],
+          [1, 2, 1, 2],
+          [1, 2, 1, 2],
+        ]);
+      });
+
+      it('should work with other view operations', async () => {
+        // PyTorch: Combine expand/tile with reshape, transpose, etc.
+        const matrix = await tensor([[1], [2]] as const, { device, dtype: float32 });
+
+        // Expand -> transpose -> tile
+        const expanded = await matrix.expand([2, 3] as const);
+        const transposed = await expanded.transpose();
+        const tiled = await transposed.tile([2, 1] as const);
+
+        expect(expanded.shape).toEqual([2, 3]);
+        expect(transposed.shape).toEqual([3, 2]);
+        expect(tiled.shape).toEqual([6, 2]);
+
+        const data = await tiled.toArray();
+        expect(data).toEqual([
+          [1, 2],
+          [1, 2],
+          [1, 2],
+          [1, 2],
+          [1, 2],
+          [1, 2],
+        ]);
+      });
+    });
+
+    describe('squeeze and unsqueeze interaction', () => {
+      it('should round-trip through squeeze and unsqueeze', async () => {
+        // PyTorch: tensor with shape [2, 1, 3, 1]
+        // squeeze() -> [2, 3]
+        // unsqueeze(1).unsqueeze(3) -> [2, 1, 3, 1]
+        const original = await tensor([[[[1], [2], [3]]], [[[4], [5], [6]]]] as const, {
+          device,
+          dtype: float32,
+        });
+
+        expect(original.shape).toEqual([2, 1, 3, 1]);
+
+        // Squeeze all size-1 dimensions
+        const squeezed = await original.squeeze();
+        expect(squeezed.shape).toEqual([2, 3]);
+
+        // Unsqueeze back to original shape
+        const unsqueezed = await squeezed.unsqueeze(1).unsqueeze(3);
+        expect(unsqueezed.shape).toEqual([2, 1, 3, 1]);
+
+        // Data should be preserved
+        const originalData = await original.toArray();
+        const roundTripData = await unsqueezed.toArray();
+        expect(roundTripData).toEqual(originalData);
+      });
+
+      it('should work with view operations', async () => {
+        // PyTorch: Combine squeeze/unsqueeze with other view ops
+        const vector = await tensor([1, 2, 3, 4, 5, 6] as const, { device, dtype: float32 });
+
+        // Reshape -> unsqueeze -> transpose -> squeeze
+        const reshaped = await vector.reshape([2, 3] as const);
+        const unsqueezed = await reshaped.unsqueeze(0); // [1, 2, 3]
+        const transposed = await unsqueezed.transpose(); // [1, 3, 2]
+        const squeezed = await transposed.squeeze([0] as const); // [3, 2]
+
+        expect(squeezed.shape).toEqual([3, 2]);
+
+        const data = await squeezed.toArray();
+        expect(data).toEqual([
+          [1, 4],
+          [2, 5],
+          [3, 6],
+        ]);
+      });
+    });
+
     describe('view-on-view operations', () => {
       it('should correctly flatten a transposed matrix', async () => {
         // PyTorch:
@@ -903,6 +1587,7 @@ export function generateViewOperationTests(
         const data = await flattened.toArray();
         expect(data[0]).toBe(0);
         // Should not be sequential - verify it's not just [0, 1, 2, ...]
+        // @ts-expect-error - test error
         const isSequential = data.every((val: number, idx: number) => val === idx);
         expect(isSequential).toBe(false);
       });
