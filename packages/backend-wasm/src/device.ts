@@ -57,12 +57,11 @@ export class WASMDevice implements Device {
     | 'prod' // Reduction ops
   > = true;
 
-  private constructor() {
-  }
+  private constructor() {}
 
   /**
    * Create and initialize a new WASM device
-   * 
+   *
    * @param options Loading options for the WASM module
    * @returns Promise resolving to initialized WASM device
    */
@@ -82,12 +81,12 @@ export class WASMDevice implements Device {
 
     try {
       this.wasmModule = await loadWASMModule(options);
-      
+
       this.operationDispatcher = new this.wasmModule.WasmOperationDispatcher();
-      
+
       // Initialize memory view manager
       this.memoryViewManager = new MemoryViewManager(this.wasmModule.memory);
-      
+
       this.capabilities = {
         simd: this.wasmModule.has_simd_support(),
         sharedMemory: this.wasmModule.has_shared_memory_support(),
@@ -95,7 +94,7 @@ export class WASMDevice implements Device {
         availableMemory: 256 * 1024 * 1024,
         version: this.wasmModule.get_version(),
       };
-      
+
       this.initialized = true;
     } catch (error) {
       throw new Error(`Failed to initialize WASM device: ${error}`);
@@ -125,16 +124,23 @@ export class WASMDevice implements Device {
     if (op.__op === 'slice') {
       return this.executeSliceOp(op as any, inputs[0]!);
     }
-    
+
     let reductionAxes: number[] | null = null;
     let keepDims = false;
-    if (op.__op === 'sum' || op.__op === 'mean' || op.__op === 'max' || op.__op === 'min' || op.__op === 'prod') {
+    if (
+      op.__op === 'sum' ||
+      op.__op === 'mean' ||
+      op.__op === 'max' ||
+      op.__op === 'min' ||
+      op.__op === 'prod'
+    ) {
       const reductionOp = op as any;
       const axesKey = `__${op.__op}Axes`; // e.g., __sumAxes, __meanAxes, __prodAxes
-      reductionAxes = reductionOp[axesKey] === undefined ? null : Array.from(reductionOp[axesKey] || []);
+      reductionAxes =
+        reductionOp[axesKey] === undefined ? null : Array.from(reductionOp[axesKey] || []);
       keepDims = reductionOp.__keepDims || false;
     }
-    
+
     let softmaxAxis: number | null = null;
     if (op.__op === 'softmax' || op.__op === 'log_softmax') {
       const softmaxOp = op as any;
@@ -148,23 +154,38 @@ export class WASMDevice implements Device {
     try {
       const wasmInputs: any[] = [];
       const inputHandles: any[] = [];
-      
+
       for (let i = 0; i < inputs.length; i++) {
         const wasmData = inputs[i] as WASMDeviceData;
         const handle = wasmData.getWASMHandle() as any;
-        
+
         inputHandles.push(handle);
         wasmInputs.push(handle);
       }
-      const inputMetas = inputs.map((input, i) => this.createTensorMeta([...op.__inputs], input, i) as any);
-      
+      const inputMetas = inputs.map(
+        (input, i) => this.createTensorMeta([...op.__inputs], input, i) as any,
+      );
+
       const outputMeta = this.createTensorMeta([op.__output], null, 0) as any;
       const wasmOperation = operationToWasm(op.__op);
 
+      // ALWAYS pre-allocate output buffer upfront to avoid nested RefCell borrows
+      let outputHandle: any;
+      if (output) {
+        outputHandle = (output as WASMDeviceData).getWASMHandle();
+      } else {
+        // Pre-allocate output buffer - single RefCell borrow
+        const outputSize = op.__output.__size * op.__output.__dtype.__byteSize;
+        const zeroBuffer = new ArrayBuffer(outputSize);
+        outputHandle = this.operationDispatcher.create_buffer_with_js_data(
+          new Uint8Array(zeroBuffer),
+        );
+      }
+
       let resultHandle;
       if (inputs.length === 0) {
-        resultHandle = output ? (output as WASMDeviceData).getWASMHandle() : 
-          this.operationDispatcher.create_buffer_with_js_data(new Uint8Array(op.__output.__size * op.__output.__dtype.__byteSize));
+        // For 0-input operations, we already have the pre-allocated buffer
+        resultHandle = outputHandle;
       } else if (inputs.length === 1) {
         if (reductionAxes !== null) {
           resultHandle = this.operationDispatcher.execute_reduction(
@@ -174,7 +195,7 @@ export class WASMDevice implements Device {
             outputMeta,
             reductionAxes.length > 0 ? reductionAxes : null,
             keepDims,
-            output ? (output as WASMDeviceData).getWASMHandle() as any : null
+            outputHandle, // Always provided - never null
           );
         } else if (softmaxAxis !== null) {
           resultHandle = this.operationDispatcher.execute_softmax(
@@ -183,7 +204,7 @@ export class WASMDevice implements Device {
             inputMetas[0],
             outputMeta,
             softmaxAxis,
-            output ? (output as WASMDeviceData).getWASMHandle() as any : null
+            outputHandle, // Always provided - never null
           );
         } else {
           resultHandle = this.operationDispatcher.execute_unary(
@@ -191,7 +212,7 @@ export class WASMDevice implements Device {
             wasmInputs[0],
             inputMetas[0],
             outputMeta,
-            output ? (output as WASMDeviceData).getWASMHandle() as any : null
+            outputHandle, // Always provided - never null
           );
         }
       } else if (inputs.length === 2) {
@@ -202,15 +223,14 @@ export class WASMDevice implements Device {
           inputMetas[0],
           inputMetas[1],
           outputMeta,
-          output ? (output as WASMDeviceData).getWASMHandle() as any : null
+          outputHandle, // Always provided - never null
         );
       } else {
         throw new Error(`Unsupported number of inputs: ${inputs.length}`);
       }
-      
+
       const resultSize = op.__output.__size * op.__output.__dtype.__byteSize;
       return createWASMDeviceData(this, resultSize, resultHandle);
-      
     } catch (error) {
       throw new Error(`WASM operation '${op.__op}' failed: ${error}`);
     }
@@ -221,10 +241,12 @@ export class WASMDevice implements Device {
    */
   createData(byteLength: number): DeviceData {
     this.ensureInitialized();
-    
+
     try {
       const zeroBuffer = new ArrayBuffer(byteLength);
-      const wasmHandle = this.operationDispatcher.create_buffer_with_js_data(new Uint8Array(zeroBuffer));
+      const wasmHandle = this.operationDispatcher.create_buffer_with_js_data(
+        new Uint8Array(zeroBuffer),
+      );
       return createWASMDeviceData(this, byteLength, wasmHandle);
     } catch (error) {
       throw new Error(`Failed to allocate ${byteLength} bytes on WASM device: ${error}`);
@@ -236,11 +258,11 @@ export class WASMDevice implements Device {
    */
   createDataWithBuffer(buffer: ArrayBuffer): DeviceData {
     this.ensureInitialized();
-    
+
     try {
       const sourceBuffer = buffer.slice(0);
       const sourceData = new Uint8Array(sourceBuffer);
-      
+
       // Handle Result type from WASM
       let wasmHandle;
       try {
@@ -248,7 +270,7 @@ export class WASMDevice implements Device {
       } catch (wasmError) {
         throw new Error(`WASM allocation failed: ${wasmError}`);
       }
-      
+
       return createWASMDeviceData(this, buffer.byteLength, wasmHandle);
     } catch (error) {
       throw new Error(`Failed to create data with buffer: ${error}`);
@@ -264,15 +286,15 @@ export class WASMDevice implements Device {
     }
 
     const wasmData = data as WASMDeviceData;
-    
+
     if (!wasmData.isDisposed()) {
       // Invalidate all views for this buffer BEFORE releasing it
       this.memoryViewManager!.invalidateBuffer(wasmData.id);
-      
+
       const wasmHandle = wasmData.getWASMHandle();
-      
+
       const released = this.operationDispatcher.release_buffer(wasmHandle);
-      
+
       if (!released) {
         console.warn(`Failed to release buffer ${wasmData.id}`);
       }
@@ -288,22 +310,25 @@ export class WASMDevice implements Device {
     }
 
     this.ensureInitialized();
-    
+
     const wasmData = data as WASMDeviceData;
     const wasmHandle = wasmData.getWASMHandle();
     const uint8Array = this.operationDispatcher!.copy_buffer_to_js(wasmHandle);
-    
-    return uint8Array.buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength);
+
+    return uint8Array.buffer.slice(
+      uint8Array.byteOffset,
+      uint8Array.byteOffset + uint8Array.byteLength,
+    );
   }
 
   /**
    * Read data from WASM device with zero-copy view (when possible)
    * Returns a typed array view directly into WASM memory
-   * 
+   *
    * WARNING: The returned view is only valid until:
    * - The buffer is released/disposed
    * - WASM memory grows (rare but possible)
-   * 
+   *
    * For long-term storage, use readData() instead
    */
   readDataView(data: DeviceData, dtype: DType<any, any, any>): ArrayBufferView {
@@ -312,20 +337,20 @@ export class WASMDevice implements Device {
     }
 
     this.ensureInitialized();
-    
+
     const wasmData = data as WASMDeviceData;
     const wasmHandle = wasmData.getWASMHandle() as any;
-    
+
     // Get buffer info: [ptr, size, initialized]
     const info = this.operationDispatcher!.get_buffer_view_info(wasmHandle);
     const ptr = info[0];
     const size = info[1];
     const initialized = info[2];
-    
+
     if (!initialized) {
       throw new Error('Cannot create view of uninitialized buffer');
     }
-    
+
     // Create safe zero-copy view with lifetime tracking
     const bufferId = wasmData.id;
     return this.memoryViewManager!.createSafeView(bufferId, ptr, size / dtype.__byteSize, dtype);
@@ -357,14 +382,14 @@ export class WASMDevice implements Device {
     if (!wasmData.isDisposed()) {
       // Invalidate all views before replacing the buffer
       this.memoryViewManager!.invalidateBuffer(wasmData.id);
-      
+
       const oldHandle = wasmData.getWASMHandle();
       this.operationDispatcher.release_buffer(oldHandle);
     }
-    
+
     const sourceData = new Uint8Array(buffer);
     const newHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
-    
+
     (wasmData as any).wasmHandle = newHandle;
   }
 
@@ -389,7 +414,7 @@ export class WASMDevice implements Device {
   getMemoryStats(): WASMMemoryStats {
     this.ensureInitialized();
     const wasmStats = this.operationDispatcher.get_memory_stats();
-    
+
     return {
       totalAllocated: wasmStats.total_allocated_bytes,
       activeBuffers: wasmStats.active_buffers,
@@ -403,7 +428,7 @@ export class WASMDevice implements Device {
   performIntensiveCleanup(): void {
     this.ensureInitialized();
     this.operationDispatcher.intensive_cleanup();
-    
+
     // Hint to JS garbage collector (if available)
     if (typeof global !== 'undefined' && global.gc) {
       global.gc();
@@ -452,16 +477,9 @@ export class WASMDevice implements Device {
     const offset = Math.floor(Number(tensorInfo.__offset || 0));
 
     const WasmTensorMeta = this.wasmModule!.WasmTensorMeta;
-    
-    const meta = new WasmTensorMeta(
-      wasmDtype,
-      shapeArray,
-      stridesArray,
-      size,
-      offset
-    );
-    
-    
+
+    const meta = new WasmTensorMeta(wasmDtype, shapeArray, stridesArray, size, offset);
+
     return meta;
   }
 
@@ -507,7 +525,7 @@ export class WASMDevice implements Device {
     dtype: any,
   ): Promise<ArrayBuffer> {
     const inputBuffer = await this.readData(input);
-    
+
     const outputSize = outputShape.reduce((a, b) => a * b, 1);
     const outputBuffer = new ArrayBuffer(outputSize * dtype.__byteSize);
 

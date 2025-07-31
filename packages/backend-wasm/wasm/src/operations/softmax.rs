@@ -7,7 +7,6 @@ use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 
 /// Execute softmax or log_softmax operation
 pub fn execute_softmax_op(
-    memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
@@ -15,8 +14,8 @@ pub fn execute_softmax_op(
     output_meta: &WasmTensorMeta,
     axis: Option<i32>,
 ) -> WasmResult<()> {
-    let input_ptr = memory_manager.get_read_ptr(input);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
     
     let shape = input_meta.shape();
     let strides = input_meta.strides();

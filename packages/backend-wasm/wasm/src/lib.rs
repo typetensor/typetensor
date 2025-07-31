@@ -6,6 +6,7 @@ mod types;
 mod debug;
 mod simd;
 mod fast_math;
+mod view_descriptor;
 
 use wasm_bindgen::prelude::*;
 

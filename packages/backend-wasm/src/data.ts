@@ -2,18 +2,20 @@ import type { DeviceData, Device } from '@typetensor/core';
 import type { WASMModule } from './types';
 import { getLoadedWASMModule } from './loader';
 
-// Global cleanup registry for automatic buffer disposal
-const cleanupRegistry =
-  typeof FinalizationRegistry !== 'undefined'
-    ? new FinalizationRegistry((cleanup: { device: any; wasmHandle: any }) => {
-        try {
-          // This runs when WASMDeviceData is garbage collected
-          if (cleanup.device && cleanup.device.operationDispatcher && cleanup.wasmHandle) {
-            cleanup.device.operationDispatcher.release_buffer(cleanup.wasmHandle);
-          }
-        } catch {}
-      })
-    : null;
+// Global cleanup registry for automatic buffer disposal - TEMPORARILY DISABLED
+const cleanupRegistry: FinalizationRegistry<any> | null = null;
+// TODO: Re-enable after fixing BorrowMutError
+// const cleanupRegistry =
+//   typeof FinalizationRegistry !== 'undefined'
+//     ? new FinalizationRegistry((cleanup: { device: any; wasmHandle: any }) => {
+//         try {
+//           // This runs when WASMDeviceData is garbage collected
+//           if (cleanup.device && cleanup.device.operationDispatcher && cleanup.wasmHandle) {
+//             cleanup.device.operationDispatcher.release_buffer(cleanup.wasmHandle);
+//           }
+//         } catch {}
+//       })
+//     : null;
 
 export class WASMDeviceData implements DeviceData {
   readonly id: string;

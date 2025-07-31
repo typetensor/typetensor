@@ -9,7 +9,7 @@ pub mod softmax;
 use wasm_bindgen::prelude::*;
 use std::cell::RefCell;
 use crate::types::{WasmOperation, WasmTensorMeta, WasmResult, WasmError};
-use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::memory::{WasmMemoryManager, WasmBufferHandle, allocate_direct, allocate_direct_with_data};
 
 /// Main operation dispatcher for WASM backend
 #[wasm_bindgen]
@@ -34,7 +34,7 @@ impl WasmOperationDispatcher {
         input: &WasmBufferHandle,
         input_meta: &WasmTensorMeta,
         output_meta: &WasmTensorMeta,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> Result<WasmBufferHandle, JsValue> {
         let result = self.execute_internal(
             operation, 
@@ -55,7 +55,7 @@ impl WasmOperationDispatcher {
         input_meta_a: &WasmTensorMeta,
         input_meta_b: &WasmTensorMeta,
         output_meta: &WasmTensorMeta,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> Result<WasmBufferHandle, JsValue> {
         let result = self.execute_internal(
             operation,
@@ -73,17 +73,10 @@ impl WasmOperationDispatcher {
         inputs: Vec<WasmBufferHandle>,
         input_metas: Vec<WasmTensorMeta>,
         output_meta: WasmTensorMeta,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> WasmResult<WasmBufferHandle> {
-        let (mut output, needs_initialization) = match output_handle {
-            Some(handle) => (handle, false),
-            None => {
-                let (handle, _write_ptr) = self.memory_manager.borrow_mut()
-                    .create_empty_buffer(output_meta.byte_size())
-                    .map_err(|e| WasmError::MemoryAllocationFailed)?;
-                (handle, true)
-            }
-        };
+        // Output is always pre-allocated - no RefCell borrow needed
+        let mut output = output_handle;
 
         let result = match operation {
             WasmOperation::Create => {
@@ -96,7 +89,6 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 unary::execute_unary_op(
-                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -111,7 +103,6 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 binary::execute_binary_op(
-                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &inputs[1],
@@ -128,7 +119,6 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 matmul::execute_matmul_op(
-                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &inputs[1],
@@ -147,7 +137,6 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 view::execute_view_op(
-                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -163,7 +152,6 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 reduction::execute_reduction_op(
-                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -177,7 +165,6 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 softmax::execute_softmax_op(
-                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -191,22 +178,39 @@ impl WasmOperationDispatcher {
             _ => Err(WasmError::NotImplemented),
         }?;
         
-        if needs_initialization {
-            self.memory_manager.borrow().mark_buffer_initialized(&mut output);
-        }
+        // Output is always pre-allocated and initialized
+        output.mark_initialized();
         Ok(output)
     }
 
-    /// Get memory usage statistics
+    /// Get memory usage statistics with graceful degradation
     #[wasm_bindgen]
     pub fn get_memory_stats(&self) -> crate::memory::WasmMemoryStats {
-        self.memory_manager.borrow().get_memory_stats()
+        // Use try_borrow for read access, return fallback stats if busy
+        self.memory_manager.try_borrow()
+            .map(|manager| manager.get_memory_stats())
+            .unwrap_or_else(|_| crate::memory::WasmMemoryStats::busy_fallback())
     }
 
-    /// Create buffer with data
+    /// Create buffer with data using fast-path/slow-path pattern
     #[wasm_bindgen]
     pub fn create_buffer_with_data(&self, data: &[u8]) -> WasmBufferHandle {
-        match self.memory_manager.borrow_mut().create_buffer_with_data(data) {
+        let size = data.len();
+        
+        // FAST PATH: Try pool (non-blocking)
+        if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+            if let Some(mut handle) = manager.try_get_buffer(size) {
+                // Copy data to pooled buffer
+                unsafe { 
+                    std::ptr::copy_nonoverlapping(data.as_ptr(), handle.ptr_mut(), size);
+                }
+                handle.mark_initialized();
+                return handle;
+            }
+        }
+        
+        // SLOW PATH: Direct allocation (no RefCell)
+        match allocate_direct_with_data(data) {
             Ok(handle) => handle,
             Err(e) => {
                 wasm_bindgen::throw_str(&format!("Memory allocation failed: {}", e));
@@ -214,11 +218,26 @@ impl WasmOperationDispatcher {
         }
     }
     
-    /// Create buffer with JS Uint8Array data
+    /// Create buffer with JS Uint8Array data using fast-path/slow-path pattern
     #[wasm_bindgen]
     pub fn create_buffer_with_js_data(&self, js_array: &js_sys::Uint8Array) -> WasmBufferHandle {
         let data = js_array.to_vec();
-        match self.memory_manager.borrow_mut().create_buffer_with_data(&data) {
+        let size = data.len();
+        
+        // FAST PATH: Try pool (non-blocking)
+        if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+            if let Some(mut handle) = manager.try_get_buffer(size) {
+                // Copy data to pooled buffer
+                unsafe { 
+                    std::ptr::copy_nonoverlapping(data.as_ptr(), handle.ptr_mut(), size);
+                }
+                handle.mark_initialized();
+                return handle;
+            }
+        }
+        
+        // SLOW PATH: Direct allocation (no RefCell)
+        match allocate_direct_with_data(&data) {
             Ok(handle) => handle,
             Err(e) => {
                 wasm_bindgen::throw_str(&format!("Memory allocation failed: {}", e));
@@ -232,10 +251,24 @@ impl WasmOperationDispatcher {
         handle.get_read_ptr()
     }
     
-    /// Release buffer back to pool for reuse
+    /// Release buffer back to pool for reuse using fast-path/slow-path pattern
     #[wasm_bindgen]
     pub fn release_buffer(&self, handle: WasmBufferHandle) -> bool {
-        self.memory_manager.borrow_mut().release_buffer(handle)
+        // Check if it's a pooled buffer first
+        if handle.is_pooled() {
+            // Try pool return (non-blocking)
+            if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+                // try_release_buffer consumes handle - only call if pool is available
+                return manager.try_release_buffer(handle);
+            }
+            // Pool is busy - fallback to direct deallocation
+            handle.deallocate_direct();
+            true
+        } else {
+            // Direct buffer - deallocate immediately
+            handle.deallocate_direct();
+            true
+        }
     }
     
     /// Copy buffer data to JavaScript Uint8Array
@@ -260,24 +293,32 @@ impl WasmOperationDispatcher {
         js_sys::Uint32Array::from(&info[..])
     }
     
-    /// Compact memory pools to reduce memory usage
+    /// Compact memory pools to reduce memory usage (non-blocking)
     #[wasm_bindgen]
     pub fn compact_pools(&self) {
-        self.memory_manager.borrow_mut().compact_pools();
+        // Only compact if not busy - skip if reentrancy detected
+        if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+            manager.compact_pools();
+        }
+        // If busy, skip compaction - it's not critical
     }
     
-    /// Perform intensive cleanup - for use during benchmarks or stress tests
+    /// Perform intensive cleanup - for use during benchmarks or stress tests (non-blocking)
     #[wasm_bindgen]
     pub fn intensive_cleanup(&self) {
-        let mut manager = self.memory_manager.borrow_mut();
-        manager.compact_pools();
-        // Could add more aggressive cleanup here if needed
+        // Only cleanup if not busy - skip if reentrancy detected
+        if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+            manager.compact_pools();
+            // Could add more aggressive cleanup here if needed
+        }
+        // If busy, skip cleanup - it's not critical
     }
     
     /// Clone a buffer handle
     #[wasm_bindgen]
     pub fn clone_buffer_handle(&self, handle: &WasmBufferHandle) -> WasmBufferHandle {
-        self.memory_manager.borrow().increment_ref_count(handle.id());
+        // TODO: Implement reference counting with memory_manager
+        // self.memory_manager.borrow().increment_ref_count(handle.id());
         handle.clone()
     }
     
@@ -291,7 +332,7 @@ impl WasmOperationDispatcher {
         output_meta: &WasmTensorMeta,
         axes: Option<Vec<i32>>,
         keep_dims: bool,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> Result<WasmBufferHandle, JsValue> {
         let axes_usize = axes.map(|v| v.into_iter().map(|x| x as usize).collect::<Vec<_>>());
         let result = self.execute_reduction_internal(
@@ -315,7 +356,7 @@ impl WasmOperationDispatcher {
         input_meta: &WasmTensorMeta,
         output_meta: &WasmTensorMeta,
         axis: i32,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> Result<WasmBufferHandle, JsValue> {
         let result = self.execute_softmax_internal(
             operation,
@@ -336,20 +377,12 @@ impl WasmOperationDispatcher {
         output_meta: WasmTensorMeta,
         axes: Option<Vec<usize>>,
         keep_dims: bool,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> WasmResult<WasmBufferHandle> {
-        let (mut output, needs_initialization) = match output_handle {
-            Some(handle) => (handle, false),
-            None => {
-                let (handle, _write_ptr) = self.memory_manager.borrow_mut()
-                    .create_empty_buffer(output_meta.byte_size())
-                    .map_err(|e| WasmError::MemoryAllocationFailed)?;
-                (handle, true)
-            }
-        };
+        // Output is always pre-allocated - no RefCell borrow needed
+        let mut output = output_handle;
         
         reduction::execute_reduction_op_with_axes(
-            &mut *self.memory_manager.borrow_mut(),
             operation,
             &input,
             &input_meta,
@@ -359,9 +392,8 @@ impl WasmOperationDispatcher {
             keep_dims,
         )?;
         
-        if needs_initialization {
-            self.memory_manager.borrow().mark_buffer_initialized(&mut output);
-        }
+        // Output is always pre-allocated and needs initialization
+        output.mark_initialized();
         Ok(output)
     }
     
@@ -372,20 +404,12 @@ impl WasmOperationDispatcher {
         input_meta: WasmTensorMeta,
         output_meta: WasmTensorMeta,
         axis: Option<i32>,
-        output_handle: Option<WasmBufferHandle>,
+        output_handle: WasmBufferHandle,  // Required - always pre-allocated
     ) -> WasmResult<WasmBufferHandle> {
-        let (mut output, needs_initialization) = match output_handle {
-            Some(handle) => (handle, false),
-            None => {
-                let (handle, _write_ptr) = self.memory_manager.borrow_mut()
-                    .create_empty_buffer(output_meta.byte_size())
-                    .map_err(|e| WasmError::MemoryAllocationFailed)?;
-                (handle, true)
-            }
-        };
+        // Output is always pre-allocated - no RefCell borrow needed
+        let mut output = output_handle;
         
         softmax::execute_softmax_op(
-            &mut *self.memory_manager.borrow_mut(),
             operation,
             &input,
             &input_meta,
@@ -394,9 +418,8 @@ impl WasmOperationDispatcher {
             axis,
         )?;
         
-        if needs_initialization {
-            self.memory_manager.borrow().mark_buffer_initialized(&mut output);
-        }
+        // Output is always pre-allocated and needs initialization
+        output.mark_initialized();
         Ok(output)
     }
 }

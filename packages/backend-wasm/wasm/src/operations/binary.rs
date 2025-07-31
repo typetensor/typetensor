@@ -11,7 +11,6 @@ use crate::simd::float32;
 
 /// Execute a binary operation
 pub fn execute_binary_op(
-    memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
     input_a: &WasmBufferHandle,
     input_b: &WasmBufferHandle,
@@ -20,9 +19,9 @@ pub fn execute_binary_op(
     output: &WasmBufferHandle,
     output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
-    let input_a_ptr = memory_manager.get_read_ptr(input_a);
-    let input_b_ptr = memory_manager.get_read_ptr(input_b);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_a_ptr = input_a.get_read_ptr();
+    let input_b_ptr = input_b.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
 
     // Check if we can use fast path (same size, no broadcasting)
     let same_size = input_meta_a.size() == input_meta_b.size() && 

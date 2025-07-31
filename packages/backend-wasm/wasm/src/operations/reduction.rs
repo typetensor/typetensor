@@ -10,7 +10,6 @@ use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 
 /// Execute a reduction operation (legacy - no axis support)
 pub fn execute_reduction_op(
-    memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
@@ -19,7 +18,6 @@ pub fn execute_reduction_op(
 ) -> WasmResult<()> {
     // Call new version with None axes (reduce all)
     execute_reduction_op_with_axes(
-        memory_manager,
         operation,
         input,
         input_meta,
@@ -32,7 +30,6 @@ pub fn execute_reduction_op(
 
 /// Execute a reduction operation with axis support
 pub fn execute_reduction_op_with_axes(
-    memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
@@ -41,8 +38,8 @@ pub fn execute_reduction_op_with_axes(
     axes: Option<&[usize]>,
     keep_dims: bool,
 ) -> WasmResult<()> {
-    let input_ptr = memory_manager.get_read_ptr(input);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
     
     let input_shape = input_meta.shape();
     let input_strides = input_meta.strides();

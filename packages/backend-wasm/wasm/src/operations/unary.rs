@@ -18,15 +18,14 @@ use crate::fast_math::{fast_sin_f32, fast_cos_f32};
 
 /// Execute a unary operation
 pub fn execute_unary_op(
-    memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
     output: &WasmBufferHandle,
     _output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
-    let input_ptr = memory_manager.get_read_ptr(input);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
     let size = input_meta.size();
 
     match input_meta.dtype() {

@@ -10,7 +10,6 @@ use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 
 /// Execute a view operation
 pub fn execute_view_op(
-    memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
@@ -19,32 +18,31 @@ pub fn execute_view_op(
 ) -> WasmResult<()> {
     match operation {
         WasmOperation::Reshape | WasmOperation::View | WasmOperation::Flatten => {
-            // These are zero-copy operations - output buffer shares data with input
-            // The shape change is handled at the metadata level
-            // TODO: Implement proper zero-copy views
-            Ok(())
+            // For now, copy the data until we have proper view support
+            // TODO: Implement zero-copy views with shared buffers
+            execute_copy_reshape(input, input_meta, output, output_meta)
         }
         WasmOperation::Slice => {
             // Slice operation requires data copying to extract the sliced portion
-            execute_slice_op(memory_manager, input, input_meta, output, output_meta)
+            execute_slice_op(input, input_meta, output, output_meta)
         }
         WasmOperation::Permute | WasmOperation::Transpose => {
             // Transpose operations may require data copying depending on the implementation
-            execute_transpose_op(memory_manager, input, input_meta, output, output_meta)
+            execute_transpose_op(input, input_meta, output, output_meta)
         }
         WasmOperation::Squeeze | WasmOperation::Unsqueeze => {
-            // Zero-copy operations - dimension addition/removal
-            // TODO: Implement proper zero-copy views
-            Ok(())
+            // For now, copy the data until we have proper view support
+            // TODO: Implement zero-copy views with shared buffers
+            execute_copy_reshape(input, input_meta, output, output_meta)
         }
         WasmOperation::Expand => {
-            // Expand singleton dimensions - zero-copy with stride tricks
-            // TODO: Implement proper zero-copy views
-            Ok(())
+            // For now, implement expand by copying with broadcasting
+            // TODO: Implement zero-copy expand with stride tricks
+            execute_expand_op(input, input_meta, output, output_meta)
         }
         WasmOperation::Tile => {
             // Tile operation requires data copying
-            execute_tile_op(memory_manager, input, input_meta, output, output_meta)
+            execute_tile_op(input, input_meta, output, output_meta)
         }
         _ => Err(WasmError::InvalidOperation),
     }
@@ -52,15 +50,14 @@ pub fn execute_view_op(
 
 /// Execute slice operation
 fn execute_slice_op(
-    memory_manager: &mut WasmMemoryManager,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
     output: &WasmBufferHandle,
     output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
     // Get pointers to input and output data
-    let input_ptr = memory_manager.get_read_ptr(input);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
     
     // Get tensor metadata
     let input_shape = input_meta.shape();
@@ -105,14 +102,13 @@ fn execute_slice_op(
 
 /// Execute transpose operation
 fn execute_transpose_op(
-    memory_manager: &mut WasmMemoryManager,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
     output: &WasmBufferHandle,
     output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
-    let input_ptr = memory_manager.get_read_ptr(input);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
     
     let input_shape = input_meta.shape();
     let input_strides = input_meta.strides();
@@ -154,14 +150,13 @@ fn execute_transpose_op(
 
 /// Execute tile operation
 fn execute_tile_op(
-    memory_manager: &mut WasmMemoryManager,
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
     output: &WasmBufferHandle,
     output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
-    let input_ptr = memory_manager.get_read_ptr(input);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
     
     let input_shape = input_meta.shape();
     let output_shape = output_meta.shape();
@@ -499,6 +494,195 @@ fn slice_i32(
             }
         }
     }
+    Ok(())
+}
+
+/// Execute a simple copy for reshape/flatten operations
+fn execute_copy_reshape(
+    input: &WasmBufferHandle,
+    input_meta: &WasmTensorMeta,
+    output: &WasmBufferHandle,
+    output_meta: &WasmTensorMeta,
+) -> WasmResult<()> {
+    // Verify same total size
+    if input_meta.size() != output_meta.size() {
+        return Err(WasmError::InvalidShape);
+    }
+    
+    // Simple memory copy since reshape doesn't change data order
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let byte_size = input_meta.byte_size();
+    
+    unsafe {
+        std::ptr::copy_nonoverlapping(input_ptr, output_ptr, byte_size);
+    }
+    
+    Ok(())
+}
+
+/// Execute expand operation with broadcasting
+fn execute_expand_op(
+    input: &WasmBufferHandle,
+    input_meta: &WasmTensorMeta,
+    output: &WasmBufferHandle,
+    output_meta: &WasmTensorMeta,
+) -> WasmResult<()> {
+    let input_ptr = input.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    
+    let input_shape = input_meta.shape();
+    let output_shape = output_meta.shape();
+    let input_strides = input_meta.strides();
+    
+    // Handle dimension mismatch by prepending 1s to input shape
+    let mut expanded_input_shape = input_shape.clone();
+    let mut expanded_input_strides = input_strides.clone();
+    
+    while expanded_input_shape.len() < output_shape.len() {
+        expanded_input_shape.insert(0, 1);
+        expanded_input_strides.insert(0, 0);
+    }
+    
+    // Verify broadcasting is valid
+    for i in 0..output_shape.len() {
+        let in_size = expanded_input_shape[i];
+        let out_size = output_shape[i];
+        
+        if in_size != out_size && in_size != 1 {
+            return Err(WasmError::InvalidShape);
+        }
+    }
+    
+    match input_meta.dtype() {
+        WasmDType::Float32 => {
+            let input_slice = unsafe {
+                std::slice::from_raw_parts(input_ptr as *const f32, input_meta.size())
+            };
+            let output_slice = unsafe {
+                std::slice::from_raw_parts_mut(output_ptr as *mut f32, output_meta.size())
+            };
+            expand_f32(input_slice, output_slice, &expanded_input_shape, &expanded_input_strides, &output_shape)?;
+        }
+        WasmDType::Float64 => {
+            let input_slice = unsafe {
+                std::slice::from_raw_parts(input_ptr as *const f64, input_meta.size())
+            };
+            let output_slice = unsafe {
+                std::slice::from_raw_parts_mut(output_ptr as *mut f64, output_meta.size())
+            };
+            expand_f64(input_slice, output_slice, &expanded_input_shape, &expanded_input_strides, &output_shape)?;
+        }
+        WasmDType::Int32 => {
+            let input_slice = unsafe {
+                std::slice::from_raw_parts(input_ptr as *const i32, input_meta.size())
+            };
+            let output_slice = unsafe {
+                std::slice::from_raw_parts_mut(output_ptr as *mut i32, output_meta.size())
+            };
+            expand_i32(input_slice, output_slice, &expanded_input_shape, &expanded_input_strides, &output_shape)?;
+        }
+        _ => return Err(WasmError::NotImplemented),
+    }
+    
+    Ok(())
+}
+
+/// Expand f32 tensor with broadcasting
+fn expand_f32(
+    input: &[f32],
+    output: &mut [f32],
+    input_shape: &[usize],
+    input_strides: &[usize],
+    output_shape: &[usize],
+) -> WasmResult<()> {
+    let total_output_elements = output_shape.iter().product::<usize>();
+    
+    for output_flat_index in 0..total_output_elements {
+        let output_indices = flat_index_to_indices(output_flat_index, output_shape);
+        
+        // Map output indices to input indices with broadcasting
+        let mut input_indices = vec![0; input_shape.len()];
+        for i in 0..input_shape.len() {
+            if input_shape[i] == 1 {
+                // Broadcast dimension
+                input_indices[i] = 0;
+            } else {
+                input_indices[i] = output_indices[i];
+            }
+        }
+        
+        let input_flat_index = compute_flat_index(&input_indices, input_strides);
+        
+        if input_flat_index < input.len() && output_flat_index < output.len() {
+            output[output_flat_index] = input[input_flat_index];
+        }
+    }
+    
+    Ok(())
+}
+
+/// Expand f64 tensor with broadcasting
+fn expand_f64(
+    input: &[f64],
+    output: &mut [f64],
+    input_shape: &[usize],
+    input_strides: &[usize],
+    output_shape: &[usize],
+) -> WasmResult<()> {
+    let total_output_elements = output_shape.iter().product::<usize>();
+    
+    for output_flat_index in 0..total_output_elements {
+        let output_indices = flat_index_to_indices(output_flat_index, output_shape);
+        
+        let mut input_indices = vec![0; input_shape.len()];
+        for i in 0..input_shape.len() {
+            if input_shape[i] == 1 {
+                input_indices[i] = 0;
+            } else {
+                input_indices[i] = output_indices[i];
+            }
+        }
+        
+        let input_flat_index = compute_flat_index(&input_indices, input_strides);
+        
+        if input_flat_index < input.len() && output_flat_index < output.len() {
+            output[output_flat_index] = input[input_flat_index];
+        }
+    }
+    
+    Ok(())
+}
+
+/// Expand i32 tensor with broadcasting
+fn expand_i32(
+    input: &[i32],
+    output: &mut [i32],
+    input_shape: &[usize],
+    input_strides: &[usize],
+    output_shape: &[usize],
+) -> WasmResult<()> {
+    let total_output_elements = output_shape.iter().product::<usize>();
+    
+    for output_flat_index in 0..total_output_elements {
+        let output_indices = flat_index_to_indices(output_flat_index, output_shape);
+        
+        let mut input_indices = vec![0; input_shape.len()];
+        for i in 0..input_shape.len() {
+            if input_shape[i] == 1 {
+                input_indices[i] = 0;
+            } else {
+                input_indices[i] = output_indices[i];
+            }
+        }
+        
+        let input_flat_index = compute_flat_index(&input_indices, input_strides);
+        
+        if input_flat_index < input.len() && output_flat_index < output.len() {
+            output[output_flat_index] = input[input_flat_index];
+        }
+    }
+    
     Ok(())
 }
 

@@ -22,7 +22,7 @@ import {
   generateDataAccessOperationTests,
 } from '@typetensor/test-utils';
 import { WASMDevice } from './device';
-import { float32 } from '@typetensor/core';
+import { float32, int32, uint8 } from '@typetensor/core';
 
 // Create device instance for all tests
 let wasmDevice: WASMDevice;

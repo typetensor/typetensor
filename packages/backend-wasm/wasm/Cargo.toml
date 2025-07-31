@@ -7,17 +7,20 @@ description = "WebAssembly backend for TypeTensor - High-performance tensor oper
 license = "MIT"
 repository = "https://github.com/typetensor/typetensor"
 
+# wasm-pack configuration
 [package.metadata.wasm-pack.profile.release]
-# Configure wasm-opt with required features
+# Use array format for wasm-opt flags (wasm-pack 0.13.1 format)
 wasm-opt = [
-    "-O3",                              # High optimization level
-    "--enable-simd",                    # Enable SIMD support
-    "--enable-bulk-memory",             # Enable bulk memory operations
-    "--enable-mutable-globals",         # Enable mutable globals
-    "--enable-nontrapping-float-to-int",# Enable float to int conversions
-    "--strip-debug",                    # Remove debug sections
-    "--strip-producers",                # Remove producers section
+    "-O3",
+    "--enable-simd",
+    "--enable-bulk-memory", 
+    "--enable-mutable-globals",
+    "--enable-nontrapping-float-to-int"
 ]
+
+[package.metadata.wasm-pack.profile.dev]
+# Disable wasm-opt for faster development builds
+wasm-opt = false
 
 [lib]
 crate-type = ["cdylib"]
@@ -92,3 +95,4 @@ opt-level = 0
 [profile.release.package."*"]
 # Optimize dependencies aggressively
 opt-level = 3
+

@@ -13,8 +13,7 @@ use microgemm::{MatRef, MatMut, PackSizes, Kernel, kernels::GenericKernel8x8};
 
 /// Execute matrix multiplication operation
 pub fn execute_matmul_op(
-    memory_manager: &mut WasmMemoryManager,
-    operation: crate::types::WasmOperation,
+    _operation: crate::types::WasmOperation,
     input_a: &WasmBufferHandle,
     input_b: &WasmBufferHandle,
     input_meta_a: &WasmTensorMeta,
@@ -22,9 +21,9 @@ pub fn execute_matmul_op(
     output: &WasmBufferHandle,
     output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
-    let input_a_ptr = memory_manager.get_read_ptr(input_a);
-    let input_b_ptr = memory_manager.get_read_ptr(input_b);
-    let output_ptr = memory_manager.get_write_ptr(output);
+    let input_a_ptr = input_a.get_read_ptr();
+    let input_b_ptr = input_b.get_read_ptr();
+    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
 
     let shape_a = input_meta_a.shape();
     let shape_b = input_meta_b.shape();

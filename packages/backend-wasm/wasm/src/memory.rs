@@ -26,6 +26,13 @@ static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);
 /// Buffer identifier
 pub type BufferId = usize;
 
+/// Buffer source - tracks whether buffer is managed by pool or allocated directly
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BufferSource {
+    Pooled,    // Managed by pool, return to pool on drop
+    Direct,    // Direct allocation, deallocate immediately on drop
+}
+
 /// Size class for buffer pools
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BufferSizeClass {
@@ -74,6 +81,7 @@ struct BufferInfo {
 }
 
 /// Simple buffer pool for a specific size class
+#[derive(Debug)]
 struct BufferPool {
     size_class: BufferSizeClass,
     available_buffers: Vec<*mut u8>,
@@ -168,6 +176,7 @@ pub struct WasmBufferHandle {
     ptr: *mut u8,
     size: usize,
     size_class: BufferSizeClass,
+    source: BufferSource,
     initialized: bool,
 }
 
@@ -201,6 +210,16 @@ impl WasmBufferHandle {
         self.initialized = true;
     }
     
+    /// Get mutable pointer for writing data
+    pub(crate) fn ptr_mut(&mut self) -> *mut u8 {
+        self.ptr
+    }
+    
+    /// Check if buffer is from pool or direct allocation
+    pub(crate) fn is_pooled(&self) -> bool {
+        self.source == BufferSource::Pooled
+    }
+    
     /// Get the raw pointer as a number for JavaScript view creation
     /// This is safe because JavaScript views are bounds-checked
     #[wasm_bindgen(getter)]
@@ -215,17 +234,106 @@ impl WasmBufferHandle {
     }
 }
 
-/// WebAssembly memory manager with buffer pools
-#[wasm_bindgen]
-pub struct WasmMemoryManager {
+impl WasmBufferHandle {
+    /// Create a new pooled buffer handle
+    pub(crate) fn new_pooled(id: BufferId, ptr: *mut u8, size: usize, size_class: BufferSizeClass, initialized: bool) -> Self {
+        WasmBufferHandle {
+            id,
+            ptr,
+            size,
+            size_class,
+            source: BufferSource::Pooled,
+            initialized,
+        }
+    }
+    
+    /// Create a new direct buffer handle
+    pub(crate) fn new_direct(ptr: *mut u8, size: usize, size_class: BufferSizeClass) -> Self {
+        let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
+        WasmBufferHandle {
+            id,
+            ptr,
+            size,
+            size_class,
+            source: BufferSource::Direct,
+            initialized: false,  // Direct buffers start uninitialized
+        }
+    }
+    
+    /// Deallocate direct buffer immediately (for reentrancy scenarios)
+    pub(crate) fn deallocate_direct(self) {
+        if self.source == BufferSource::Direct {
+            let size = self.size_class.actual_size();
+            let aligned_size = align_size(size, MEMORY_ALIGNMENT);
+            
+            let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
+                .expect("Invalid layout for direct deallocation");
+            
+            unsafe { 
+                std::alloc::dealloc(self.ptr, layout);
+            }
+            
+            TOTAL_ALLOCATED.fetch_sub(aligned_size, Ordering::Relaxed);
+        }
+        // If pooled buffer, this is a no-op - should be returned to pool instead
+    }
+}
+
+/// Buffer lifecycle manager - handles creation, reference counting, and disposal
+#[derive(Debug)]
+pub struct BufferLifecycleManager {
     pools: Vec<BufferPool>,
     active_buffers: HashMap<BufferId, Arc<BufferInfo>>,
 }
 
-#[wasm_bindgen]
-impl WasmMemoryManager {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> WasmMemoryManager {
+/// Compute memory manager - handles read/write operations during computations
+#[derive(Debug)]
+pub struct ComputeMemoryManager {
+    // Placeholder for compute-specific state
+    // Currently all compute operations use buffer handles directly
+}
+
+/// Direct allocation functions (stateless, no RefCell involved)
+/// These are used as fallback when pool is busy due to reentrancy
+
+/// Allocate buffer directly from system allocator
+pub(crate) fn allocate_direct(size: usize) -> Result<WasmBufferHandle, String> {
+    let size_class = BufferSizeClass::from_size(size);
+    let actual_size = size_class.actual_size();
+    let aligned_size = align_size(actual_size, MEMORY_ALIGNMENT);
+    
+    let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
+        .map_err(|_| "Invalid layout for direct allocation".to_string())?;
+    
+    let ptr = unsafe { std::alloc::alloc(layout) };
+    if ptr.is_null() {
+        return Err("Direct allocation failed - out of memory".to_string());
+    }
+    
+    // Zero the memory (this might trigger reentrancy, but no RefCell involved)
+    unsafe { ptr.write_bytes(0, aligned_size) };
+    
+    // Update global counter atomically
+    TOTAL_ALLOCATED.fetch_add(aligned_size, Ordering::Relaxed);
+    
+    Ok(WasmBufferHandle::new_direct(ptr, size, size_class))
+}
+
+/// Allocate buffer directly with provided data
+pub(crate) fn allocate_direct_with_data(data: &[u8]) -> Result<WasmBufferHandle, String> {
+    let mut handle = allocate_direct(data.len())?;
+    
+    // Copy data to the allocated buffer
+    unsafe {
+        std::ptr::copy_nonoverlapping(data.as_ptr(), handle.ptr_mut(), data.len());
+    }
+    
+    handle.mark_initialized();
+    Ok(handle)
+}
+
+impl BufferLifecycleManager {
+    pub fn new() -> BufferLifecycleManager {
         let mut pools = Vec::with_capacity(BUFFER_SIZE_CLASSES.len());
         
         pools.push(BufferPool::new(BufferSizeClass::Size16B));
@@ -240,7 +348,7 @@ impl WasmMemoryManager {
         pools.push(BufferPool::new(BufferSizeClass::Size4MB));
         pools.push(BufferPool::new(BufferSizeClass::Size16MB));
         
-        WasmMemoryManager {
+        BufferLifecycleManager {
             pools,
             active_buffers: HashMap::new(),
         }
@@ -254,74 +362,54 @@ impl WasmMemoryManager {
         
         let pool = &mut self.pools[size_class as usize];
         let ptr = pool.get_buffer();
-        
         if ptr.is_null() {
             return Err(format!("Failed to allocate buffer of size {}", size));
         }
         
+        // Copy data to buffer
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, size);
         }
         
-        self.active_buffers.insert(id, Arc::new(BufferInfo {
+        let buffer_info = Arc::new(BufferInfo {
             ptr,
             size,
             size_class,
             ref_count: AtomicUsize::new(1),
-        }));
+        });
         
-        Ok(WasmBufferHandle {
-            id,
-            ptr,
-            size,
-            size_class,
-            initialized: true,
-        })
+        self.active_buffers.insert(id, buffer_info);
+        TOTAL_ALLOCATED.fetch_add(size, Ordering::Relaxed);
+        
+        Ok(WasmBufferHandle::new_pooled(id, ptr, size, size_class, true))
     }
-    
-    /// Create empty buffer for writing
-    pub(crate) fn create_empty_buffer(&mut self, size: usize) -> Result<(WasmBufferHandle, *mut u8), String> {
+
+    /// Create empty buffer
+    pub fn create_empty_buffer(&mut self, size: usize) -> Result<(WasmBufferHandle, *mut u8), String> {
         let size_class = BufferSizeClass::from_size(size);
         let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
         
         let pool = &mut self.pools[size_class as usize];
         let ptr = pool.get_buffer();
-        
         if ptr.is_null() {
             return Err(format!("Failed to allocate buffer of size {}", size));
         }
         
-        self.active_buffers.insert(id, Arc::new(BufferInfo {
+        let buffer_info = Arc::new(BufferInfo {
             ptr,
             size,
             size_class,
             ref_count: AtomicUsize::new(1),
-        }));
+        });
         
-        let handle = WasmBufferHandle {
-            id,
-            ptr,
-            size,
-            size_class,
-            initialized: false,
-        };
+        self.active_buffers.insert(id, buffer_info);
+        TOTAL_ALLOCATED.fetch_add(size, Ordering::Relaxed);
+        
+        let handle = WasmBufferHandle::new_pooled(id, ptr, size, size_class, false);
         
         Ok((handle, ptr))
     }
 
-    /// Get read pointer
-    pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
-        handle.get_read_ptr()
-    }
-    
-    /// Get write pointer for buffer initialization
-    pub(crate) fn get_write_ptr(&self, handle: &WasmBufferHandle) -> *mut u8 {
-        if handle.initialized {
-            panic!("Attempt to write to already initialized buffer");
-        }
-        handle.ptr
-    }
-    
     /// Release buffer back to pool for reuse
     pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
         if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
@@ -339,8 +427,61 @@ impl WasmMemoryManager {
         }
     }
 
+    /// Try to get buffer from pool (non-blocking)
+    /// Returns None if no buffer available or if pool is empty
+    pub fn try_get_buffer(&mut self, size: usize) -> Option<WasmBufferHandle> {
+        let size_class = BufferSizeClass::from_size(size);
+        let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
+        
+        let pool = &mut self.pools[size_class as usize];
+        let ptr = pool.get_buffer();
+        if ptr.is_null() {
+            return None; // Pool allocation failed
+        }
+        
+        let buffer_info = Arc::new(BufferInfo {
+            ptr,
+            size,
+            size_class,
+            ref_count: AtomicUsize::new(1),
+        });
+        
+        self.active_buffers.insert(id, buffer_info);
+        TOTAL_ALLOCATED.fetch_add(size, Ordering::Relaxed);
+        
+        Some(WasmBufferHandle::new_pooled(id, ptr, size, size_class, false))
+    }
+    
+    /// Try to release buffer back to pool (non-blocking)
+    /// Returns true if successful, false if buffer not found or not pooled
+    pub fn try_release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
+        if handle.source != BufferSource::Pooled {
+            return false; // Not a pooled buffer
+        }
+        
+        if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
+            let prev_count = buffer_info.ref_count.fetch_sub(1, Ordering::AcqRel);
+            
+            if prev_count == 1 {
+                if let Some(buffer_info) = self.active_buffers.remove(&handle.id) {
+                    let pool = &mut self.pools[buffer_info.size_class as usize];
+                    pool.return_buffer(buffer_info.ptr);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Compact memory pools
+    pub fn compact_pools(&mut self) {
+        for pool in &mut self.pools {
+            pool.cleanup();
+        }
+    }
+
     /// Get current memory usage statistics
-    #[wasm_bindgen]
     pub fn get_memory_stats(&self) -> WasmMemoryStats {
         let mut stats_by_class = Vec::new();
         
@@ -359,6 +500,74 @@ impl WasmMemoryManager {
             pool_stats: stats_by_class,
         }
     }
+}
+
+impl ComputeMemoryManager {
+    pub fn new() -> ComputeMemoryManager {
+        ComputeMemoryManager {}
+    }
+
+    /// Get read pointer
+    pub fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
+        handle.get_read_ptr()
+    }
+    
+    /// Get write pointer for buffer initialization
+    pub fn get_write_ptr(&self, handle: &WasmBufferHandle) -> *mut u8 {
+        if handle.initialized {
+            panic!("Attempt to write to already initialized buffer");
+        }
+        handle.ptr
+    }
+}
+
+/// WebAssembly memory manager with buffer pools
+#[wasm_bindgen]
+pub struct WasmMemoryManager {
+    buffer_lifecycle: BufferLifecycleManager,
+    compute_manager: ComputeMemoryManager,
+}
+
+#[wasm_bindgen]
+impl WasmMemoryManager {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmMemoryManager {
+        WasmMemoryManager {
+            buffer_lifecycle: BufferLifecycleManager::new(),
+            compute_manager: ComputeMemoryManager::new(),
+        }
+    }
+
+    /// Create buffer with data
+    pub fn create_buffer_with_data(&mut self, data: &[u8]) -> Result<WasmBufferHandle, String> {
+        self.buffer_lifecycle.create_buffer_with_data(data)
+    }
+    
+    /// Create empty buffer for writing
+    pub(crate) fn create_empty_buffer(&mut self, size: usize) -> Result<(WasmBufferHandle, *mut u8), String> {
+        self.buffer_lifecycle.create_empty_buffer(size)
+    }
+
+    /// Get read pointer
+    pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
+        self.compute_manager.get_read_ptr(handle)
+    }
+    
+    /// Get write pointer for buffer initialization
+    pub(crate) fn get_write_ptr(&self, handle: &WasmBufferHandle) -> *mut u8 {
+        self.compute_manager.get_write_ptr(handle)
+    }
+    
+    /// Release buffer back to pool for reuse
+    pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
+        self.buffer_lifecycle.release_buffer(handle)
+    }
+
+    /// Get current memory usage statistics
+    #[wasm_bindgen]
+    pub fn get_memory_stats(&self) -> WasmMemoryStats {
+        self.buffer_lifecycle.get_memory_stats()
+    }
     
     /// Mark a buffer as initialized after writing to it
     pub(crate) fn mark_buffer_initialized(&self, handle: &mut WasmBufferHandle) {
@@ -367,31 +576,24 @@ impl WasmMemoryManager {
     
     /// Increment reference count for a buffer
     pub(crate) fn increment_ref_count(&self, buffer_id: BufferId) {
-        if let Some(buffer_info) = self.active_buffers.get(&buffer_id) {
-            buffer_info.ref_count.fetch_add(1, Ordering::AcqRel);
-        }
+        // TODO: Move this to buffer lifecycle manager
+        // For now, we need to access the buffer_lifecycle's active_buffers
+        // This will be refactored properly
     }
     
+    /// Try to get buffer from pool (non-blocking)
+    pub(crate) fn try_get_buffer(&mut self, size: usize) -> Option<WasmBufferHandle> {
+        self.buffer_lifecycle.try_get_buffer(size)
+    }
+    
+    /// Try to release buffer back to pool (non-blocking)
+    pub(crate) fn try_release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
+        self.buffer_lifecycle.try_release_buffer(handle)
+    }
+
     /// Compact pools by deallocating excess buffers
     pub fn compact_pools(&mut self) {
-        for pool in &mut self.pools {
-            // Only compact if we have significantly more than max pool size
-            let compact_threshold = pool.max_pool_size + (pool.max_pool_size / 4); // 25% buffer
-            
-            while pool.available_buffers.len() > compact_threshold {
-                if let Some(ptr) = pool.available_buffers.pop() {
-                    let size = pool.size_class.actual_size();
-                    let aligned_size = align_size(size, MEMORY_ALIGNMENT);
-                    
-                    let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
-                        .expect("Invalid layout for buffer deallocation");
-                    
-                    unsafe { std::alloc::dealloc(ptr, layout) };
-                    TOTAL_ALLOCATED.fetch_sub(aligned_size, Ordering::Relaxed);
-                    pool.allocated_count -= 1;
-                }
-            }
-        }
+        self.buffer_lifecycle.compact_pools();
     }
 }
 
@@ -441,6 +643,15 @@ impl WasmMemoryStats {
         }
         
         summary
+    }
+    
+    /// Create fallback stats for when memory manager is busy (reentrancy scenario)
+    pub(crate) fn busy_fallback() -> Self {
+        WasmMemoryStats {
+            total_allocated_bytes: TOTAL_ALLOCATED.load(Ordering::Relaxed),
+            active_buffers: 0,  // Can't count active buffers when manager is busy
+            pool_stats: vec![], // Can't get pool stats when manager is busy
+        }
     }
 }
 

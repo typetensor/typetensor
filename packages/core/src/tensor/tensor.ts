@@ -633,8 +633,8 @@ type ModuloCheck<A extends number, B extends number> = Mod<A, B>;
  */
 export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformation> {
   constructor(
-    private readonly transform: S,
-    private readonly data: DeviceData,
+    readonly transform: S,
+    readonly data: DeviceData,
   ) {}
 
   // =============================================================================
