@@ -204,6 +204,7 @@ pub enum WasmError {
     OutOfMemory,
     InvalidInput,
     NotImplemented,
+    MemoryAllocationFailed,
 }
 
 impl From<WasmError> for JsValue {
@@ -215,6 +216,7 @@ impl From<WasmError> for JsValue {
             WasmError::OutOfMemory => "Out of memory",
             WasmError::InvalidInput => "Invalid input",
             WasmError::NotImplemented => "Operation not yet implemented",
+            WasmError::MemoryAllocationFailed => "Memory allocation failed",
         };
         js_sys::Error::new(message).into()
     }

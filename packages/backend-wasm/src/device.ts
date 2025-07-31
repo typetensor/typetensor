@@ -233,8 +233,14 @@ export class WASMDevice implements Device {
     try {
       const sourceBuffer = buffer.slice(0);
       const sourceData = new Uint8Array(sourceBuffer);
-      const wasmHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
       
+      // Handle Result type from WASM
+      let wasmHandle;
+      try {
+        wasmHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
+      } catch (wasmError) {
+        throw new Error(`WASM allocation failed: ${wasmError}`);
+      }
       
       return createWASMDeviceData(this, buffer.byteLength, wasmHandle);
     } catch (error) {
@@ -333,6 +339,21 @@ export class WASMDevice implements Device {
       activeBuffers: wasmStats.active_buffers,
       poolSummary: wasmStats.get_pool_summary(),
     };
+  }
+
+  /**
+   * Perform intensive cleanup - useful during benchmarks or stress testing
+   */
+  performIntensiveCleanup(): void {
+    this.ensureInitialized();
+    this.operationDispatcher.intensive_cleanup();
+    
+    // Hint to JS garbage collector (if available)
+    if (typeof global !== 'undefined' && global.gc) {
+      global.gc();
+    } else if (typeof window !== 'undefined' && (window as any).gc) {
+      (window as any).gc();
+    }
   }
 
   /**

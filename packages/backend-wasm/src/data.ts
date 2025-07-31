@@ -2,6 +2,21 @@ import type { DeviceData, Device } from '@typetensor/core';
 import type { WASMModule } from './types';
 import { getLoadedWASMModule } from './loader';
 
+// Global cleanup registry for automatic buffer disposal
+const cleanupRegistry = typeof FinalizationRegistry !== 'undefined' 
+  ? new FinalizationRegistry((cleanup: { device: any, wasmHandle: any }) => {
+      try {
+        // This runs when WASMDeviceData is garbage collected
+        if (cleanup.device && cleanup.device.operationDispatcher && cleanup.wasmHandle) {
+          cleanup.device.operationDispatcher.release_buffer(cleanup.wasmHandle);
+        }
+      } catch (error) {
+        // Ignore cleanup errors - better than crashing
+        console.debug('WASM buffer cleanup error (safe to ignore):', error);
+      }
+    }) 
+  : null;
+
 export class WASMDeviceData implements DeviceData {
   readonly id: string;
   readonly device: Device;
@@ -10,6 +25,7 @@ export class WASMDeviceData implements DeviceData {
   private wasmHandle: unknown;
   private wasmModule: WASMModule;
   private disposed = false;
+  private cleanupToken?: object; // Reference for unregistering cleanup
 
   constructor(device: Device, byteLength: number, wasmHandle: unknown, wasmModule: WASMModule) {
     this.device = device;
@@ -17,6 +33,16 @@ export class WASMDeviceData implements DeviceData {
     this.wasmHandle = wasmHandle;
     this.wasmModule = wasmModule;
     this.id = `wasm-data-${(wasmHandle as any).id}`;
+    
+    // Register for automatic cleanup when this object is garbage collected
+    if (cleanupRegistry) {
+      this.cleanupToken = {};
+      cleanupRegistry.register(
+        this, 
+        { device, wasmHandle }, 
+        this.cleanupToken
+      );
+    }
   }
 
   clone(): WASMDeviceData {
@@ -37,6 +63,27 @@ export class WASMDeviceData implements DeviceData {
 
     this.disposed = true;
     
+    // Unregister from automatic cleanup since we're manually disposing
+    if (cleanupRegistry && this.cleanupToken) {
+      cleanupRegistry.unregister(this.cleanupToken);
+    }
+    
+    // Release the WASM buffer back to the pool
+    try {
+      const device = this.device as any;
+      if (device.operationDispatcher && this.wasmHandle) {
+        const released = device.operationDispatcher.release_buffer(this.wasmHandle);
+        if (!released) {
+          console.warn(`Failed to release WASM buffer ${this.id}`);
+        }
+      }
+    } catch (error) {
+      console.warn(`Error disposing WASM buffer ${this.id}:`, error);
+    }
+    
+    // Clear references
+    this.wasmHandle = null;
+    this.cleanupToken = undefined as any;
   }
 
   getRefCount(): number {

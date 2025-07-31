@@ -3,6 +3,7 @@ mod utils;
 mod memory;
 mod operations;
 mod types;
+mod debug;
 
 use wasm_bindgen::prelude::*;
 
@@ -39,3 +40,4 @@ pub use memory::*;
 pub use operations::*;
 pub use types::*;
 pub use utils::*;
+pub use debug::*;

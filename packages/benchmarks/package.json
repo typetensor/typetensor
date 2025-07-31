@@ -37,6 +37,7 @@
   "dependencies": {
     "@typetensor/core": "workspace:*",
     "@typetensor/backend-cpu": "workspace:*",
+    "@typetensor/backend-wasm": "workspace:*",
     "tinybench": "^3.0.2"
   },
   "devDependencies": {
@@ -55,6 +56,8 @@
     "bench:creation": "bun run src/runners/tensor-creation.ts",
     "bench:unary": "bun run src/runners/unary-ops.ts",
     "bench:binary": "bun run src/runners/binary-ops.ts",
-    "bench:matmul": "bun run src/runners/matmul-ops.ts"
+    "bench:matmul": "bun run src/runners/matmul-ops.ts",
+    "bench:wasm": "bun run src/runners/wasm-benchmarks.ts",
+    "bench:comparison": "bun run src/runners/backend-comparison.ts"
   }
 }

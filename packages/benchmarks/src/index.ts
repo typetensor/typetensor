@@ -10,3 +10,4 @@ export * from './utils/tracking';
 
 // Export runners
 export { runTensorCreationBenchmarks } from './runners/tensor-creation';
+export { runWASMBenchmarks } from './runners/wasm-benchmarks';

@@ -29,7 +29,7 @@ impl WasmOperationDispatcher {
     /// Execute a tensor operation
     #[wasm_bindgen]
     pub fn execute_unary(
-        &mut self,
+        &self,
         operation: WasmOperation,
         input: &WasmBufferHandle,
         input_meta: &WasmTensorMeta,
@@ -48,7 +48,7 @@ impl WasmOperationDispatcher {
     
     #[wasm_bindgen]
     pub fn execute_binary(
-        &mut self,
+        &self,
         operation: WasmOperation,
         input_a: &WasmBufferHandle,
         input_b: &WasmBufferHandle,
@@ -68,7 +68,7 @@ impl WasmOperationDispatcher {
     }
 
     fn execute_internal(
-        &mut self,
+        &self,
         operation: WasmOperation,
         inputs: Vec<WasmBufferHandle>,
         input_metas: Vec<WasmTensorMeta>,
@@ -78,7 +78,9 @@ impl WasmOperationDispatcher {
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
-                let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
+                let (handle, _write_ptr) = self.memory_manager.borrow_mut()
+                    .create_empty_buffer(output_meta.byte_size())
+                    .map_err(|e| WasmError::MemoryAllocationFailed)?;
                 (handle, true)
             }
         };
@@ -204,31 +206,43 @@ impl WasmOperationDispatcher {
     /// Create buffer with data
     #[wasm_bindgen]
     pub fn create_buffer_with_data(&self, data: &[u8]) -> WasmBufferHandle {
-        self.memory_manager.borrow_mut().create_buffer_with_data(data)
+        match self.memory_manager.borrow_mut().create_buffer_with_data(data) {
+            Ok(handle) => handle,
+            Err(e) => {
+                wasm_bindgen::throw_str(&format!("Memory allocation failed: {}", e));
+            }
+        }
     }
     
     /// Create buffer with JS Uint8Array data
     #[wasm_bindgen]
     pub fn create_buffer_with_js_data(&self, js_array: &js_sys::Uint8Array) -> WasmBufferHandle {
         let data = js_array.to_vec();
-        self.memory_manager.borrow_mut().create_buffer_with_data(&data)
+        match self.memory_manager.borrow_mut().create_buffer_with_data(&data) {
+            Ok(handle) => handle,
+            Err(e) => {
+                wasm_bindgen::throw_str(&format!("Memory allocation failed: {}", e));
+            }
+        }
     }
 
     /// Get read pointer for immutable buffer access
     pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
-        self.memory_manager.borrow().get_read_ptr(handle)
+        // Return the pointer directly from the handle to avoid borrow conflicts
+        handle.get_read_ptr()
     }
     
     /// Release buffer back to pool for reuse
     #[wasm_bindgen]
-    pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
+    pub fn release_buffer(&self, handle: WasmBufferHandle) -> bool {
         self.memory_manager.borrow_mut().release_buffer(handle)
     }
     
     /// Copy buffer data to JavaScript Uint8Array
     #[wasm_bindgen]
     pub fn copy_buffer_to_js(&self, handle: &WasmBufferHandle) -> js_sys::Uint8Array {
-        let ptr = self.memory_manager.borrow().get_read_ptr(handle);
+        // Use handle directly to avoid RefCell borrow conflicts
+        let ptr = handle.get_read_ptr();
         let data = unsafe { std::slice::from_raw_parts(ptr, handle.size()) };
         let copied_data = data.to_vec();
         js_sys::Uint8Array::from(&copied_data[..])
@@ -236,8 +250,16 @@ impl WasmOperationDispatcher {
     
     /// Compact memory pools to reduce memory usage
     #[wasm_bindgen]
-    pub fn compact_pools(&mut self) {
+    pub fn compact_pools(&self) {
         self.memory_manager.borrow_mut().compact_pools();
+    }
+    
+    /// Perform intensive cleanup - for use during benchmarks or stress tests
+    #[wasm_bindgen]
+    pub fn intensive_cleanup(&self) {
+        let mut manager = self.memory_manager.borrow_mut();
+        manager.compact_pools();
+        // Could add more aggressive cleanup here if needed
     }
     
     /// Clone a buffer handle
@@ -250,7 +272,7 @@ impl WasmOperationDispatcher {
     /// Execute a reduction operation with axis information
     #[wasm_bindgen]
     pub fn execute_reduction(
-        &mut self,
+        &self,
         operation: WasmOperation,
         input: &WasmBufferHandle,
         input_meta: &WasmTensorMeta,
@@ -275,7 +297,7 @@ impl WasmOperationDispatcher {
     /// Execute a softmax operation with axis information
     #[wasm_bindgen]
     pub fn execute_softmax(
-        &mut self,
+        &self,
         operation: WasmOperation,
         input: &WasmBufferHandle,
         input_meta: &WasmTensorMeta,
@@ -295,7 +317,7 @@ impl WasmOperationDispatcher {
     }
     
     fn execute_reduction_internal(
-        &mut self,
+        &self,
         operation: WasmOperation,
         input: WasmBufferHandle,
         input_meta: WasmTensorMeta,
@@ -307,7 +329,9 @@ impl WasmOperationDispatcher {
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
-                let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
+                let (handle, _write_ptr) = self.memory_manager.borrow_mut()
+                    .create_empty_buffer(output_meta.byte_size())
+                    .map_err(|e| WasmError::MemoryAllocationFailed)?;
                 (handle, true)
             }
         };
@@ -330,7 +354,7 @@ impl WasmOperationDispatcher {
     }
     
     fn execute_softmax_internal(
-        &mut self,
+        &self,
         operation: WasmOperation,
         input: WasmBufferHandle,
         input_meta: WasmTensorMeta,
@@ -341,7 +365,9 @@ impl WasmOperationDispatcher {
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
-                let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
+                let (handle, _write_ptr) = self.memory_manager.borrow_mut()
+                    .create_empty_buffer(output_meta.byte_size())
+                    .map_err(|e| WasmError::MemoryAllocationFailed)?;
                 (handle, true)
             }
         };

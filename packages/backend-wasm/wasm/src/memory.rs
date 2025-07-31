@@ -77,14 +77,31 @@ struct BufferPool {
     size_class: BufferSizeClass,
     available_buffers: Vec<*mut u8>,
     allocated_count: usize,
+    max_pool_size: usize,
 }
 
 impl BufferPool {
     fn new(size_class: BufferSizeClass) -> Self {
+        // Set appropriate pool sizes based on buffer size
+        let max_pool_size = match size_class {
+            BufferSizeClass::Size16B => 1000,   // Tiny buffers - lots allowed
+            BufferSizeClass::Size64B => 1000,   // Very common size for small tensors
+            BufferSizeClass::Size256B => 800,   // Common size
+            BufferSizeClass::Size1KB => 500,    // Medium size
+            BufferSizeClass::Size4KB => 400,    // Larger tensors
+            BufferSizeClass::Size16KB => 300,   // Big tensors
+            BufferSizeClass::Size64KB => 200,   // Large tensors
+            BufferSizeClass::Size256KB => 150,  // Very large
+            BufferSizeClass::Size1MB => 100,    // Huge tensors
+            BufferSizeClass::Size4MB => 50,     // Massive tensors
+            BufferSizeClass::Size16MB => 25,    // Enormous tensors
+        };
+        
         BufferPool {
             size_class,
             available_buffers: Vec::new(),
             allocated_count: 0,
+            max_pool_size,
         }
     }
     
@@ -100,7 +117,8 @@ impl BufferPool {
             
             let ptr = unsafe { std::alloc::alloc(layout) };
             if ptr.is_null() {
-                panic!("Failed to allocate buffer of size {}", aligned_size);
+                // Return null instead of panicking to allow graceful error handling
+                return std::ptr::null_mut();
             }
             
             unsafe { ptr.write_bytes(0, aligned_size) };
@@ -215,13 +233,17 @@ impl WasmMemoryManager {
     }
 
     /// Create buffer with data
-    pub fn create_buffer_with_data(&mut self, data: &[u8]) -> WasmBufferHandle {
+    pub fn create_buffer_with_data(&mut self, data: &[u8]) -> Result<WasmBufferHandle, String> {
         let size = data.len();
         let size_class = BufferSizeClass::from_size(size);
         let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
         
         let pool = &mut self.pools[size_class as usize];
         let ptr = pool.get_buffer();
+        
+        if ptr.is_null() {
+            return Err(format!("Failed to allocate buffer of size {}", size));
+        }
         
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, size);
@@ -234,22 +256,26 @@ impl WasmMemoryManager {
             ref_count: AtomicUsize::new(1),
         }));
         
-        WasmBufferHandle {
+        Ok(WasmBufferHandle {
             id,
             ptr,
             size,
             size_class,
             initialized: true,
-        }
+        })
     }
     
     /// Create empty buffer for writing
-    pub(crate) fn create_empty_buffer(&mut self, size: usize) -> (WasmBufferHandle, *mut u8) {
+    pub(crate) fn create_empty_buffer(&mut self, size: usize) -> Result<(WasmBufferHandle, *mut u8), String> {
         let size_class = BufferSizeClass::from_size(size);
         let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
         
         let pool = &mut self.pools[size_class as usize];
         let ptr = pool.get_buffer();
+        
+        if ptr.is_null() {
+            return Err(format!("Failed to allocate buffer of size {}", size));
+        }
         
         self.active_buffers.insert(id, Arc::new(BufferInfo {
             ptr,
@@ -266,7 +292,7 @@ impl WasmMemoryManager {
             initialized: false,
         };
         
-        (handle, ptr)
+        Ok((handle, ptr))
     }
 
     /// Get read pointer
@@ -335,9 +361,10 @@ impl WasmMemoryManager {
     /// Compact pools by deallocating excess buffers
     pub fn compact_pools(&mut self) {
         for pool in &mut self.pools {
-            const MAX_POOLED_BUFFERS: usize = 10;
+            // Only compact if we have significantly more than max pool size
+            let compact_threshold = pool.max_pool_size + (pool.max_pool_size / 4); // 25% buffer
             
-            while pool.available_buffers.len() > MAX_POOLED_BUFFERS {
+            while pool.available_buffers.len() > compact_threshold {
                 if let Some(ptr) = pool.available_buffers.pop() {
                     let size = pool.size_class.actual_size();
                     let aligned_size = align_size(size, MEMORY_ALIGNMENT);
