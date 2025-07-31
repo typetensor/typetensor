@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'bun:test';
 import { WASMDevice } from './device';
 import { float32 } from '@typetensor/core';
 import * as tt from '@typetensor/core';
+import { resetWASMForTests } from './test-utils';
 
 describe('Zero-Copy View Implementation Tests', () => {
   let device: WASMDevice;
@@ -234,4 +235,9 @@ describe('Zero-Copy View Implementation Tests', () => {
       expect(ratio).toBeLessThan(2); // Should be roughly constant, not 100x
     });
   });
+});
+
+// Reset WASM module after this test file to ensure test isolation
+afterAll(() => {
+  resetWASMForTests();
 });

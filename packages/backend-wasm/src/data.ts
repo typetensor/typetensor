@@ -22,53 +22,53 @@ export class WASMDeviceData implements DeviceData {
   readonly device: Device;
   readonly byteLength: number;
 
-  private wasmHandle: unknown;
-  private wasmModule: WASMModule;
-  private disposed = false;
-  private cleanupToken?: object; // Reference for unregistering cleanup
+  #wasmHandle: unknown;  // Private field
+  #wasmModule: WASMModule;
+  #disposed = false;
+  #cleanupToken?: object; // Reference for unregistering cleanup
 
   constructor(device: Device, byteLength: number, wasmHandle: unknown, wasmModule: WASMModule) {
     this.device = device;
     this.byteLength = byteLength;
-    this.wasmHandle = wasmHandle;
-    this.wasmModule = wasmModule;
+    this.#wasmHandle = wasmHandle;
+    this.#wasmModule = wasmModule;
     this.id = `wasm-data-${(wasmHandle as any).id}`;
 
     // Register for automatic cleanup when this object is garbage collected
     if (cleanupRegistry) {
-      this.cleanupToken = {};
-      cleanupRegistry.register(this, { device, wasmHandle }, this.cleanupToken);
+      this.#cleanupToken = {};
+      cleanupRegistry.register(this, { device, wasmHandle }, this.#cleanupToken);
     }
   }
 
   clone(): WASMDeviceData {
-    if (this.disposed) {
+    if (this.#disposed) {
       throw new Error('Cannot clone disposed WASMDeviceData');
     }
 
     const device = this.device as any;
-    const clonedHandle = device.operationDispatcher.clone_buffer_handle(this.wasmHandle);
+    const clonedHandle = device.operationDispatcher.clone_buffer_handle(this.#wasmHandle);
 
-    return new WASMDeviceData(this.device, this.byteLength, clonedHandle, this.wasmModule);
+    return new WASMDeviceData(this.device, this.byteLength, clonedHandle, this.#wasmModule);
   }
 
   dispose(): void {
-    if (this.disposed) {
+    if (this.#disposed) {
       return;
     }
 
-    this.disposed = true;
+    this.#disposed = true;
 
     // Unregister from automatic cleanup since we're manually disposing
-    if (cleanupRegistry && this.cleanupToken) {
-      cleanupRegistry.unregister(this.cleanupToken);
+    if (cleanupRegistry && this.#cleanupToken) {
+      cleanupRegistry.unregister(this.#cleanupToken);
     }
 
     // Release the WASM buffer back to the pool
     try {
       const device = this.device as any;
-      if (device.operationDispatcher && this.wasmHandle) {
-        const released = device.operationDispatcher.release_buffer(this.wasmHandle);
+      if (device.operationDispatcher && this.#wasmHandle) {
+        const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
         if (!released) {
           console.warn(`Failed to release WASM buffer ${this.id}`);
         }
@@ -78,19 +78,19 @@ export class WASMDeviceData implements DeviceData {
     }
 
     // Clear references
-    this.wasmHandle = null;
-    this.cleanupToken = undefined;
+    this.#wasmHandle = null;
+    this.#cleanupToken = undefined;
   }
 
   getRefCount(): number {
-    return this.disposed ? 0 : 1;
+    return this.#disposed ? 0 : 1;
   }
 
   getWASMHandle(): unknown {
-    if (this.disposed) {
+    if (this.#disposed) {
       throw new Error('WASMDeviceData has been disposed');
     }
-    return this.wasmHandle;
+    return this.#wasmHandle;
   }
 
   getByteLength(): number {
@@ -98,17 +98,17 @@ export class WASMDeviceData implements DeviceData {
   }
 
   isDisposed(): boolean {
-    return this.disposed;
+    return this.#disposed;
   }
 
   getDebugInfo(): Record<string, unknown> {
     return {
       id: this.id,
       byteLength: this.byteLength,
-      active: !this.disposed,
-      disposed: this.disposed,
+      active: !this.#disposed,
+      disposed: this.#disposed,
       deviceId: this.device.id,
-      wasmHandleId: this.disposed ? null : (this.wasmHandle as any).id(),
+      wasmHandleId: this.#disposed ? null : (this.#wasmHandle as any).id(),
     };
   }
 
@@ -116,7 +116,7 @@ export class WASMDeviceData implements DeviceData {
     _constructor: new (buffer: ArrayBuffer, byteOffset?: number, length?: number) => T,
     _elementSize: number,
   ): T {
-    if (this.disposed) {
+    if (this.#disposed) {
       throw new Error('Cannot create view of disposed WASMDeviceData');
     }
 
@@ -124,7 +124,7 @@ export class WASMDeviceData implements DeviceData {
   }
 
   async copyToArrayBuffer(): Promise<ArrayBuffer> {
-    if (this.disposed) {
+    if (this.#disposed) {
       throw new Error('Cannot copy from disposed WASMDeviceData');
     }
 
@@ -132,7 +132,7 @@ export class WASMDeviceData implements DeviceData {
   }
 
   async copyFromArrayBuffer(buffer: ArrayBuffer): Promise<void> {
-    if (this.disposed) {
+    if (this.#disposed) {
       throw new Error('Cannot copy to disposed WASMDeviceData');
     }
 
@@ -153,14 +153,36 @@ export class WASMDeviceData implements DeviceData {
     return (
       this.id === other.id &&
       this.device.id === other.device.id &&
-      !this.disposed &&
-      !other.disposed
+      !this.#disposed &&
+      !other.#disposed
     );
   }
 
   toString(): string {
-    const status = this.disposed ? 'disposed' : `refs=${this.getRefCount()}`;
+    const status = this.#disposed ? 'disposed' : `refs=${this.getRefCount()}`;
     return `WASMDeviceData(id=${this.id}, size=${this.byteLength}, ${status})`;
+  }
+
+  updateHandle(newHandle: unknown): void {
+    if (this.#disposed) {
+      throw new Error('Cannot update handle of disposed WASMDeviceData');
+    }
+    
+    // Clean up old handle if needed and valid
+    const device = this.device as any;
+    if (this.#wasmHandle && device.operationDispatcher && this.#wasmHandle !== null) {
+      try {
+        const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
+        if (!released) {
+          console.warn(`Failed to release old buffer handle ${this.id}`);
+        }
+      } catch (error) {
+        // Handle cleanup errors gracefully - old handle might already be invalid
+        console.warn(`Error releasing old buffer handle ${this.id}:`, error);
+      }
+    }
+    
+    this.#wasmHandle = newHandle;
   }
 
   [Symbol.dispose](): void {

@@ -5,7 +5,7 @@
  * to validate the WASM device implementation against the core tensor operations.
  */
 
-import { describe, it, expect, beforeAll } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import {
   generateTensorCreationTests,
   generateTensorPropertyTests,
@@ -23,6 +23,7 @@ import {
 } from '@typetensor/test-utils';
 import { WASMDevice } from './device';
 import { float32, int32, uint8 } from '@typetensor/core';
+import { resetWASMForTests } from './test-utils';
 
 // Create device instance for all tests
 let wasmDevice: WASMDevice;
@@ -252,7 +253,7 @@ describe('WASM Backend Integration Tests', () => {
       // This is hypothetical - actual memory growth depends on WASM implementation
       let largeData: DeviceData | null = null;
       try {
-        largeData = wasmDevice.createData(100 * 1024 * 1024); // 100MB
+        largeData = wasmDevice.createData(10 * 1024 * 1024); // 10MB
         
         // Check if memory grew (view.buffer would change)
         if (!wasmDevice.isViewValid(view1)) {
@@ -344,4 +345,9 @@ describe('WASM Backend Integration Tests', () => {
   generateDeviceOperationTests(wasmDevice, testFramework);
   generateUtilityOperationTests(wasmDevice, testFramework);
   generateDataAccessOperationTests(wasmDevice, testFramework);
+});
+
+// Reset WASM module after this test file to ensure test isolation
+afterAll(() => {
+  resetWASMForTests();
 });

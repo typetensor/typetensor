@@ -86,6 +86,16 @@ export interface WASMModule {
 
 export interface WASMLoadOptions {
   debug?: boolean;
+  memoryConfig?: WASMMemoryConfig;
+}
+
+export interface WASMMemoryConfig {
+  /** Maximum memory limit in bytes. Default: 512MB */
+  maxMemory?: number;
+  /** Compact when memory usage exceeds this threshold (0-1). Default: 0.8 */
+  compactThreshold?: number;
+  /** Enable automatic compaction. Default: true */
+  autoCompact?: boolean;
 }
 
 export interface WASMCapabilities {

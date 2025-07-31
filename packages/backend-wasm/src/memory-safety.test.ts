@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterAll } from 'bun:test';
 import { WASMDevice } from './device';
 import { float32, int32, uint8 } from '@typetensor/core';
 import * as tt from '@typetensor/core';
+import { resetWASMForTests } from './test-utils';
 
 describe('View Lifetime Management - Memory Safety', () => {
   let device: WASMDevice;
@@ -281,4 +282,9 @@ describe('View Lifetime Management - Memory Safety', () => {
       device.disposeData(data);
     });
   });
+});
+
+// Reset WASM module after this test file to ensure test isolation
+afterAll(() => {
+  resetWASMForTests();
 });

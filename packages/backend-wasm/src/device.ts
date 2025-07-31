@@ -9,7 +9,7 @@ import type {
 import { WASMDeviceData, createWASMDeviceData } from './data';
 import { loadWASMModule } from './loader';
 import { dtypeToWasm, operationToWasm } from './types';
-import type { WASMModule, WASMLoadOptions, WASMCapabilities, WASMMemoryStats } from './types';
+import type { WASMModule, WASMLoadOptions, WASMCapabilities, WASMMemoryStats, WASMMemoryConfig } from './types';
 import type { WasmOperationDispatcher, WasmBufferHandle, WasmTensorMeta } from './types/wasm-bindings';
 import { MemoryViewManager } from './memory-views';
 import { getDTypeByteSize } from './utils/dtype-helpers';
@@ -23,6 +23,7 @@ export class WASMDevice implements Device {
   private capabilities: WASMCapabilities | null = null;
   private initialized = false;
   private memoryViewManager: MemoryViewManager | null = null;
+  private memoryConfig: Required<WASMMemoryConfig>;
 
   // @ts-expect-error: This property is used for compile-time validation only
   private _operationValidation: ValidateDeviceOperations<
@@ -59,7 +60,14 @@ export class WASMDevice implements Device {
     | 'prod' // Reduction ops
   > = true;
 
-  private constructor() {}
+  private constructor() {
+    // Set default memory configuration - no limits by default
+    this.memoryConfig = {
+      maxMemory: Number.MAX_SAFE_INTEGER, // No limit by default
+      compactThreshold: 0.8,
+      autoCompact: false, // Disabled by default
+    };
+  }
 
   /**
    * Create and initialize a new WASM device
@@ -79,6 +87,14 @@ export class WASMDevice implements Device {
   private async initialize(options: WASMLoadOptions): Promise<void> {
     if (this.initialized) {
       return;
+    }
+
+    // Apply memory configuration from options
+    if (options.memoryConfig) {
+      this.memoryConfig = {
+        ...this.memoryConfig,
+        ...options.memoryConfig,
+      };
     }
 
     try {
@@ -239,6 +255,39 @@ export class WASMDevice implements Device {
   }
 
   /**
+   * Check memory pressure and compact if needed
+   */
+  private checkMemoryPressure(requestedBytes: number): void {
+    if (!this.memoryConfig.autoCompact) {
+      return;
+    }
+
+    const stats = this.getMemoryStats();
+    const currentUsage = stats.totalAllocated;
+    const afterAllocation = currentUsage + requestedBytes;
+    
+    // Check if we would exceed the limit
+    if (afterAllocation > this.memoryConfig.maxMemory) {
+      // Try compaction first
+      this.performIntensiveCleanup();
+      
+      // Check again after compaction
+      const newStats = this.getMemoryStats();
+      const newUsage = newStats.totalAllocated;
+      
+      if (newUsage + requestedBytes > this.memoryConfig.maxMemory) {
+        throw new Error(
+          `Memory limit exceeded: requested ${requestedBytes} bytes, ` +
+          `current usage ${newUsage} bytes, limit ${this.memoryConfig.maxMemory} bytes`
+        );
+      }
+    } else if (currentUsage / this.memoryConfig.maxMemory > this.memoryConfig.compactThreshold) {
+      // Compact if we're above the threshold
+      this.performIntensiveCleanup();
+    }
+  }
+
+  /**
    * Allocate data on the WASM device
    */
   createData(byteLength: number): DeviceData {
@@ -250,6 +299,9 @@ export class WASMDevice implements Device {
       if (byteLength > MAX_ALLOCATION_SIZE) {
         throw new Error(`Requested allocation size ${byteLength} exceeds maximum allowed size of ${MAX_ALLOCATION_SIZE} bytes`);
       }
+      
+      // Check memory pressure before allocation
+      this.checkMemoryPressure(byteLength);
       
       // For large allocations, try to allocate in smaller chunks first to test memory availability
       if (byteLength > 50 * 1024 * 1024) { // > 50MB
@@ -415,15 +467,13 @@ export class WASMDevice implements Device {
     if (!wasmData.isDisposed()) {
       // Invalidate all views before replacing the buffer
       this.memoryViewManager!.invalidateBuffer(wasmData.id);
-
-      const oldHandle = wasmData.getWASMHandle();
-      this.operationDispatcher.release_buffer(oldHandle);
     }
 
     const sourceData = new Uint8Array(buffer);
     const newHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
 
-    (wasmData as any).wasmHandle = newHandle;
+    // updateHandle will handle the old handle cleanup
+    wasmData.updateHandle(newHandle);
   }
 
   /**
@@ -453,6 +503,13 @@ export class WASMDevice implements Device {
       activeBuffers: wasmStats.active_buffers,
       poolSummary: wasmStats.get_pool_summary(),
     };
+  }
+
+  /**
+   * Get current memory configuration
+   */
+  getMemoryConfig(): WASMMemoryConfig {
+    return { ...this.memoryConfig };
   }
 
   /**

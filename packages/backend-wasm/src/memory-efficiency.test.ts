@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll, afterEach } from 'bun:test';
+import { describe, it, expect, beforeAll, afterEach, afterAll } from 'bun:test';
 import { WASMDevice } from './device';
+import { resetWASMForTests } from './test-utils';
 
 describe('Memory Efficiency', () => {
   let device: WASMDevice;
@@ -157,4 +158,9 @@ describe('Memory Efficiency', () => {
       (globalThis as any).ArrayBuffer = originalArrayBuffer;
     }
   });
+});
+
+// Reset WASM module after this test file to ensure test isolation
+afterAll(() => {
+  resetWASMForTests();
 });
