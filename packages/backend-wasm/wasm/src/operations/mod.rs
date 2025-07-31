@@ -1,11 +1,3 @@
-/*!
- * Tensor operations implementation for WebAssembly backend
- * 
- * This module provides high-performance implementations of tensor operations
- * optimized for WebAssembly, with SIMD support where available.
- * 
- * Uses direct ownership model for immutable tensor buffers - no RefCell needed.
- */
 
 pub mod unary;
 pub mod binary;
@@ -19,24 +11,22 @@ use std::cell::RefCell;
 use crate::types::{WasmOperation, WasmTensorMeta, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 
-/// Main operation dispatcher for WASM backend - With interior mutability for concurrent access
+/// Main operation dispatcher for WASM backend
 #[wasm_bindgen]
 pub struct WasmOperationDispatcher {
-    memory_manager: RefCell<WasmMemoryManager>,  // RefCell for interior mutability
+    memory_manager: RefCell<WasmMemoryManager>,
 }
 
 #[wasm_bindgen]
 impl WasmOperationDispatcher {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmOperationDispatcher {
-        crate::utils::log_with_timing("Initializing WASM operation dispatcher");
-        
         WasmOperationDispatcher {
             memory_manager: RefCell::new(WasmMemoryManager::new()),
         }
     }
 
-    /// Execute a tensor operation with direct ownership - no RefCell conflicts
+    /// Execute a tensor operation
     #[wasm_bindgen]
     pub fn execute_unary(
         &mut self,
@@ -85,24 +75,19 @@ impl WasmOperationDispatcher {
         output_meta: WasmTensorMeta,
         output_handle: Option<WasmBufferHandle>,
     ) -> WasmResult<WasmBufferHandle> {
-        // Create output buffer if not provided
         let (mut output, needs_initialization) = match output_handle {
-            Some(handle) => (handle, false), // Already initialized
+            Some(handle) => (handle, false),
             None => {
-                // Create empty buffer for the operation result
                 let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
-                (handle, true) // Needs initialization
+                (handle, true)
             }
         };
 
         let result = match operation {
-            // Creation operation
             WasmOperation::Create => {
-                // For create operations, just return success
                 Ok(())
             }
 
-            // Unary operations
             WasmOperation::Neg | WasmOperation::Abs | WasmOperation::Sin | WasmOperation::Cos |
             WasmOperation::Exp | WasmOperation::Log | WasmOperation::Sqrt | WasmOperation::Square => {
                 if inputs.len() != 1 {
@@ -119,7 +104,6 @@ impl WasmOperationDispatcher {
                 Ok(())
             }
 
-            // Binary operations
             WasmOperation::Add | WasmOperation::Sub | WasmOperation::Mul | WasmOperation::Div => {
                 if inputs.len() != 2 {
                     return Err(WasmError::InvalidInput);
@@ -137,7 +121,6 @@ impl WasmOperationDispatcher {
                 Ok(())
             }
 
-            // Matrix operations
             WasmOperation::Matmul => {
                 if inputs.len() != 2 {
                     return Err(WasmError::InvalidInput);
@@ -155,7 +138,6 @@ impl WasmOperationDispatcher {
                 Ok(())
             }
 
-            // View operations
             WasmOperation::Reshape | WasmOperation::View | WasmOperation::Slice | WasmOperation::Flatten |
             WasmOperation::Permute | WasmOperation::Transpose | WasmOperation::Squeeze |
             WasmOperation::Unsqueeze | WasmOperation::Expand | WasmOperation::Tile => {
@@ -173,7 +155,6 @@ impl WasmOperationDispatcher {
                 Ok(())
             }
 
-            // Reduction operations
             WasmOperation::Sum | WasmOperation::Mean | WasmOperation::Max |
             WasmOperation::Min | WasmOperation::Prod => {
                 if inputs.len() != 1 {
@@ -189,7 +170,6 @@ impl WasmOperationDispatcher {
                 )?;
                 Ok(())
             }
-            // Softmax operations
             WasmOperation::Softmax | WasmOperation::LogSoftmax => {
                 if inputs.len() != 1 {
                     return Err(WasmError::InvalidInput);
@@ -206,15 +186,12 @@ impl WasmOperationDispatcher {
                 Ok(())
             }
 
-            // Not yet implemented operations
             _ => Err(WasmError::NotImplemented),
         }?;
         
-        // Mark buffer as initialized if it was newly created
         if needs_initialization {
             self.memory_manager.borrow().mark_buffer_initialized(&mut output);
         }
-        
         Ok(output)
     }
 
@@ -224,13 +201,13 @@ impl WasmOperationDispatcher {
         self.memory_manager.borrow().get_memory_stats()
     }
 
-    /// Create buffer with data (atomic operation - replaces separate allocate+write)
+    /// Create buffer with data
     #[wasm_bindgen]
     pub fn create_buffer_with_data(&self, data: &[u8]) -> WasmBufferHandle {
         self.memory_manager.borrow_mut().create_buffer_with_data(data)
     }
     
-    /// Create buffer with JS Uint8Array data (atomic operation for TypeScript bridge)
+    /// Create buffer with JS Uint8Array data
     #[wasm_bindgen]
     pub fn create_buffer_with_js_data(&self, js_array: &js_sys::Uint8Array) -> WasmBufferHandle {
         let data = js_array.to_vec();
@@ -238,7 +215,6 @@ impl WasmOperationDispatcher {
     }
 
     /// Get read pointer for immutable buffer access
-    /// Note: This is an internal method, not exposed to JS
     pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
         self.memory_manager.borrow().get_read_ptr(handle)
     }
@@ -250,12 +226,10 @@ impl WasmOperationDispatcher {
     }
     
     /// Copy buffer data to JavaScript Uint8Array
-    /// Creates a copy of the data to avoid concurrent access issues
     #[wasm_bindgen]
     pub fn copy_buffer_to_js(&self, handle: &WasmBufferHandle) -> js_sys::Uint8Array {
         let ptr = self.memory_manager.borrow().get_read_ptr(handle);
         let data = unsafe { std::slice::from_raw_parts(ptr, handle.size()) };
-        // Create a copy of the data to avoid "recursive use" errors
         let copied_data = data.to_vec();
         js_sys::Uint8Array::from(&copied_data[..])
     }
@@ -266,13 +240,10 @@ impl WasmOperationDispatcher {
         self.memory_manager.borrow_mut().compact_pools();
     }
     
-    /// Clone a buffer handle (increments reference count)
+    /// Clone a buffer handle
     #[wasm_bindgen]
     pub fn clone_buffer_handle(&self, handle: &WasmBufferHandle) -> WasmBufferHandle {
-        // Increment reference count for the buffer
         self.memory_manager.borrow().increment_ref_count(handle.id());
-        
-        // Return a cloned handle
         handle.clone()
     }
     
@@ -284,13 +255,11 @@ impl WasmOperationDispatcher {
         input: &WasmBufferHandle,
         input_meta: &WasmTensorMeta,
         output_meta: &WasmTensorMeta,
-        axes: Option<Vec<i32>>, // None means reduce all axes
+        axes: Option<Vec<i32>>,
         keep_dims: bool,
         output_handle: Option<WasmBufferHandle>,
     ) -> Result<WasmBufferHandle, JsValue> {
-        // Convert axes to Option<Vec<usize>>
         let axes_usize = axes.map(|v| v.into_iter().map(|x| x as usize).collect::<Vec<_>>());
-        
         let result = self.execute_reduction_internal(
             operation,
             input.clone(),
@@ -335,7 +304,6 @@ impl WasmOperationDispatcher {
         keep_dims: bool,
         output_handle: Option<WasmBufferHandle>,
     ) -> WasmResult<WasmBufferHandle> {
-        // Create output buffer if not provided
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
@@ -344,7 +312,6 @@ impl WasmOperationDispatcher {
             }
         };
         
-        // Execute reduction with axis information
         reduction::execute_reduction_op_with_axes(
             &mut *self.memory_manager.borrow_mut(),
             operation,
@@ -356,11 +323,9 @@ impl WasmOperationDispatcher {
             keep_dims,
         )?;
         
-        // Mark buffer as initialized if it was newly created
         if needs_initialization {
             self.memory_manager.borrow().mark_buffer_initialized(&mut output);
         }
-        
         Ok(output)
     }
     
@@ -373,7 +338,6 @@ impl WasmOperationDispatcher {
         axis: Option<i32>,
         output_handle: Option<WasmBufferHandle>,
     ) -> WasmResult<WasmBufferHandle> {
-        // Create output buffer if not provided
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
@@ -382,7 +346,6 @@ impl WasmOperationDispatcher {
             }
         };
         
-        // Execute softmax with axis information
         softmax::execute_softmax_op(
             &mut *self.memory_manager.borrow_mut(),
             operation,
@@ -393,11 +356,9 @@ impl WasmOperationDispatcher {
             axis,
         )?;
         
-        // Mark buffer as initialized if it was newly created
         if needs_initialization {
             self.memory_manager.borrow().mark_buffer_initialized(&mut output);
         }
-        
         Ok(output)
     }
 }

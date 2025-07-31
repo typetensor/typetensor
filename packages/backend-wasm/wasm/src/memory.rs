@@ -1,37 +1,24 @@
-/*!
- * Memory management for WebAssembly backend - Tensor Buffer Pools
- * 
- * Implements efficient memory management for tensors:
- * - Size-classed buffer pools for O(1) allocation/deallocation
- * - Two-phase lifecycle: Initialize (mutable) → Use (immutable)
- * - Direct ownership model without RefCell
- * - Buffer pooling for efficient memory reuse
- */
-
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// Buffer size classes for efficient pooling
 const BUFFER_SIZE_CLASSES: &[usize] = &[
-    16,        // 16B - very small scalars
-    64,        // 64B - small vectors  
-    256,       // 256B - small tensors
-    1024,      // 1KB - medium vectors
-    4096,      // 4KB - small matrices
-    16384,     // 16KB - medium matrices
-    65536,     // 64KB - large matrices
-    262144,    // 256KB - small 3D tensors
-    1048576,   // 1MB - large 3D tensors
-    4194304,   // 4MB - very large tensors
-    16777216,  // 16MB - huge tensors
+    16,
+    64,
+    256,
+    1024,
+    4096,
+    16384,
+    65536,
+    262144,
+    1048576,
+    4194304,
+    16777216,
 ];
 
-/// Memory alignment (64 bytes for SIMD)
 const MEMORY_ALIGNMENT: usize = 64;
 
-/// Global memory usage tracking
 static TOTAL_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -103,14 +90,11 @@ impl BufferPool {
     
     fn get_buffer(&mut self) -> *mut u8 {
         if let Some(ptr) = self.available_buffers.pop() {
-            // Reuse existing buffer
             ptr
         } else {
-            // Allocate new buffer
             let size = self.size_class.actual_size();
             let aligned_size = align_size(size, MEMORY_ALIGNMENT);
             
-            // Allocate aligned memory
             let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
                 .expect("Invalid layout for buffer allocation");
             
@@ -119,7 +103,6 @@ impl BufferPool {
                 panic!("Failed to allocate buffer of size {}", aligned_size);
             }
             
-            // Zero the memory for safety
             unsafe { ptr.write_bytes(0, aligned_size) };
             
             TOTAL_ALLOCATED.fetch_add(aligned_size, Ordering::Relaxed);
@@ -130,7 +113,6 @@ impl BufferPool {
     }
     
     fn return_buffer(&mut self, ptr: *mut u8) {
-        // Zero the buffer before returning to pool for security
         let size = self.size_class.actual_size();
         unsafe { ptr.write_bytes(0, size) };
         
@@ -138,7 +120,6 @@ impl BufferPool {
     }
     
     fn cleanup(&mut self) {
-        // Deallocate all buffers in this pool
         let size = self.size_class.actual_size();
         let aligned_size = align_size(size, MEMORY_ALIGNMENT);
         
@@ -165,10 +146,10 @@ impl Drop for BufferPool {
 #[derive(Debug, Clone)]
 pub struct WasmBufferHandle {
     id: BufferId,
-    ptr: *mut u8,    // Mutable during initialization, treat as immutable after
-    size: usize,     // Actual requested size
+    ptr: *mut u8,
+    size: usize,
     size_class: BufferSizeClass,
-    initialized: bool, // Track whether buffer has been initialized
+    initialized: bool,
 }
 
 #[wasm_bindgen]
@@ -183,7 +164,7 @@ impl WasmBufferHandle {
         self.size
     }
     
-    /// Get pointer for reading (only valid after initialization)
+    /// Get pointer for reading
     pub fn get_read_ptr(&self) -> *const u8 {
         if !self.initialized {
             panic!("Attempt to read from uninitialized buffer");
@@ -191,12 +172,12 @@ impl WasmBufferHandle {
         self.ptr as *const u8
     }
     
-    /// Create a shallow copy of this handle (for multiple readers)
+    /// Create a shallow copy of this handle
     pub fn clone_handle(&self) -> WasmBufferHandle {
         self.clone()
     }
     
-    /// Mark buffer as initialized (internal use only)
+    /// Mark buffer as initialized
     pub(crate) fn mark_initialized(&mut self) {
         self.initialized = true;
     }
@@ -205,10 +186,7 @@ impl WasmBufferHandle {
 /// WebAssembly memory manager with buffer pools
 #[wasm_bindgen]
 pub struct WasmMemoryManager {
-    // Buffer pools by size class
     pools: Vec<BufferPool>,
-    
-    // Active buffers that haven't been returned to pools yet
     active_buffers: HashMap<BufferId, Arc<BufferInfo>>,
 }
 
@@ -216,13 +194,8 @@ pub struct WasmMemoryManager {
 impl WasmMemoryManager {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmMemoryManager {
-        #[cfg(target_arch = "wasm32")]
-        crate::utils::log_with_timing("Initializing WASM memory manager with buffer pools");
-        
-        // Initialize buffer pools for each size class
         let mut pools = Vec::with_capacity(BUFFER_SIZE_CLASSES.len());
         
-        // Create pools for each size class explicitly to avoid transmute UB
         pools.push(BufferPool::new(BufferSizeClass::Size16B));
         pools.push(BufferPool::new(BufferSizeClass::Size64B));
         pools.push(BufferPool::new(BufferSizeClass::Size256B));
@@ -241,22 +214,19 @@ impl WasmMemoryManager {
         }
     }
 
-    /// Create buffer with data (atomic operation)
+    /// Create buffer with data
     pub fn create_buffer_with_data(&mut self, data: &[u8]) -> WasmBufferHandle {
         let size = data.len();
         let size_class = BufferSizeClass::from_size(size);
         let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
         
-        // Get buffer from appropriate pool
         let pool = &mut self.pools[size_class as usize];
         let ptr = pool.get_buffer();
         
-        // Copy data to buffer (write once)
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, size);
         }
         
-        // Track active buffer with initial ref count of 1
         self.active_buffers.insert(id, Arc::new(BufferInfo {
             ptr,
             size,
@@ -264,27 +234,23 @@ impl WasmMemoryManager {
             ref_count: AtomicUsize::new(1),
         }));
         
-        // Return initialized handle
         WasmBufferHandle {
             id,
             ptr,
             size,
             size_class,
-            initialized: true,  // Data has been written
+            initialized: true,
         }
     }
     
-    /// Create empty buffer for writing (returns mutable pointer for initialization)
-    /// Note: This is an internal method, not exposed to JS
+    /// Create empty buffer for writing
     pub(crate) fn create_empty_buffer(&mut self, size: usize) -> (WasmBufferHandle, *mut u8) {
         let size_class = BufferSizeClass::from_size(size);
         let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
         
-        // Get buffer from appropriate pool
         let pool = &mut self.pools[size_class as usize];
         let ptr = pool.get_buffer();
         
-        // Track active buffer with initial ref count of 1
         self.active_buffers.insert(id, Arc::new(BufferInfo {
             ptr,
             size,
@@ -292,26 +258,23 @@ impl WasmMemoryManager {
             ref_count: AtomicUsize::new(1),
         }));
         
-        // Return handle for initialization
         let handle = WasmBufferHandle {
             id,
             ptr,
             size,
             size_class,
-            initialized: false,  // Not yet initialized
+            initialized: false,
         };
         
         (handle, ptr)
     }
 
-    /// Get read pointer (safe after initialization)
-    /// Note: This is an internal method, not exposed to JS
+    /// Get read pointer
     pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
         handle.get_read_ptr()
     }
     
     /// Get write pointer for buffer initialization
-    /// Note: This should only be used during buffer creation/initialization phase
     pub(crate) fn get_write_ptr(&self, handle: &WasmBufferHandle) -> *mut u8 {
         if handle.initialized {
             panic!("Attempt to write to already initialized buffer");
@@ -322,11 +285,9 @@ impl WasmMemoryManager {
     /// Release buffer back to pool for reuse
     pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
         if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
-            // Decrement reference count
             let prev_count = buffer_info.ref_count.fetch_sub(1, Ordering::AcqRel);
             
             if prev_count == 1 {
-                // This was the last reference, return buffer to pool
                 if let Some(buffer_info) = self.active_buffers.remove(&handle.id) {
                     let pool = &mut self.pools[buffer_info.size_class as usize];
                     pool.return_buffer(buffer_info.ptr);
@@ -334,7 +295,7 @@ impl WasmMemoryManager {
             }
             true
         } else {
-            false  // Buffer not found - may have been already released
+            false
         }
     }
 
@@ -344,7 +305,6 @@ impl WasmMemoryManager {
         let mut stats_by_class = Vec::new();
         
         for (i, pool) in self.pools.iter().enumerate() {
-            // Use the actual size from BUFFER_SIZE_CLASSES to avoid transmute
             let size_class_bytes = BUFFER_SIZE_CLASSES[i];
             stats_by_class.push(PoolStats {
                 size_class_bytes,
@@ -361,13 +321,11 @@ impl WasmMemoryManager {
     }
     
     /// Mark a buffer as initialized after writing to it
-    /// Note: This is an internal method, not exposed to JS
     pub(crate) fn mark_buffer_initialized(&self, handle: &mut WasmBufferHandle) {
         handle.mark_initialized();
     }
     
-    /// Increment reference count for a buffer (for cloning)
-    /// Note: This is an internal method, not exposed to JS
+    /// Increment reference count for a buffer
     pub(crate) fn increment_ref_count(&self, buffer_id: BufferId) {
         if let Some(buffer_info) = self.active_buffers.get(&buffer_id) {
             buffer_info.ref_count.fetch_add(1, Ordering::AcqRel);
@@ -377,7 +335,6 @@ impl WasmMemoryManager {
     /// Compact pools by deallocating excess buffers
     pub fn compact_pools(&mut self) {
         for pool in &mut self.pools {
-            // Keep only a few buffers in each pool, deallocate the rest
             const MAX_POOLED_BUFFERS: usize = 10;
             
             while pool.available_buffers.len() > MAX_POOLED_BUFFERS {
@@ -426,9 +383,6 @@ impl WasmMemoryStats {
         self.active_buffers
     }
     
-    // Note: pool_stats is not exposed to JS due to wasm-bindgen limitations
-    // Use get_pool_summary() instead
-    
     #[wasm_bindgen]
     pub fn get_pool_summary(&self) -> String {
         let mut summary = String::new();
@@ -449,7 +403,6 @@ impl WasmMemoryStats {
     }
 }
 
-/// Utility function to align size to specified alignment
 fn align_size(size: usize, alignment: usize) -> usize {
     (size + alignment - 1) & !(alignment - 1)
 }

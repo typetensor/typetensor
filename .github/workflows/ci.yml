@@ -23,6 +23,52 @@ jobs:
         with:
           bun-version: latest
       
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/backend-wasm/wasm/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/backend-wasm/wasm/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Cache wasm-pack
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-pack
+          key: ${{ runner.os }}-wasm-pack-0.12.1
+          restore-keys: |
+            ${{ runner.os }}-wasm-pack-
+      
+      - name: Install wasm-pack (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if ! command -v wasm-pack &> /dev/null; then
+            curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          fi
+      
+      - name: Install wasm-pack (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (-not (Test-Path ~/.cargo/bin/wasm-pack.exe)) {
+            Invoke-WebRequest -Uri "https://github.com/rustwasm/wasm-pack/releases/download/v0.12.1/wasm-pack-v0.12.1-x86_64-pc-windows-msvc.tar.gz" -OutFile "wasm-pack.tar.gz"
+            tar -xzf wasm-pack.tar.gz
+            New-Item -ItemType Directory -Force -Path ~/.cargo/bin
+            Move-Item "wasm-pack-v0.12.1-x86_64-pc-windows-msvc/wasm-pack.exe" ~/.cargo/bin/
+            Remove-Item wasm-pack.tar.gz
+            Remove-Item -Recurse "wasm-pack-v0.12.1-x86_64-pc-windows-msvc"
+          }
+          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
+      
       - name: Install dependencies
         run: bun install --frozen-lockfile
       
