@@ -5,6 +5,7 @@ mod operations;
 mod types;
 mod debug;
 mod simd;
+mod fast_math;
 
 use wasm_bindgen::prelude::*;
 

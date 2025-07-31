@@ -1,0 +1,13 @@
+[build]
+# Enable WebAssembly target features
+target = "wasm32-unknown-unknown"
+
+[target.wasm32-unknown-unknown]
+# Enable SIMD and bulk memory features at the compiler level
+rustflags = [
+    "-C", "target-feature=+simd128,+bulk-memory",
+    "-C", "link-arg=--export-table",
+]
+
+# Alternative rustflags if the above doesn't work:
+# rustflags = ["-C", "target-feature=+simd128", "-C", "target-feature=+bulk-memory"]

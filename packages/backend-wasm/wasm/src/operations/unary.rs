@@ -9,6 +9,13 @@ use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmErr
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 use crate::simd::{float32, float64};
 
+// Use micromath for fast approximations when available
+#[cfg(target_arch = "wasm32")]
+use micromath::F32Ext as _;
+
+// Import our fast math functions
+use crate::fast_math::{fast_sin_f32, fast_cos_f32};
+
 /// Execute a unary operation
 pub fn execute_unary_op(
     memory_manager: &mut WasmMemoryManager,
@@ -65,28 +72,39 @@ fn execute_unary_f32(
             float32::simd_abs(input, output);
         }
         WasmOperation::Sqrt => {
-            // Use SIMD-optimized square root
-            float32::simd_sqrt(input, output);
+            // Use libm for accurate sqrt (we can optimize later with tolerance testing)
+            for (i, &val) in input.iter().enumerate() {
+                output[i] = libm::sqrtf(val);
+            }
         }
         WasmOperation::Sin => {
-            // Keep scalar implementation for complex math functions
+            // Use fast lookup table-based implementation
             for (i, &val) in input.iter().enumerate() {
-                output[i] = val.sin();
+                output[i] = fast_sin_f32(val);
             }
         }
         WasmOperation::Cos => {
+            // Use fast lookup table-based implementation
             for (i, &val) in input.iter().enumerate() {
-                output[i] = val.cos();
+                output[i] = fast_cos_f32(val);
             }
         }
         WasmOperation::Exp => {
+            // Use libm for accurate exp (we can optimize later with tolerance testing)
             for (i, &val) in input.iter().enumerate() {
-                output[i] = val.exp();
+                output[i] = libm::expf(val);
             }
         }
         WasmOperation::Log => {
+            // Use libm for accurate log (we can optimize later with tolerance testing)
             for (i, &val) in input.iter().enumerate() {
-                output[i] = if val > 0.0 { val.ln() } else { f32::NAN };
+                output[i] = if val > 0.0 { 
+                    libm::logf(val) 
+                } else if val == 0.0 {
+                    f32::NEG_INFINITY
+                } else {
+                    f32::NAN
+                };
             }
         }
         WasmOperation::Square => {

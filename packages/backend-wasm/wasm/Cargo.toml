@@ -7,6 +7,18 @@ description = "WebAssembly backend for TypeTensor - High-performance tensor oper
 license = "MIT"
 repository = "https://github.com/typetensor/typetensor"
 
+[package.metadata.wasm-pack.profile.release]
+# Configure wasm-opt with required features
+wasm-opt = [
+    "-O3",                              # High optimization level
+    "--enable-simd",                    # Enable SIMD support
+    "--enable-bulk-memory",             # Enable bulk memory operations
+    "--enable-mutable-globals",         # Enable mutable globals
+    "--enable-nontrapping-float-to-int",# Enable float to int conversions
+    "--strip-debug",                    # Remove debug sections
+    "--strip-producers",                # Remove producers section
+]
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -27,6 +39,15 @@ console_error_panic_hook = { version = "0.1", optional = true }
 # High-performance matrix multiplication with WASM support
 microgemm = { version = "0.3.1", default-features = false }
 
+# Fast approximations for transcendental functions (no-std compatible)
+micromath = { version = "2.1", default-features = false, features = ["vector"] }
+
+# Alternative fast math approximations
+libm = { version = "0.2", default-features = false }
+
+# For lazy static initialization
+once_cell = { version = "1.21", default-features = false, features = ["std"] }
+
 # Optional: Include these for advanced features
 # faer = { version = "0.18", optional = true }
 # ndarray = { version = "0.15", optional = true }
@@ -40,13 +61,26 @@ default = ["console_error_panic_hook", "simd128"]
 simd128 = []
 
 [profile.release]
-# Tell `rustc` to optimize for small code size.
-opt-level = "s"
-# Enable link time optimization for smaller binary size
-lto = true
+# Maximum optimization level (3 for speed, "z" for size)
+opt-level = 3
+# Enable fat link time optimization
+lto = "fat"
 # Less code to include into binary
 panic = "abort"
-# Optimize for speed and size
+# Single codegen unit for maximum optimization
+codegen-units = 1
+# Strip symbols for smaller size
+strip = true
+# Enable all optimizations
+debug = false
+# Increase inlining threshold
+incremental = false
+# Overflow checks disabled in release
+overflow-checks = false
+
+# Additional optimization for math operations
+[profile.release.build-override]
+opt-level = 3
 codegen-units = 1
 
 [profile.dev]
