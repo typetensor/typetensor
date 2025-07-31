@@ -283,9 +283,10 @@ export class WASMDevice implements Device {
     
     try {
       // Use new immutable buffer API - create buffer with data atomically
-      // Create a copy to avoid "recursive use" errors
-      const sourceData = new Uint8Array(buffer.byteLength);
-      sourceData.set(new Uint8Array(buffer));
+      // Create a detached copy to avoid "recursive use" errors
+      // This ensures the ArrayBuffer is not shared with any other TypedArray
+      const sourceBuffer = buffer.slice(0); // Creates a new ArrayBuffer
+      const sourceData = new Uint8Array(sourceBuffer);
       const wasmHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
       
       

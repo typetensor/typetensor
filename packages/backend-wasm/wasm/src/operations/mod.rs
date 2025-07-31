@@ -15,13 +15,14 @@ pub mod reduction;
 pub mod softmax;
 
 use wasm_bindgen::prelude::*;
+use std::cell::RefCell;
 use crate::types::{WasmOperation, WasmTensorMeta, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 
-/// Main operation dispatcher for WASM backend - Direct ownership model
+/// Main operation dispatcher for WASM backend - With interior mutability for concurrent access
 #[wasm_bindgen]
 pub struct WasmOperationDispatcher {
-    memory_manager: WasmMemoryManager,  // Direct ownership - no RefCell!
+    memory_manager: RefCell<WasmMemoryManager>,  // RefCell for interior mutability
 }
 
 #[wasm_bindgen]
@@ -31,7 +32,7 @@ impl WasmOperationDispatcher {
         crate::utils::log_with_timing("Initializing WASM operation dispatcher");
         
         WasmOperationDispatcher {
-            memory_manager: WasmMemoryManager::new(),
+            memory_manager: RefCell::new(WasmMemoryManager::new()),
         }
     }
 
@@ -89,7 +90,7 @@ impl WasmOperationDispatcher {
             Some(handle) => (handle, false), // Already initialized
             None => {
                 // Create empty buffer for the operation result
-                let (handle, _write_ptr) = self.memory_manager.create_empty_buffer(output_meta.byte_size());
+                let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
                 (handle, true) // Needs initialization
             }
         };
@@ -108,7 +109,7 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 unary::execute_unary_op(
-                    &mut self.memory_manager,
+                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -124,7 +125,7 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 binary::execute_binary_op(
-                    &mut self.memory_manager,
+                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &inputs[1],
@@ -142,7 +143,7 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 matmul::execute_matmul_op(
-                    &mut self.memory_manager,
+                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &inputs[1],
@@ -162,7 +163,7 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 view::execute_view_op(
-                    &mut self.memory_manager,
+                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -179,7 +180,7 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 reduction::execute_reduction_op(
-                    &mut self.memory_manager,
+                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -194,7 +195,7 @@ impl WasmOperationDispatcher {
                     return Err(WasmError::InvalidInput);
                 }
                 softmax::execute_softmax_op(
-                    &mut self.memory_manager,
+                    &mut *self.memory_manager.borrow_mut(),
                     operation,
                     &inputs[0],
                     &input_metas[0],
@@ -211,7 +212,7 @@ impl WasmOperationDispatcher {
         
         // Mark buffer as initialized if it was newly created
         if needs_initialization {
-            self.memory_manager.mark_buffer_initialized(&mut output);
+            self.memory_manager.borrow().mark_buffer_initialized(&mut output);
         }
         
         Ok(output)
@@ -220,53 +221,56 @@ impl WasmOperationDispatcher {
     /// Get memory usage statistics
     #[wasm_bindgen]
     pub fn get_memory_stats(&self) -> crate::memory::WasmMemoryStats {
-        self.memory_manager.get_memory_stats()
+        self.memory_manager.borrow().get_memory_stats()
     }
 
     /// Create buffer with data (atomic operation - replaces separate allocate+write)
     #[wasm_bindgen]
-    pub fn create_buffer_with_data(&mut self, data: &[u8]) -> WasmBufferHandle {
-        self.memory_manager.create_buffer_with_data(data)
+    pub fn create_buffer_with_data(&self, data: &[u8]) -> WasmBufferHandle {
+        self.memory_manager.borrow_mut().create_buffer_with_data(data)
     }
     
     /// Create buffer with JS Uint8Array data (atomic operation for TypeScript bridge)
     #[wasm_bindgen]
-    pub fn create_buffer_with_js_data(&mut self, js_array: &js_sys::Uint8Array) -> WasmBufferHandle {
+    pub fn create_buffer_with_js_data(&self, js_array: &js_sys::Uint8Array) -> WasmBufferHandle {
         let data = js_array.to_vec();
-        self.memory_manager.create_buffer_with_data(&data)
+        self.memory_manager.borrow_mut().create_buffer_with_data(&data)
     }
 
     /// Get read pointer for immutable buffer access
     /// Note: This is an internal method, not exposed to JS
     pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
-        self.memory_manager.get_read_ptr(handle)
+        self.memory_manager.borrow().get_read_ptr(handle)
     }
     
     /// Release buffer back to pool for reuse
     #[wasm_bindgen]
     pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
-        self.memory_manager.release_buffer(handle)
+        self.memory_manager.borrow_mut().release_buffer(handle)
     }
     
     /// Copy buffer data to JavaScript Uint8Array
+    /// Creates a copy of the data to avoid concurrent access issues
     #[wasm_bindgen]
     pub fn copy_buffer_to_js(&self, handle: &WasmBufferHandle) -> js_sys::Uint8Array {
-        let ptr = self.memory_manager.get_read_ptr(handle);
+        let ptr = self.memory_manager.borrow().get_read_ptr(handle);
         let data = unsafe { std::slice::from_raw_parts(ptr, handle.size()) };
-        js_sys::Uint8Array::from(data)
+        // Create a copy of the data to avoid "recursive use" errors
+        let copied_data = data.to_vec();
+        js_sys::Uint8Array::from(&copied_data[..])
     }
     
     /// Compact memory pools to reduce memory usage
     #[wasm_bindgen]
     pub fn compact_pools(&mut self) {
-        self.memory_manager.compact_pools();
+        self.memory_manager.borrow_mut().compact_pools();
     }
     
     /// Clone a buffer handle (increments reference count)
     #[wasm_bindgen]
     pub fn clone_buffer_handle(&self, handle: &WasmBufferHandle) -> WasmBufferHandle {
         // Increment reference count for the buffer
-        self.memory_manager.increment_ref_count(handle.id());
+        self.memory_manager.borrow().increment_ref_count(handle.id());
         
         // Return a cloned handle
         handle.clone()
@@ -335,14 +339,14 @@ impl WasmOperationDispatcher {
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
-                let (handle, _write_ptr) = self.memory_manager.create_empty_buffer(output_meta.byte_size());
+                let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
                 (handle, true)
             }
         };
         
         // Execute reduction with axis information
         reduction::execute_reduction_op_with_axes(
-            &mut self.memory_manager,
+            &mut *self.memory_manager.borrow_mut(),
             operation,
             &input,
             &input_meta,
@@ -354,7 +358,7 @@ impl WasmOperationDispatcher {
         
         // Mark buffer as initialized if it was newly created
         if needs_initialization {
-            self.memory_manager.mark_buffer_initialized(&mut output);
+            self.memory_manager.borrow().mark_buffer_initialized(&mut output);
         }
         
         Ok(output)
@@ -373,14 +377,14 @@ impl WasmOperationDispatcher {
         let (mut output, needs_initialization) = match output_handle {
             Some(handle) => (handle, false),
             None => {
-                let (handle, _write_ptr) = self.memory_manager.create_empty_buffer(output_meta.byte_size());
+                let (handle, _write_ptr) = self.memory_manager.borrow_mut().create_empty_buffer(output_meta.byte_size());
                 (handle, true)
             }
         };
         
         // Execute softmax with axis information
         softmax::execute_softmax_op(
-            &mut self.memory_manager,
+            &mut *self.memory_manager.borrow_mut(),
             operation,
             &input,
             &input_meta,
@@ -391,7 +395,7 @@ impl WasmOperationDispatcher {
         
         // Mark buffer as initialized if it was newly created
         if needs_initialization {
-            self.memory_manager.mark_buffer_initialized(&mut output);
+            self.memory_manager.borrow().mark_buffer_initialized(&mut output);
         }
         
         Ok(output)
