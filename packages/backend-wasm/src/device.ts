@@ -161,6 +161,17 @@ export class WASMDevice implements Device {
       reductionAxes = reductionOp[axesKey] === undefined ? null : Array.from(reductionOp[axesKey] || []);
       keepDims = reductionOp.__keepDims || false;
     }
+    
+    // Extract softmax axis
+    let softmaxAxis: number | null = null;
+    if (op.__op === 'softmax' || op.__op === 'log_softmax') {
+      const softmaxOp = op as any;
+      if (op.__op === 'softmax') {
+        softmaxAxis = softmaxOp.__softmaxAxis ?? null;
+      } else {
+        softmaxAxis = softmaxOp.__logSoftmaxAxis ?? null;
+      }
+    }
 
     try {
       // Convert inputs to WASM handles - hold strong references to prevent GC
@@ -201,6 +212,16 @@ export class WASMDevice implements Device {
             outputMeta,
             reductionAxes.length > 0 ? reductionAxes : null,
             keepDims,
+            output ? (output as WASMDeviceData).getWASMHandle() as any : null
+          );
+        } else if (softmaxAxis !== null) {
+          // Softmax operation with axis support
+          resultHandle = this.operationDispatcher.execute_softmax(
+            wasmOperation,
+            wasmInputs[0],
+            inputMetas[0],
+            outputMeta,
+            softmaxAxis,
             output ? (output as WASMDeviceData).getWASMHandle() as any : null
           );
         } else {
@@ -262,7 +283,9 @@ export class WASMDevice implements Device {
     
     try {
       // Use new immutable buffer API - create buffer with data atomically
-      const sourceData = new Uint8Array(buffer);
+      // Create a copy to avoid "recursive use" errors
+      const sourceData = new Uint8Array(buffer.byteLength);
+      sourceData.set(new Uint8Array(buffer));
       const wasmHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
       
       
@@ -328,12 +351,22 @@ export class WASMDevice implements Device {
       );
     }
 
-    // In the new immutable buffer architecture, buffers cannot be modified after creation
-    // This method is not supported for existing data - data must be created with the buffer
-    throw new Error(
-      'writeData is not supported in the immutable buffer architecture. ' +
-      'Use createDataWithBuffer() to create new data with the desired buffer content.'
-    );
+    // In the immutable buffer architecture, we need to handle writeData by
+    // replacing the underlying buffer handle in the WASMDeviceData
+    const wasmData = data as WASMDeviceData;
+    
+    // Release the old buffer
+    if (!wasmData.isDisposed()) {
+      const oldHandle = wasmData.getWASMHandle();
+      this.operationDispatcher.release_buffer(oldHandle);
+    }
+    
+    // Create new buffer with the provided data
+    const sourceData = new Uint8Array(buffer);
+    const newHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
+    
+    // Update the handle in the WASMDeviceData
+    (wasmData as any).wasmHandle = newHandle;
   }
 
   /**

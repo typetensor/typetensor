@@ -275,36 +275,31 @@ fn execute_batched_matmul_f32(
         batch_size *= shape_out[i];
     }
 
-    // Compute strides for batch dimensions
-    let mut batch_strides_out = vec![1; rank_out - 2];
-    if !batch_strides_out.is_empty() {
-        let last_idx = batch_strides_out.len() - 1;
-        batch_strides_out[last_idx] = m * n;
-        for i in (0..last_idx).rev() {
-            batch_strides_out[i] = batch_strides_out[i + 1] * shape_out[i + 1];
-        }
-    }
-
+    // For batched matmul, calculate the batch strides properly
     for batch in 0..batch_size {
+        // Compute batch indices
+        let mut batch_indices = vec![0; rank_out - 2];
+        let mut temp = batch;
+        for i in (0..(rank_out - 2)).rev() {
+            batch_indices[i] = temp % shape_out[i];
+            temp /= shape_out[i];
+        }
+        
         // Compute batch offsets
         let mut offset_a = 0;
         let mut offset_b = 0;
-        let mut temp = batch;
-
-        for i in (0..batch_strides_out.len()).rev() {
-            let coord = temp / batch_strides_out[i];
-            temp %= batch_strides_out[i];
+        
+        for i in 0..batch_indices.len() {
+            let batch_idx = batch_indices[i];
 
             // Map to input A
-            let dim_a = rank_a - batch_strides_out.len() + i;
-            if dim_a < rank_a && shape_a[dim_a] > 1 {
-                offset_a += coord * strides_a[dim_a];
+            if i < rank_a - 2 && shape_a[i] > 1 {
+                offset_a += batch_idx * strides_a[i];
             }
 
             // Map to input B
-            let dim_b = rank_b - batch_strides_out.len() + i;
-            if dim_b < rank_b && shape_b[dim_b] > 1 {
-                offset_b += coord * strides_b[dim_b];
+            if i < rank_b - 2 && shape_b[i] > 1 {
+                offset_b += batch_idx * strides_b[i];
             }
         }
 
@@ -351,32 +346,30 @@ fn execute_batched_matmul_f64(
         batch_size *= shape_out[i];
     }
 
-    let mut batch_strides_out = vec![1; rank_out - 2];
-    if !batch_strides_out.is_empty() {
-        let last_idx = batch_strides_out.len() - 1;
-        batch_strides_out[last_idx] = m * n;
-        for i in (0..last_idx).rev() {
-            batch_strides_out[i] = batch_strides_out[i + 1] * shape_out[i + 1];
-        }
-    }
-
     for batch in 0..batch_size {
+        // Compute batch indices
+        let mut batch_indices = vec![0; rank_out - 2];
+        let mut temp = batch;
+        for i in (0..(rank_out - 2)).rev() {
+            batch_indices[i] = temp % shape_out[i];
+            temp /= shape_out[i];
+        }
+        
+        // Compute batch offsets
         let mut offset_a = 0;
         let mut offset_b = 0;
-        let mut temp = batch;
+        
+        for i in 0..batch_indices.len() {
+            let batch_idx = batch_indices[i];
 
-        for i in (0..batch_strides_out.len()).rev() {
-            let coord = temp / batch_strides_out[i];
-            temp %= batch_strides_out[i];
-
-            let dim_a = rank_a - batch_strides_out.len() + i;
-            if dim_a < rank_a && shape_a[dim_a] > 1 {
-                offset_a += coord * strides_a[dim_a];
+            // Map to input A
+            if i < rank_a - 2 && shape_a[i] > 1 {
+                offset_a += batch_idx * strides_a[i];
             }
 
-            let dim_b = rank_b - batch_strides_out.len() + i;
-            if dim_b < rank_b && shape_b[dim_b] > 1 {
-                offset_b += coord * strides_b[dim_b];
+            // Map to input B
+            if i < rank_b - 2 && shape_b[i] > 1 {
+                offset_b += batch_idx * strides_b[i];
             }
         }
 

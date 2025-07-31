@@ -12,6 +12,7 @@ pub mod binary;
 pub mod matmul;
 pub mod view;
 pub mod reduction;
+pub mod softmax;
 
 use wasm_bindgen::prelude::*;
 use crate::types::{WasmOperation, WasmTensorMeta, WasmResult, WasmError};
@@ -187,6 +188,22 @@ impl WasmOperationDispatcher {
                 )?;
                 Ok(())
             }
+            // Softmax operations
+            WasmOperation::Softmax | WasmOperation::LogSoftmax => {
+                if inputs.len() != 1 {
+                    return Err(WasmError::InvalidInput);
+                }
+                softmax::execute_softmax_op(
+                    &mut self.memory_manager,
+                    operation,
+                    &inputs[0],
+                    &input_metas[0],
+                    &output,
+                    &output_meta,
+                    None, // Default axis (last dimension)
+                )?;
+                Ok(())
+            }
 
             // Not yet implemented operations
             _ => Err(WasmError::NotImplemented),
@@ -282,6 +299,28 @@ impl WasmOperationDispatcher {
         result.map_err(|e| e.into())
     }
     
+    /// Execute a softmax operation with axis information
+    #[wasm_bindgen]
+    pub fn execute_softmax(
+        &mut self,
+        operation: WasmOperation,
+        input: &WasmBufferHandle,
+        input_meta: &WasmTensorMeta,
+        output_meta: &WasmTensorMeta,
+        axis: i32,
+        output_handle: Option<WasmBufferHandle>,
+    ) -> Result<WasmBufferHandle, JsValue> {
+        let result = self.execute_softmax_internal(
+            operation,
+            input.clone(),
+            input_meta.clone(),
+            output_meta.clone(),
+            Some(axis),
+            output_handle,
+        );
+        result.map_err(|e| e.into())
+    }
+    
     fn execute_reduction_internal(
         &mut self,
         operation: WasmOperation,
@@ -311,6 +350,43 @@ impl WasmOperationDispatcher {
             &output_meta,
             axes.as_deref(),
             keep_dims,
+        )?;
+        
+        // Mark buffer as initialized if it was newly created
+        if needs_initialization {
+            self.memory_manager.mark_buffer_initialized(&mut output);
+        }
+        
+        Ok(output)
+    }
+    
+    fn execute_softmax_internal(
+        &mut self,
+        operation: WasmOperation,
+        input: WasmBufferHandle,
+        input_meta: WasmTensorMeta,
+        output_meta: WasmTensorMeta,
+        axis: Option<i32>,
+        output_handle: Option<WasmBufferHandle>,
+    ) -> WasmResult<WasmBufferHandle> {
+        // Create output buffer if not provided
+        let (mut output, needs_initialization) = match output_handle {
+            Some(handle) => (handle, false),
+            None => {
+                let (handle, _write_ptr) = self.memory_manager.create_empty_buffer(output_meta.byte_size());
+                (handle, true)
+            }
+        };
+        
+        // Execute softmax with axis information
+        softmax::execute_softmax_op(
+            &mut self.memory_manager,
+            operation,
+            &input,
+            &input_meta,
+            &output,
+            &output_meta,
+            axis,
         )?;
         
         // Mark buffer as initialized if it was newly created
