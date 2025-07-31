@@ -1,21 +1,27 @@
 import type { DeviceData, Device } from '@typetensor/core';
 import type { WASMModule } from './types';
 import { getLoadedWASMModule } from './loader';
+import { WASMErrorHandler, WASMCleanupFinalizationError } from './errors';
 
-// Global cleanup registry for automatic buffer disposal - TEMPORARILY DISABLED
-const cleanupRegistry: FinalizationRegistry<any> | null = null;
-// TODO: Re-enable after fixing BorrowMutError
-// const cleanupRegistry =
-//   typeof FinalizationRegistry !== 'undefined'
-//     ? new FinalizationRegistry((cleanup: { device: any; wasmHandle: any }) => {
-//         try {
-//           // This runs when WASMDeviceData is garbage collected
-//           if (cleanup.device && cleanup.device.operationDispatcher && cleanup.wasmHandle) {
-//             cleanup.device.operationDispatcher.release_buffer(cleanup.wasmHandle);
-//           }
-//         } catch {}
-//       })
-//     : null;
+// Global cleanup registry for automatic buffer disposal
+const cleanupRegistry =
+  typeof FinalizationRegistry !== 'undefined'
+    ? new FinalizationRegistry((cleanup: { device: any; wasmHandle: any }) => {
+        try {
+          // This runs when WASMDeviceData is garbage collected
+          if (cleanup.device && cleanup.device.operationDispatcher && cleanup.wasmHandle) {
+            cleanup.device.operationDispatcher.release_buffer(cleanup.wasmHandle);
+          }
+        } catch (error) {
+          // Handle finalization errors properly
+          const cleanupError = new WASMCleanupFinalizationError(
+            error instanceof Error ? error.message : String(error),
+            { cleanup }
+          );
+          WASMErrorHandler.handle(cleanupError);
+        }
+      })
+    : null;
 
 export class WASMDeviceData implements DeviceData {
   readonly id: string;
@@ -70,11 +76,27 @@ export class WASMDeviceData implements DeviceData {
       if (device.operationDispatcher && this.#wasmHandle) {
         const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
         if (!released) {
-          console.warn(`Failed to release WASM buffer ${this.id}`);
+          // Buffer release failure during disposal is a cleanup error
+          const error = WASMErrorHandler.createBufferReleaseError(
+            this.id,
+            released,
+            { operation: 'dispose', deviceId: this.device.id }
+          );
+          WASMErrorHandler.handle(error);
         }
       }
     } catch (error) {
-      console.warn(`Error disposing WASM buffer ${this.id}:`, error);
+      // Handle disposal errors as cleanup errors
+      const cleanupError = WASMErrorHandler.createBufferReleaseError(
+        this.id,
+        false,
+        { 
+          operation: 'dispose', 
+          deviceId: this.device.id,
+          originalError: error instanceof Error ? error.message : String(error)
+        }
+      );
+      WASMErrorHandler.handle(cleanupError);
     }
 
     // Clear references
@@ -174,11 +196,26 @@ export class WASMDeviceData implements DeviceData {
       try {
         const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
         if (!released) {
-          console.warn(`Failed to release old buffer handle ${this.id}`);
+          // Handle old buffer release failure as cleanup error
+          const error = WASMErrorHandler.createBufferReleaseError(
+            this.id,
+            released,
+            { operation: 'updateHandle', deviceId: this.device.id }
+          );
+          WASMErrorHandler.handle(error);
         }
       } catch (error) {
         // Handle cleanup errors gracefully - old handle might already be invalid
-        console.warn(`Error releasing old buffer handle ${this.id}:`, error);
+        const cleanupError = WASMErrorHandler.createBufferReleaseError(
+          this.id,
+          false,
+          { 
+            operation: 'updateHandle', 
+            deviceId: this.device.id,
+            originalError: error instanceof Error ? error.message : String(error)
+          }
+        );
+        WASMErrorHandler.handle(cleanupError);
       }
     }
     

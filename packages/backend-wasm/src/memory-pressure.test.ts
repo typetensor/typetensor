@@ -108,7 +108,7 @@ describe('Memory Pressure Handling', () => {
       const tooLarge = 1024 * 1024 * 1024 + 1; // 1GB + 1 byte
       
       expect(() => device.createData(tooLarge)).toThrow(
-        /exceeds maximum allowed size/
+        /Bounds check failed for buffer allocation.*exceeds maximum/
       );
     });
 

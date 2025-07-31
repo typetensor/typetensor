@@ -89,13 +89,12 @@ async function runWASMBenchmarks() {
   ] as const;
 
   for (const size of unaryTestSizes) {
-    const data = generateRandomData(size.shape);
-    const testTensor = await tensor(data, { device: wasmDevice, dtype: float32 });
-
     const unaryOps = ['neg', 'abs', 'sin', 'cos', 'exp', 'log', 'sqrt', 'square'] as const;
     
     for (const op of unaryOps) {
       bench.add(`WASM: ${op} ${size.name} ${size.shape.join('x')}`, async () => {
+        const data = generateRandomData(size.shape);
+        const testTensor = await tensor(data, { device: wasmDevice, dtype: float32 });
         await (testTensor as any)[op]();
       });
     }

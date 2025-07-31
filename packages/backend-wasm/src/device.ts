@@ -13,6 +13,13 @@ import type { WASMModule, WASMLoadOptions, WASMCapabilities, WASMMemoryStats, WA
 import type { WasmOperationDispatcher, WasmBufferHandle, WasmTensorMeta } from './types/wasm-bindings';
 import { MemoryViewManager } from './memory-views';
 import { getDTypeByteSize } from './utils/dtype-helpers';
+import { 
+  WASMErrorHandler, 
+  WASMInvalidStateError, 
+  WASMOperationError,
+  WASMAllocationError,
+  WASMBoundsError 
+} from './errors';
 
 export class WASMDevice implements Device {
   readonly id: string = 'wasm:0';
@@ -115,7 +122,15 @@ export class WASMDevice implements Device {
 
       this.initialized = true;
     } catch (error) {
-      throw new Error(`Failed to initialize WASM device: ${error}`);
+      throw new WASMInvalidStateError(
+        'initialize',
+        'uninitialized',
+        'error',
+        { 
+          originalError: error instanceof Error ? error.message : String(error),
+          wasmModuleLoaded: !!this.wasmModule 
+        }
+      );
     }
   }
 
@@ -250,7 +265,21 @@ export class WASMDevice implements Device {
       const resultSize = op.__output.__size * getDTypeByteSize(op.__output.__dtype);
       return createWASMDeviceData(this, resultSize, resultHandle);
     } catch (error) {
-      throw new Error(`WASM operation '${op.__op}' failed: ${error}`);
+      const inputInfo = inputs.map((input, i) => ({
+        id: (input as WASMDeviceData).id,
+        size: input.byteLength,
+        index: i
+      }));
+      
+      throw new WASMOperationError(
+        op.__op,
+        error instanceof Error ? error.message : String(error),
+        {
+          inputs: inputInfo,
+          outputSize: op.__output.__size,
+          outputDtype: op.__output.__dtype.__name || 'unknown'
+        }
+      );
     }
   }
 
@@ -297,7 +326,12 @@ export class WASMDevice implements Device {
       // Check for reasonable allocation size (e.g., max 1GB)
       const MAX_ALLOCATION_SIZE = 1024 * 1024 * 1024; // 1GB
       if (byteLength > MAX_ALLOCATION_SIZE) {
-        throw new Error(`Requested allocation size ${byteLength} exceeds maximum allowed size of ${MAX_ALLOCATION_SIZE} bytes`);
+        throw new WASMBoundsError(
+          'buffer allocation',
+          byteLength,
+          { max: MAX_ALLOCATION_SIZE },
+          { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE }
+        );
       }
       
       // Check memory pressure before allocation
@@ -313,7 +347,16 @@ export class WASMDevice implements Device {
           );
           this.operationDispatcher.release_buffer(testHandle);
         } catch (testError) {
-          throw new Error(`Memory system not ready for large allocation: ${testError}`);
+          throw new WASMAllocationError(
+            byteLength,
+            'Memory system not ready for large allocation',
+            [
+              'Try disposing unused buffers with device.disposeData()',
+              'Consider calling device.performIntensiveCleanup() to free memory pools',
+              'Break large allocations into smaller chunks'
+            ],
+            { testError: testError instanceof Error ? testError.message : String(testError) }
+          );
         }
       }
       
@@ -321,14 +364,20 @@ export class WASMDevice implements Device {
       const wasmHandle = this.operationDispatcher.create_empty_buffer(byteLength);
       return createWASMDeviceData(this, byteLength, wasmHandle);
     } catch (error: any) {
-      // Handle specific WASM out-of-bounds errors
-      if (error.message && error.message.includes('Out of bounds memory access')) {
-        throw new Error(
-          `Failed to allocate ${byteLength} bytes: WASM memory limit exceeded. ` +
-          `Try allocating smaller buffers or increasing WASM memory limit.`
-        );
+      // Don't re-throw our own errors
+      if (error instanceof WASMBoundsError || error instanceof WASMAllocationError) {
+        throw error;
       }
-      throw new Error(`Failed to allocate ${byteLength} bytes on WASM device: ${error}`);
+      
+      // Use error handler to create appropriate error type
+      // Don't call getMemoryStats() here - the operation dispatcher might be in an invalid state
+      throw WASMErrorHandler.createAllocationError(
+        byteLength,
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          limit: this.memoryConfig.maxMemory
+        }
+      );
     }
   }
 
@@ -347,12 +396,28 @@ export class WASMDevice implements Device {
       try {
         wasmHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
       } catch (wasmError) {
-        throw new Error(`WASM allocation failed: ${wasmError}`);
+        // Don't call getMemoryStats() here - the operation dispatcher might be in an invalid state
+        throw WASMErrorHandler.createAllocationError(
+          buffer.byteLength,
+          wasmError instanceof Error ? wasmError : new Error(String(wasmError)),
+          {
+            limit: this.memoryConfig.maxMemory
+          }
+        );
       }
 
       return createWASMDeviceData(this, buffer.byteLength, wasmHandle);
     } catch (error) {
-      throw new Error(`Failed to create data with buffer: ${error}`);
+      // Don't re-wrap our own errors
+      if (error instanceof WASMAllocationError) {
+        throw error;
+      }
+      
+      throw new WASMOperationError(
+        'createDataWithBuffer',
+        error instanceof Error ? error.message : String(error),
+        { bufferSize: buffer.byteLength }
+      );
     }
   }
 
@@ -370,12 +435,31 @@ export class WASMDevice implements Device {
       // Invalidate all views for this buffer BEFORE releasing it
       this.memoryViewManager!.invalidateBuffer(wasmData.id);
 
-      const wasmHandle = wasmData.getWASMHandle();
+      try {
+        const wasmHandle = wasmData.getWASMHandle();
+        const released = this.operationDispatcher.release_buffer(wasmHandle);
 
-      const released = this.operationDispatcher.release_buffer(wasmHandle);
-
-      if (!released) {
-        console.warn(`Failed to release buffer ${wasmData.id}`);
+        if (!released) {
+          // Buffer release failure during normal disposal is a cleanup error
+          const error = WASMErrorHandler.createBufferReleaseError(
+            wasmData.id,
+            released,
+            { operation: 'disposeData', deviceId: this.id }
+          );
+          WASMErrorHandler.handle(error);
+        }
+      } catch (error) {
+        // Handle any errors during disposal as cleanup errors
+        const cleanupError = WASMErrorHandler.createBufferReleaseError(
+          wasmData.id,
+          false,
+          { 
+            operation: 'disposeData', 
+            deviceId: this.id,
+            originalError: error instanceof Error ? error.message : String(error)
+          }
+        );
+        WASMErrorHandler.handle(cleanupError);
       }
     }
   }
@@ -666,8 +750,11 @@ export class WASMDevice implements Device {
       if (typeof slice === 'number') {
         const normalizedIndex = slice < 0 ? dimSize + slice : slice;
         if (normalizedIndex < 0 || normalizedIndex >= dimSize) {
-          throw new Error(
-            `Slice index ${slice} is out of bounds for dimension ${i} of size ${dimSize}`
+          throw new WASMBoundsError(
+            `slice dimension ${i}`,
+            slice,
+            { min: -dimSize, max: dimSize - 1, size: dimSize },
+            { dimension: i, originalIndex: slice, normalizedIndex }
           );
         }
       } else if (slice && typeof slice === 'object') {
@@ -679,19 +766,30 @@ export class WASMDevice implements Device {
         const normalizedStop = stop < 0 ? dimSize + stop : stop;
         
         if (normalizedStart < 0 || normalizedStart > dimSize) {
-          throw new Error(
-            `Slice start ${start} is out of bounds for dimension ${i} of size ${dimSize}`
+          throw new WASMBoundsError(
+            `slice start for dimension ${i}`,
+            start,
+            { min: -dimSize, max: dimSize, size: dimSize },
+            { dimension: i, originalStart: start, normalizedStart }
           );
         }
         
         if (normalizedStop < 0 || normalizedStop > dimSize) {
-          throw new Error(
-            `Slice stop ${stop} is out of bounds for dimension ${i} of size ${dimSize}`
+          throw new WASMBoundsError(
+            `slice stop for dimension ${i}`,
+            stop, 
+            { min: -dimSize, max: dimSize, size: dimSize },
+            { dimension: i, originalStop: stop, normalizedStop }
           );
         }
         
         if (step === 0) {
-          throw new Error(`Slice step cannot be zero for dimension ${i}`);
+          throw new WASMBoundsError(
+            `slice step for dimension ${i}`,
+            step,
+            { min: Number.NEGATIVE_INFINITY, max: Number.POSITIVE_INFINITY },
+            { dimension: i, step, note: 'Step cannot be zero' }
+          );
         }
         
         if (step < 0 && normalizedStart < normalizedStop) {
@@ -779,9 +877,16 @@ export class WASMDevice implements Device {
         
         // BOUNDS CHECK: Ensure normalized index is within bounds
         if (normalizedIndex < 0 || normalizedIndex >= inputSize) {
-          throw new Error(
-            `Normalized index ${normalizedIndex} (from ${sliceIndex}) is out of bounds ` +
-            `for dimension ${inputDim} of size ${inputSize}`
+          throw new WASMBoundsError(
+            `mapped output index for dimension ${inputDim}`,
+            sliceIndex,
+            { min: -inputSize, max: inputSize - 1, size: inputSize },
+            { 
+              inputDimension: inputDim,
+              originalIndex: sliceIndex, 
+              normalizedIndex,
+              inputSize 
+            }
           );
         }
         

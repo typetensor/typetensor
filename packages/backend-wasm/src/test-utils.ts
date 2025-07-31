@@ -3,6 +3,7 @@
  */
 
 import { resetWASMModule } from './loader';
+import { WASMErrorHandler, WASMCleanupError } from './errors';
 
 /**
  * Resets the WASM module to ensure test isolation.
@@ -13,8 +14,23 @@ export function resetWASMForTests(): void {
     // Reset the cached WASM module so next test file gets a fresh instance
     resetWASMModule();
   } catch (error) {
-    // Don't fail tests if reset fails - just log it
-    console.warn('Failed to reset WASM module between tests:', error);
+    // Don't fail tests if reset fails - handle as cleanup error
+    class WASMTestCleanupError extends WASMCleanupError {
+      readonly code = 'TEST_CLEANUP_FAILED';
+      
+      constructor(reason: string, context?: Record<string, unknown>) {
+        super(
+          `Test cleanup failed: ${reason}. This may affect test isolation but should not fail the test.`,
+          context
+        );
+      }
+    }
+    
+    const cleanupError = new WASMTestCleanupError(
+      error instanceof Error ? error.message : String(error),
+      { operation: 'resetWASMModule', testContext: true }
+    );
+    WASMErrorHandler.handle(cleanupError);
   }
 }
 
