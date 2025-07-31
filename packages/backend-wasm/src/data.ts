@@ -79,7 +79,7 @@ export class WASMDeviceData implements DeviceData {
 
     // Clear references
     this.wasmHandle = null;
-    this.cleanupToken = undefined as any;
+    this.cleanupToken = undefined;
   }
 
   getRefCount(): number {

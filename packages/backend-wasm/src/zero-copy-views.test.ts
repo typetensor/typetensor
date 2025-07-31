@@ -35,7 +35,8 @@ describe('Zero-Copy View Implementation Tests', () => {
       const initialStats = device.getMemoryStats();
 
       // Create initial tensor
-      const tensor = await tt.tensor(new Float32Array(1000), {
+      const data = Array.from({ length: 1000 }, (_, i) => i);
+      const tensor = await tt.tensor(data, {
         shape: [1000] as const,
         device,
         dtype: float32,
@@ -210,7 +211,8 @@ describe('Zero-Copy View Implementation Tests', () => {
       const times: number[] = [];
 
       for (const size of sizes) {
-        const tensor = await tt.tensor(new Float32Array(size), {
+        const data = Array.from({ length: size }, (_, i) => i);
+        const tensor = await tt.tensor(data, {
           shape: [size] as const,
           device,
           dtype: float32,

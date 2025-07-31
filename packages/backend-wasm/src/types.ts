@@ -75,10 +75,10 @@ export interface WASMModule {
   memory: WebAssembly.Memory;
   greet(): void;
   get_version(): string;
-  WasmOperationDispatcher: any;
-  WasmMemoryManager: any;
-  WasmBufferHandle: any;
-  WasmTensorMeta: any;
+  WasmOperationDispatcher: any; // Defined in wasm-bindings.d.ts
+  WasmMemoryManager: any; // Defined in wasm-bindings.d.ts
+  WasmBufferHandle: any; // Defined in wasm-bindings.d.ts
+  WasmTensorMeta: any; // Defined in wasm-bindings.d.ts
   has_simd_support(): boolean;
   has_shared_memory_support(): boolean;
   get_optimal_thread_count(): number;

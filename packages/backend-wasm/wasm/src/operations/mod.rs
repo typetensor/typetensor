@@ -322,6 +322,37 @@ impl WasmOperationDispatcher {
         handle.clone()
     }
     
+    /// Create an empty buffer without data copy using fast-path/slow-path pattern
+    #[wasm_bindgen]
+    pub fn create_empty_buffer(&self, size: usize) -> WasmBufferHandle {
+        // FAST PATH: Try pool (non-blocking)
+        if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+            if let Ok((mut handle, ptr)) = manager.create_empty_buffer(size) {
+                // Zero initialize the buffer
+                unsafe {
+                    std::ptr::write_bytes(ptr, 0, size);
+                }
+                handle.mark_initialized();
+                return handle;
+            }
+        }
+        
+        // SLOW PATH: Direct allocation (no RefCell)
+        match allocate_direct(size) {
+            Ok(mut handle) => {
+                // Zero initialize the buffer
+                unsafe {
+                    std::ptr::write_bytes(handle.ptr_mut(), 0, size);
+                }
+                handle.mark_initialized();
+                handle
+            }
+            Err(e) => {
+                wasm_bindgen::throw_str(&format!("Memory allocation failed: {}", e));
+            }
+        }
+    }
+    
     /// Execute a reduction operation with axis information
     #[wasm_bindgen]
     pub fn execute_reduction(

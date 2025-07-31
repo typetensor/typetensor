@@ -6,6 +6,7 @@
 
 import type { DType } from '@typetensor/core';
 import { float32, float64, int32, int16, int8, uint32, uint16, uint8 } from '@typetensor/core';
+import { getDTypeByteSize } from './utils/dtype-helpers';
 
 export interface MemoryView {
   readonly buffer: ArrayBuffer;
@@ -75,7 +76,7 @@ export class MemoryViewManager {
     }
 
     const buffer = this.memory.buffer;
-    const elementSize = dtype.__byteSize;
+    const elementSize = getDTypeByteSize(dtype);
     const byteOffset = ptr;
     const byteLength = size * elementSize;
 
@@ -133,7 +134,7 @@ export class MemoryViewManager {
       bufferId,
       generation,
       byteOffset: ptr,
-      byteLength: size * dtype.__byteSize
+      byteLength: size * getDTypeByteSize(dtype)
     };
     
     // Track this view
@@ -188,6 +189,15 @@ export class MemoryViewManager {
             };
             return self.createProxiedView(subarray, subTrackedView);
           };
+        } else if (prop === 'slice') {
+          // Handle slice specially - it creates a copy so doesn't need to be proxied
+          return function(...args: any[]) {
+            if (!self.isTrackedViewValid(trackedView)) {
+              throw new Error('View is no longer valid: buffer has been disposed');
+            }
+            // slice() creates a copy, not a view, so return directly
+            return (target as any).slice(...args);
+          };
         }
         
         // Handle other important properties
@@ -200,7 +210,7 @@ export class MemoryViewManager {
         
         // For all other properties, check validity if it's a method
         const value = Reflect.get(target, prop, target); // Use target as receiver to avoid issues
-        if (typeof value === 'function' && prop !== 'slice') {
+        if (typeof value === 'function') {
           return function(...args: any[]) {
             if (!self.isTrackedViewValid(trackedView)) {
               throw new Error('View is no longer valid: buffer has been disposed');
@@ -252,7 +262,7 @@ export class MemoryViewManager {
     const viewInfo: MemoryView = {
       buffer: this.memory.buffer,
       byteOffset: ptr,
-      byteLength: size * dtype.__byteSize,
+      byteLength: size * getDTypeByteSize(dtype),
       isValid: true,
     };
 
