@@ -4,6 +4,7 @@ mod memory;
 mod operations;
 mod types;
 mod debug;
+mod simd;
 
 use wasm_bindgen::prelude::*;
 
@@ -30,6 +31,18 @@ pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Check if SIMD128 is supported at compile time
+#[wasm_bindgen]
+pub fn has_simd128_support() -> bool {
+    cfg!(target_feature = "simd128")
+}
+
+/// Check if bulk memory operations are supported
+#[wasm_bindgen]
+pub fn has_bulk_memory_support() -> bool {
+    cfg!(target_feature = "bulk-memory")
+}
+
 #[wasm_bindgen(start)]
 pub fn init() {
     #[cfg(feature = "console_error_panic_hook")]
@@ -41,3 +54,4 @@ pub use operations::*;
 pub use types::*;
 pub use utils::*;
 pub use debug::*;
+pub use simd::*;

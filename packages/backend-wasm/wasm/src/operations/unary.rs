@@ -7,6 +7,7 @@
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::simd::{float32, float64};
 
 /// Execute a unary operation
 pub fn execute_unary_op(
@@ -15,7 +16,7 @@ pub fn execute_unary_op(
     input: &WasmBufferHandle,
     input_meta: &WasmTensorMeta,
     output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    _output_meta: &WasmTensorMeta,
 ) -> WasmResult<()> {
     let input_ptr = memory_manager.get_read_ptr(input);
     let output_ptr = memory_manager.get_write_ptr(output);
@@ -56,17 +57,19 @@ fn execute_unary_f32(
 ) -> WasmResult<()> {
     match operation {
         WasmOperation::Neg => {
-            // SIMD optimization opportunity here
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = -val;
-            }
+            // Use SIMD-optimized negation
+            float32::simd_neg(input, output);
         }
         WasmOperation::Abs => {
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = val.abs();
-            }
+            // Use SIMD-optimized absolute value
+            float32::simd_abs(input, output);
+        }
+        WasmOperation::Sqrt => {
+            // Use SIMD-optimized square root
+            float32::simd_sqrt(input, output);
         }
         WasmOperation::Sin => {
+            // Keep scalar implementation for complex math functions
             for (i, &val) in input.iter().enumerate() {
                 output[i] = val.sin();
             }
@@ -86,15 +89,9 @@ fn execute_unary_f32(
                 output[i] = if val > 0.0 { val.ln() } else { f32::NAN };
             }
         }
-        WasmOperation::Sqrt => {
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = if val >= 0.0 { val.sqrt() } else { f32::NAN };
-            }
-        }
         WasmOperation::Square => {
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = val * val;
-            }
+            // Use SIMD multiplication for squaring
+            float32::simd_mul(input, input, output);
         }
         _ => return Err(WasmError::InvalidOperation),
     }
@@ -109,16 +106,19 @@ fn execute_unary_f64(
 ) -> WasmResult<()> {
     match operation {
         WasmOperation::Neg => {
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = -val;
-            }
+            // Use SIMD-optimized negation
+            float64::simd_neg(input, output);
         }
         WasmOperation::Abs => {
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = val.abs();
-            }
+            // Use SIMD-optimized absolute value
+            float64::simd_abs(input, output);
+        }
+        WasmOperation::Sqrt => {
+            // Use SIMD-optimized square root
+            float64::simd_sqrt(input, output);
         }
         WasmOperation::Sin => {
+            // Keep scalar implementation for complex math functions
             for (i, &val) in input.iter().enumerate() {
                 output[i] = val.sin();
             }
@@ -138,12 +138,8 @@ fn execute_unary_f64(
                 output[i] = if val > 0.0 { val.ln() } else { f64::NAN };
             }
         }
-        WasmOperation::Sqrt => {
-            for (i, &val) in input.iter().enumerate() {
-                output[i] = if val >= 0.0 { val.sqrt() } else { f64::NAN };
-            }
-        }
         WasmOperation::Square => {
+            // Implement efficient squaring - we'll need to create a helper for this
             for (i, &val) in input.iter().enumerate() {
                 output[i] = val * val;
             }
@@ -217,49 +213,6 @@ fn execute_unary_i8(
     Ok(())
 }
 
-#[cfg(feature = "simd128")]
-mod simd {
-    use super::*;
-    use std::arch::wasm32::*;
-
-    /// SIMD-optimized negation for f32 arrays
-    pub fn neg_f32_simd(input: &[f32], output: &mut [f32]) {
-        const SIMD_WIDTH: usize = 4;
-        let chunks = input.len() / SIMD_WIDTH;
-        
-        for i in 0..chunks {
-            let base_idx = i * SIMD_WIDTH;
-            let input_vec = v128_load(&input[base_idx] as *const f32 as *const v128);
-            let neg_vec = f32x4_neg(input_vec);
-            v128_store(&mut output[base_idx] as *mut f32 as *mut v128, neg_vec);
-        }
-        
-        // Handle remaining elements
-        let remainder_start = chunks * SIMD_WIDTH;
-        for i in remainder_start..input.len() {
-            output[i] = -input[i];
-        }
-    }
-
-    /// SIMD-optimized absolute value for f32 arrays
-    pub fn abs_f32_simd(input: &[f32], output: &mut [f32]) {
-        const SIMD_WIDTH: usize = 4;
-        let chunks = input.len() / SIMD_WIDTH;
-        
-        for i in 0..chunks {
-            let base_idx = i * SIMD_WIDTH;
-            let input_vec = v128_load(&input[base_idx] as *const f32 as *const v128);
-            let abs_vec = f32x4_abs(input_vec);
-            v128_store(&mut output[base_idx] as *mut f32 as *mut v128, abs_vec);
-        }
-        
-        // Handle remaining elements
-        let remainder_start = chunks * SIMD_WIDTH;
-        for i in remainder_start..input.len() {
-            output[i] = input[i].abs();
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

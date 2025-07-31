@@ -24,6 +24,9 @@ console_error_panic_hook = { version = "0.1", optional = true }
 # Removed wee_alloc to avoid allocator conflicts
 # Using the default allocator for better performance and compatibility
 
+# High-performance matrix multiplication with WASM support
+microgemm = { version = "0.3.1", default-features = false }
+
 # Optional: Include these for advanced features
 # faer = { version = "0.18", optional = true }
 # ndarray = { version = "0.15", optional = true }
@@ -33,7 +36,7 @@ wasm-bindgen-test = "0.3"
 approx = "0.5"
 
 [features]
-default = ["console_error_panic_hook"]
+default = ["console_error_panic_hook", "simd128"]
 simd128 = []
 
 [profile.release]

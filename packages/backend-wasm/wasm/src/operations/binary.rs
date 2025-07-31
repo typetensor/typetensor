@@ -7,6 +7,7 @@
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::simd::{float32, float64};
 
 /// Execute a binary operation
 pub fn execute_binary_op(
@@ -96,24 +97,20 @@ fn execute_binary_f32_fast(
 ) -> WasmResult<()> {
     match operation {
         WasmOperation::Add => {
-            for ((out, &a_val), &b_val) in output.iter_mut().zip(a.iter()).zip(b.iter()) {
-                *out = a_val + b_val;
-            }
-        }
-        WasmOperation::Sub => {
-            for ((out, &a_val), &b_val) in output.iter_mut().zip(a.iter()).zip(b.iter()) {
-                *out = a_val - b_val;
-            }
+            // Use SIMD-optimized addition
+            float32::simd_add(a, b, output);
         }
         WasmOperation::Mul => {
-            for ((out, &a_val), &b_val) in output.iter_mut().zip(a.iter()).zip(b.iter()) {
-                *out = a_val * b_val;
-            }
+            // Use SIMD-optimized multiplication
+            float32::simd_mul(a, b, output);
+        }
+        WasmOperation::Sub => {
+            // Use SIMD-optimized subtraction
+            float32::simd_sub(a, b, output);
         }
         WasmOperation::Div => {
-            for ((out, &a_val), &b_val) in output.iter_mut().zip(a.iter()).zip(b.iter()) {
-                *out = crate::utils::safe_div_f32(a_val, b_val);
-            }
+            // Use SIMD-optimized division
+            float32::simd_div(a, b, output);
         }
         _ => return Err(WasmError::InvalidOperation),
     }
@@ -371,51 +368,6 @@ fn execute_binary_scalar_broadcast_reverse(
     Ok(())
 }
 
-#[cfg(feature = "simd128")]
-mod simd {
-    use super::*;
-    use std::arch::wasm32::*;
-
-    /// SIMD-optimized addition for f32 arrays
-    pub fn add_f32_simd(a: &[f32], b: &[f32], output: &mut [f32]) {
-        const SIMD_WIDTH: usize = 4;
-        let chunks = a.len() / SIMD_WIDTH;
-        
-        for i in 0..chunks {
-            let base_idx = i * SIMD_WIDTH;
-            let a_vec = v128_load(&a[base_idx] as *const f32 as *const v128);
-            let b_vec = v128_load(&b[base_idx] as *const f32 as *const v128);
-            let result_vec = f32x4_add(a_vec, b_vec);
-            v128_store(&mut output[base_idx] as *mut f32 as *mut v128, result_vec);
-        }
-        
-        // Handle remaining elements
-        let remainder_start = chunks * SIMD_WIDTH;
-        for i in remainder_start..a.len() {
-            output[i] = a[i] + b[i];
-        }
-    }
-
-    /// SIMD-optimized multiplication for f32 arrays
-    pub fn mul_f32_simd(a: &[f32], b: &[f32], output: &mut [f32]) {
-        const SIMD_WIDTH: usize = 4;
-        let chunks = a.len() / SIMD_WIDTH;
-        
-        for i in 0..chunks {
-            let base_idx = i * SIMD_WIDTH;
-            let a_vec = v128_load(&a[base_idx] as *const f32 as *const v128);
-            let b_vec = v128_load(&b[base_idx] as *const f32 as *const v128);
-            let result_vec = f32x4_mul(a_vec, b_vec);
-            v128_store(&mut output[base_idx] as *mut f32 as *mut v128, result_vec);
-        }
-        
-        // Handle remaining elements
-        let remainder_start = chunks * SIMD_WIDTH;
-        for i in remainder_start..a.len() {
-            output[i] = a[i] * b[i];
-        }
-    }
-}
 
 /// Try basic broadcasting patterns
 fn try_basic_broadcasting(

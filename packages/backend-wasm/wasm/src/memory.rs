@@ -17,7 +17,8 @@ const BUFFER_SIZE_CLASSES: &[usize] = &[
     16777216,
 ];
 
-const MEMORY_ALIGNMENT: usize = 64;
+const MEMORY_ALIGNMENT: usize = 16; // SIMD requires 16-byte alignment
+const CACHE_LINE_SIZE: usize = 64;  // Keep cache line awareness
 
 static TOTAL_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);

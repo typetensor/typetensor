@@ -9,6 +9,7 @@
 
 use crate::types::{WasmTensorMeta, WasmDType, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use microgemm::{MatRef, MatMut, PackSizes, Kernel, kernels::GenericKernel8x8};
 
 /// Execute matrix multiplication operation
 pub fn execute_matmul_op(
@@ -205,13 +206,73 @@ fn execute_matmul_f64(
     Ok(())
 }
 
-/// Optimized GEMM (General Matrix Multiply) for f32
+/// Optimized GEMM (General Matrix Multiply) for f32 using microgemm
 fn execute_gemm_f32(
     a: &[f32], b: &[f32], c: &mut [f32],
     m: usize, k: usize, n: usize,
     strides_a: &[usize], strides_b: &[usize],
 ) {
-    // Simple implementation - could be optimized with tiling, SIMD, etc.
+    // Use microgemm for high-performance matrix multiplication
+    let kernel = GenericKernel8x8::<f32>::new();
+    
+    // Check if we can use contiguous layout for better performance
+    let a_contiguous = strides_a[0] == k && strides_a[1] == 1;
+    let b_contiguous = strides_b[0] == n && strides_b[1] == 1;
+    
+    if a_contiguous && b_contiguous {
+        // Fast path: contiguous matrices
+        execute_gemm_contiguous_f32(&kernel, a, b, c, m, k, n);
+    } else {
+        // Slow path: strided matrices - fall back to naive implementation for now
+        // TODO: Implement proper strided matrix handling with microgemm
+        execute_gemm_naive_f32(a, b, c, m, k, n, strides_a, strides_b);
+    }
+}
+
+/// Fast contiguous matrix multiplication using microgemm
+fn execute_gemm_contiguous_f32(
+    kernel: &GenericKernel8x8<f32>,
+    a: &[f32], b: &[f32], c: &mut [f32],
+    m: usize, k: usize, n: usize,
+) {
+    // Create matrix wrappers using row-major layout
+    let matrix_a = MatRef::row_major(m, k, a);
+    let matrix_b = MatRef::row_major(k, n, b);
+    let mut matrix_c = MatMut::row_major(m, n, c);
+    
+    // Configure optimal blocking parameters for WASM
+    // Dimensions must be divisible by kernel dimensions (mr=8, nr=8 for GenericKernel8x8)
+    let mr = kernel.mr();
+    let nr = kernel.nr();
+    
+    let pack_sizes = PackSizes {
+        mc: ((256.min(m) + mr - 1) / mr) * mr, // Round up to multiple of mr
+        kc: 128.min(k), // Inner dimension blocking
+        nc: ((256.min(n) + nr - 1) / nr) * nr, // Round up to multiple of nr
+    };
+    
+    // Calculate required packing buffer size
+    let packing_buf_size = pack_sizes.buf_len();
+    let mut packing_buf = vec![0.0f32; packing_buf_size];
+    
+    // Perform optimized matrix multiplication: C = A * B (alpha=1.0, beta=0.0)
+    kernel.gemm(
+        1.0,           // alpha (scalar for A*B)
+        matrix_a,      // matrix A
+        matrix_b,      // matrix B  
+        0.0,           // beta (scalar for existing C)
+        &mut matrix_c, // output matrix C
+        pack_sizes,    // blocking configuration
+        &mut packing_buf, // temporary packing buffer
+    );
+}
+
+/// Fallback naive implementation for strided matrices
+fn execute_gemm_naive_f32(
+    a: &[f32], b: &[f32], c: &mut [f32],
+    m: usize, k: usize, n: usize,
+    strides_a: &[usize], strides_b: &[usize],
+) {
     let stride_a_row = strides_a[0];
     let stride_a_col = strides_a[1];
     let stride_b_row = strides_b[0];
@@ -230,8 +291,69 @@ fn execute_gemm_f32(
     }
 }
 
-/// Optimized GEMM (General Matrix Multiply) for f64
+/// Optimized GEMM (General Matrix Multiply) for f64 using microgemm
 fn execute_gemm_f64(
+    a: &[f64], b: &[f64], c: &mut [f64],
+    m: usize, k: usize, n: usize,
+    strides_a: &[usize], strides_b: &[usize],
+) {
+    // Use microgemm for high-performance matrix multiplication
+    let kernel = GenericKernel8x8::<f64>::new();
+    
+    // Check if we can use contiguous layout for better performance
+    let a_contiguous = strides_a[0] == k && strides_a[1] == 1;
+    let b_contiguous = strides_b[0] == n && strides_b[1] == 1;
+    
+    if a_contiguous && b_contiguous {
+        // Fast path: contiguous matrices
+        execute_gemm_contiguous_f64(&kernel, a, b, c, m, k, n);
+    } else {
+        // Slow path: strided matrices - fall back to naive implementation for now
+        // TODO: Implement proper strided matrix handling with microgemm
+        execute_gemm_naive_f64(a, b, c, m, k, n, strides_a, strides_b);
+    }
+}
+
+/// Fast contiguous matrix multiplication using microgemm for f64
+fn execute_gemm_contiguous_f64(
+    kernel: &GenericKernel8x8<f64>,
+    a: &[f64], b: &[f64], c: &mut [f64],
+    m: usize, k: usize, n: usize,
+) {
+    // Create matrix wrappers using row-major layout
+    let matrix_a = MatRef::row_major(m, k, a);
+    let matrix_b = MatRef::row_major(k, n, b);
+    let mut matrix_c = MatMut::row_major(m, n, c);
+    
+    // Configure optimal blocking parameters for WASM
+    // Dimensions must be divisible by kernel dimensions (mr=8, nr=8 for GenericKernel8x8)
+    let mr = kernel.mr();
+    let nr = kernel.nr();
+    
+    let pack_sizes = PackSizes {
+        mc: ((256.min(m) + mr - 1) / mr) * mr, // Round up to multiple of mr
+        kc: 128.min(k), // Inner dimension blocking
+        nc: ((256.min(n) + nr - 1) / nr) * nr, // Round up to multiple of nr
+    };
+    
+    // Calculate required packing buffer size
+    let packing_buf_size = pack_sizes.buf_len();
+    let mut packing_buf = vec![0.0f64; packing_buf_size];
+    
+    // Perform optimized matrix multiplication: C = A * B (alpha=1.0, beta=0.0)
+    kernel.gemm(
+        1.0,           // alpha (scalar for A*B)
+        matrix_a,      // matrix A
+        matrix_b,      // matrix B  
+        0.0,           // beta (scalar for existing C)
+        &mut matrix_c, // output matrix C
+        pack_sizes,    // blocking configuration
+        &mut packing_buf, // temporary packing buffer
+    );
+}
+
+/// Fallback naive implementation for strided matrices (f64)
+fn execute_gemm_naive_f64(
     a: &[f64], b: &[f64], c: &mut [f64],
     m: usize, k: usize, n: usize,
     strides_a: &[usize], strides_b: &[usize],
