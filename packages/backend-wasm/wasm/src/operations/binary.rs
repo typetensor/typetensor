@@ -200,7 +200,6 @@ fn execute_binary_broadcast(
     input_b_ptr: *const u8,
     output_ptr: *mut u8,
 ) -> WasmResult<()> {
-    // For now, implement a simple case where one input is scalar
     let shape_a = input_meta_a.shape();
     let shape_b = input_meta_b.shape();
     let output_shape = output_meta.shape();
@@ -215,6 +214,7 @@ fn execute_binary_broadcast(
             output_ptr,
             input_meta_a.size(),
         )?;
+        return Ok(());
     } else if input_meta_a.size() == 1 {
         // input_a is scalar
         execute_binary_scalar_broadcast_reverse(
@@ -225,30 +225,32 @@ fn execute_binary_broadcast(
             output_ptr,
             input_meta_b.size(),
         )?;
-    } else if input_meta_a.size() == input_meta_b.size() {
-        // Element-wise operation for tensors of the same size
-        execute_binary_elementwise(
-            operation,
-            input_meta_a.dtype(),
-            input_a_ptr,
-            input_b_ptr,
-            output_ptr,
-            input_meta_a.size(),
-        )?;
-    } else {
-        // Handle basic broadcasting cases
-        execute_binary_broadcast_basic(
-            operation,
-            input_meta_a,
-            input_meta_b,
-            output_meta,
-            input_a_ptr,
-            input_b_ptr,
-            output_ptr,
-        )?;
+        return Ok(());
     }
-
-    Ok(())
+    
+    // Try basic broadcasting patterns first
+    if try_basic_broadcasting(
+        operation,
+        input_meta_a,
+        input_meta_b,
+        output_meta,
+        input_a_ptr,
+        input_b_ptr,
+        output_ptr,
+    ).is_ok() {
+        return Ok(());
+    }
+    
+    // Fall back to general broadcasting
+    execute_general_broadcast(
+        operation,
+        input_meta_a,
+        input_meta_b,
+        output_meta,
+        input_a_ptr,
+        input_b_ptr,
+        output_ptr,
+    )
 }
 
 /// Element-wise binary operation for tensors of the same size
@@ -415,6 +417,116 @@ mod simd {
     }
 }
 
+/// Try basic broadcasting patterns
+fn try_basic_broadcasting(
+    operation: WasmOperation,
+    input_meta_a: &WasmTensorMeta,
+    input_meta_b: &WasmTensorMeta,
+    output_meta: &WasmTensorMeta,
+    input_a_ptr: *const u8,
+    input_b_ptr: *const u8,
+    output_ptr: *mut u8,
+) -> WasmResult<()> {
+    // Check if we can use one of the optimized patterns
+    execute_binary_broadcast_basic(
+        operation,
+        input_meta_a,
+        input_meta_b,
+        output_meta,
+        input_a_ptr,
+        input_b_ptr,
+        output_ptr,
+    )
+}
+
+/// General broadcasting following NumPy rules
+fn execute_general_broadcast(
+    operation: WasmOperation,
+    input_meta_a: &WasmTensorMeta,
+    input_meta_b: &WasmTensorMeta,
+    output_meta: &WasmTensorMeta,
+    input_a_ptr: *const u8,
+    input_b_ptr: *const u8,
+    output_ptr: *mut u8,
+) -> WasmResult<()> {
+    // Only handle float32 for now
+    if input_meta_a.dtype() != WasmDType::Float32 || input_meta_b.dtype() != WasmDType::Float32 {
+        return Err(WasmError::NotImplemented);
+    }
+    
+    let shape_a = input_meta_a.shape();
+    let shape_b = input_meta_b.shape();
+    let strides_a = input_meta_a.strides();
+    let strides_b = input_meta_b.strides();
+    let output_shape = output_meta.shape();
+    let output_size = output_meta.size();
+    
+    // Get typed slices
+    let a_slice = unsafe { std::slice::from_raw_parts(input_a_ptr as *const f32, input_meta_a.size()) };
+    let b_slice = unsafe { std::slice::from_raw_parts(input_b_ptr as *const f32, input_meta_b.size()) };
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f32, output_size) };
+    
+    // Iterate through all output positions
+    for out_idx in 0..output_size {
+        // Convert flat index to multi-dimensional indices
+        let mut out_indices = vec![0; output_shape.len()];
+        let mut remaining = out_idx;
+        for i in (0..output_shape.len()).rev() {
+            out_indices[i] = remaining % output_shape[i];
+            remaining /= output_shape[i];
+        }
+        
+        // Map output indices to input indices for both tensors
+        let a_idx = compute_broadcast_index(&out_indices, &shape_a, &strides_a, &output_shape);
+        let b_idx = compute_broadcast_index(&out_indices, &shape_b, &strides_b, &output_shape);
+        
+        // Get values and perform operation
+        let a_val = a_slice[a_idx];
+        let b_val = b_slice[b_idx];
+        
+        out_slice[out_idx] = match operation {
+            WasmOperation::Add => a_val + b_val,
+            WasmOperation::Sub => a_val - b_val,
+            WasmOperation::Mul => a_val * b_val,
+            WasmOperation::Div => crate::utils::safe_div_f32(a_val, b_val),
+            _ => return Err(WasmError::InvalidOperation),
+        };
+    }
+    
+    Ok(())
+}
+
+/// Compute the index in a tensor given output indices and broadcasting rules
+fn compute_broadcast_index(
+    out_indices: &[usize],
+    tensor_shape: &[usize],
+    tensor_strides: &[usize],
+    output_shape: &[usize],
+) -> usize {
+    let mut index = 0;
+    let ndim_out = output_shape.len();
+    let ndim_tensor = tensor_shape.len();
+    
+    // Broadcasting aligns dimensions from the right
+    let offset = ndim_out.saturating_sub(ndim_tensor);
+    
+    for i in 0..ndim_tensor {
+        let out_dim = i + offset;
+        let out_idx = out_indices[out_dim];
+        
+        // Apply broadcasting rule: if dimension is 1, use index 0
+        let tensor_idx = if tensor_shape[i] == 1 {
+            0
+        } else {
+            out_idx
+        };
+        
+        index += tensor_idx * tensor_strides[i];
+    }
+    
+    index
+}
+
 /// Basic broadcasting for common cases (vector-matrix)
 fn execute_binary_broadcast_basic(
     operation: WasmOperation,
@@ -526,6 +638,58 @@ fn execute_binary_broadcast_basic(
                 let idx = row * cols + col;
                 let a_val = a_slice[idx];
                 let b_val = b_slice[row];
+                
+                out_slice[idx] = match operation {
+                    WasmOperation::Add => a_val + b_val,
+                    WasmOperation::Sub => a_val - b_val,
+                    WasmOperation::Mul => a_val * b_val,
+                    WasmOperation::Div => crate::utils::safe_div_f32(a_val, b_val),
+                    _ => return Err(WasmError::InvalidOperation),
+                };
+            }
+        }
+        Ok(())
+    }
+    // Case 5: Column vector [m, 1] + Matrix [m, n] -> broadcast column vector across columns
+    else if shape_a.len() == 2 && shape_b.len() == 2 && shape_a[0] == shape_b[0] && shape_a[1] == 1 {
+        let rows = shape_b[0];
+        let cols = shape_b[1];
+        
+        let a_slice = unsafe { std::slice::from_raw_parts(input_a_ptr as *const f32, rows) };
+        let b_slice = unsafe { std::slice::from_raw_parts(input_b_ptr as *const f32, rows * cols) };
+        let out_slice = unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f32, rows * cols) };
+        
+        for row in 0..rows {
+            for col in 0..cols {
+                let idx = row * cols + col;
+                let a_val = a_slice[row];  // Column vector has one value per row
+                let b_val = b_slice[idx];
+                
+                out_slice[idx] = match operation {
+                    WasmOperation::Add => a_val + b_val,
+                    WasmOperation::Sub => a_val - b_val,
+                    WasmOperation::Mul => a_val * b_val,
+                    WasmOperation::Div => crate::utils::safe_div_f32(a_val, b_val),
+                    _ => return Err(WasmError::InvalidOperation),
+                };
+            }
+        }
+        Ok(())
+    }
+    // Case 6: Matrix [m, n] + Column vector [m, 1] -> broadcast column vector across columns
+    else if shape_a.len() == 2 && shape_b.len() == 2 && shape_a[0] == shape_b[0] && shape_b[1] == 1 {
+        let rows = shape_a[0];
+        let cols = shape_a[1];
+        
+        let a_slice = unsafe { std::slice::from_raw_parts(input_a_ptr as *const f32, rows * cols) };
+        let b_slice = unsafe { std::slice::from_raw_parts(input_b_ptr as *const f32, rows) };
+        let out_slice = unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f32, rows * cols) };
+        
+        for row in 0..rows {
+            for col in 0..cols {
+                let idx = row * cols + col;
+                let a_val = a_slice[idx];
+                let b_val = b_slice[row];  // Column vector has one value per row
                 
                 out_slice[idx] = match operation {
                     WasmOperation::Add => a_val + b_val,

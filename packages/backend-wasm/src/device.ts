@@ -151,6 +151,16 @@ export class WASMDevice implements Device {
     if (op.__op === 'slice') {
       return this.executeSliceOp(op as any, inputs[0]!);
     }
+    
+    // Extract reduction axes if this is a reduction operation
+    let reductionAxes: number[] | null = null;
+    let keepDims = false;
+    if (op.__op === 'sum' || op.__op === 'mean' || op.__op === 'max' || op.__op === 'min' || op.__op === 'prod') {
+      const reductionOp = op as any;
+      const axesKey = `__${op.__op}Axes`; // e.g., __sumAxes, __meanAxes, __prodAxes
+      reductionAxes = reductionOp[axesKey] === undefined ? null : Array.from(reductionOp[axesKey] || []);
+      keepDims = reductionOp.__keepDims || false;
+    }
 
     try {
       // Convert inputs to WASM handles - hold strong references to prevent GC
@@ -181,14 +191,28 @@ export class WASMDevice implements Device {
         resultHandle = output ? (output as WASMDeviceData).getWASMHandle() : 
           this.operationDispatcher.create_buffer_with_js_data(new Uint8Array(op.__output.__size * op.__output.__dtype.__byteSize));
       } else if (inputs.length === 1) {
-        // Unary operation
-        resultHandle = this.operationDispatcher.execute_unary(
-          wasmOperation,
-          wasmInputs[0],
-          inputMetas[0],
-          outputMeta,
-          output ? (output as WASMDeviceData).getWASMHandle() as any : null
-        );
+        // Check if this is a reduction operation
+        if (reductionAxes !== null) {
+          // Reduction operation with axis support
+          resultHandle = this.operationDispatcher.execute_reduction(
+            wasmOperation,
+            wasmInputs[0],
+            inputMetas[0],
+            outputMeta,
+            reductionAxes.length > 0 ? reductionAxes : null,
+            keepDims,
+            output ? (output as WASMDeviceData).getWASMHandle() as any : null
+          );
+        } else {
+          // Regular unary operation
+          resultHandle = this.operationDispatcher.execute_unary(
+            wasmOperation,
+            wasmInputs[0],
+            inputMetas[0],
+            outputMeta,
+            output ? (output as WASMDeviceData).getWASMHandle() as any : null
+          );
+        }
       } else if (inputs.length === 2) {
         // Binary operation
         resultHandle = this.operationDispatcher.execute_binary(

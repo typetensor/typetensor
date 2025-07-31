@@ -8,7 +8,7 @@
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
 
-/// Execute a reduction operation
+/// Execute a reduction operation (legacy - no axis support)
 pub fn execute_reduction_op(
     memory_manager: &mut WasmMemoryManager,
     operation: WasmOperation,
@@ -16,6 +16,30 @@ pub fn execute_reduction_op(
     input_meta: &WasmTensorMeta,
     output: &WasmBufferHandle,
     output_meta: &WasmTensorMeta,
+) -> WasmResult<()> {
+    // Call new version with None axes (reduce all)
+    execute_reduction_op_with_axes(
+        memory_manager,
+        operation,
+        input,
+        input_meta,
+        output,
+        output_meta,
+        None,
+        false,
+    )
+}
+
+/// Execute a reduction operation with axis support
+pub fn execute_reduction_op_with_axes(
+    memory_manager: &mut WasmMemoryManager,
+    operation: WasmOperation,
+    input: &WasmBufferHandle,
+    input_meta: &WasmTensorMeta,
+    output: &WasmBufferHandle,
+    output_meta: &WasmTensorMeta,
+    axes: Option<&[usize]>,
+    keep_dims: bool,
 ) -> WasmResult<()> {
     let input_ptr = memory_manager.get_read_ptr(input);
     let output_ptr = memory_manager.get_write_ptr(output);
@@ -33,7 +57,7 @@ pub fn execute_reduction_op(
             };
             execute_reduction_f32(
                 operation, input_slice, output_slice, 
-                &input_shape, &input_strides
+                &input_shape, &input_strides, axes, keep_dims
             )?;
         }
         WasmDType::Float64 => {
@@ -45,7 +69,7 @@ pub fn execute_reduction_op(
             };
             execute_reduction_f64(
                 operation, input_slice, output_slice, 
-                &input_shape, &input_strides
+                &input_shape, &input_strides, axes, keep_dims
             )?;
         }
         WasmDType::Int32 => {
@@ -57,7 +81,7 @@ pub fn execute_reduction_op(
             };
             execute_reduction_i32(
                 operation, input_slice, output_slice, 
-                &input_shape, &input_strides
+                &input_shape, &input_strides, axes, keep_dims
             )?;
         }
         _ => return Err(WasmError::NotImplemented),
@@ -73,10 +97,39 @@ fn execute_reduction_f32(
     output: &mut [f32],
     input_shape: &[usize],
     input_strides: &[usize],
+    axes: Option<&[usize]>,
+    _keep_dims: bool,
 ) -> WasmResult<()> {
-    // For simplicity, implement full tensor reduction first
-    // TODO: Add support for axis-specific reductions
-    
+    // Handle different reduction scenarios
+    match axes {
+        None => {
+            // Reduce all dimensions to scalar
+            execute_full_reduction_f32(operation, input, output)
+        }
+        Some(reduction_axes) if reduction_axes.is_empty() => {
+            // Empty axes also means reduce all
+            execute_full_reduction_f32(operation, input, output)
+        }
+        Some(reduction_axes) => {
+            // Reduce along specific axes
+            execute_axis_reduction_f32(
+                operation,
+                input,
+                output,
+                input_shape,
+                input_strides,
+                reduction_axes,
+            )
+        }
+    }
+}
+
+/// Execute full reduction (all dimensions to scalar)
+fn execute_full_reduction_f32(
+    operation: WasmOperation,
+    input: &[f32],
+    output: &mut [f32],
+) -> WasmResult<()> {
     match operation {
         WasmOperation::Sum => {
             let mut sum = 0.0f32;
@@ -129,6 +182,8 @@ fn execute_reduction_f64(
     output: &mut [f64],
     input_shape: &[usize],
     input_strides: &[usize],
+    axes: Option<&[usize]>,
+    _keep_dims: bool,
 ) -> WasmResult<()> {
     match operation {
         WasmOperation::Sum => {
@@ -182,6 +237,8 @@ fn execute_reduction_i32(
     output: &mut [i32],
     input_shape: &[usize],
     input_strides: &[usize],
+    axes: Option<&[usize]>,
+    _keep_dims: bool,
 ) -> WasmResult<()> {
     match operation {
         WasmOperation::Sum => {
@@ -233,25 +290,134 @@ fn execute_reduction_i32(
     Ok(())
 }
 
-/// Axis-specific reduction for f32 (future implementation)
-#[allow(dead_code)]
+/// Execute reduction along specific axes
 fn execute_axis_reduction_f32(
     operation: WasmOperation,
     input: &[f32],
     output: &mut [f32],
     input_shape: &[usize],
     input_strides: &[usize],
-    axis: usize,
-    keep_dims: bool,
+    axes: &[usize],
 ) -> WasmResult<()> {
-    // TODO: Implement axis-specific reductions
-    // This would involve:
-    // 1. Computing output shape based on reduced axis
-    // 2. Iterating over non-reduced dimensions
-    // 3. Accumulating values along the reduction axis
-    // 4. Handling keep_dims flag for output shape
+    // Compute output shape by removing reduced dimensions
+    let ndim = input_shape.len();
+    let mut output_shape = Vec::new();
+    let mut output_strides = Vec::new();
+    let mut is_reduced_axis = vec![false; ndim];
     
-    Err(WasmError::NotImplemented)
+    // Mark axes to reduce
+    for &axis in axes {
+        if axis >= ndim {
+            return Err(WasmError::InvalidInput);
+        }
+        is_reduced_axis[axis] = true;
+    }
+    
+    // Build output shape (skip reduced axes)
+    for i in 0..ndim {
+        if !is_reduced_axis[i] {
+            output_shape.push(input_shape[i]);
+        }
+    }
+    
+    // Compute output strides
+    if !output_shape.is_empty() {
+        output_strides = vec![1; output_shape.len()];
+        for i in (0..output_shape.len()-1).rev() {
+            output_strides[i] = output_strides[i + 1] * output_shape[i + 1];
+        }
+    }
+    
+    
+    // Initialize output
+    match operation {
+        WasmOperation::Sum | WasmOperation::Mean => {
+            for val in output.iter_mut() {
+                *val = 0.0;
+            }
+        }
+        WasmOperation::Max => {
+            for val in output.iter_mut() {
+                *val = f32::NEG_INFINITY;
+            }
+        }
+        WasmOperation::Min => {
+            for val in output.iter_mut() {
+                *val = f32::INFINITY;
+            }
+        }
+        WasmOperation::Prod => {
+            for val in output.iter_mut() {
+                *val = 1.0;
+            }
+        }
+        _ => return Err(WasmError::InvalidOperation),
+    }
+    
+    // Iterate through all input elements
+    let total_elements = input_shape.iter().product::<usize>();
+    for flat_idx in 0..total_elements {
+        // Convert flat index to multi-dimensional indices
+        let mut indices = vec![0; ndim];
+        let mut remaining = flat_idx;
+        for i in (0..ndim).rev() {
+            indices[i] = remaining % input_shape[i];
+            remaining /= input_shape[i];
+        }
+        
+        // Compute input offset using strides
+        let mut input_offset = 0;
+        for i in 0..ndim {
+            input_offset += indices[i] * input_strides[i];
+        }
+        
+        // Compute output offset (skip reduced dimensions)
+        let mut output_offset = 0;
+        let mut out_idx = 0;
+        for i in 0..ndim {
+            if !is_reduced_axis[i] {
+                if out_idx < output_strides.len() {
+                    output_offset += indices[i] * output_strides[out_idx];
+                }
+                out_idx += 1;
+            }
+        }
+        
+        // Apply reduction operation
+        let input_val = input[input_offset];
+        match operation {
+            WasmOperation::Sum | WasmOperation::Mean => {
+                output[output_offset] += input_val;
+            }
+            WasmOperation::Max => {
+                if input_val > output[output_offset] || input_val.is_nan() {
+                    output[output_offset] = input_val;
+                }
+            }
+            WasmOperation::Min => {
+                if input_val < output[output_offset] || input_val.is_nan() {
+                    output[output_offset] = input_val;
+                }
+            }
+            WasmOperation::Prod => {
+                output[output_offset] *= input_val;
+            }
+            _ => return Err(WasmError::InvalidOperation),
+        }
+    }
+    
+    // For mean, divide by the number of elements reduced
+    if operation == WasmOperation::Mean {
+        let reduced_size = axes.iter()
+            .map(|&axis| input_shape[axis])
+            .product::<usize>() as f32;
+        
+        for val in output.iter_mut() {
+            *val /= reduced_size;
+        }
+    }
+    
+    Ok(())
 }
 
 /// Optimized sum reduction using Kahan summation for better numerical stability
@@ -295,7 +461,7 @@ mod tests {
         let mut output = vec![0.0f32; 1];
         
         execute_reduction_f32(
-            WasmOperation::Sum, &input, &mut output, &[5], &[1]
+            WasmOperation::Sum, &input, &mut output, &[5], &[1], None, false
         ).unwrap();
         
         assert_eq!(output[0], 15.0);
@@ -307,7 +473,7 @@ mod tests {
         let mut output = vec![0.0f32; 1];
         
         execute_reduction_f32(
-            WasmOperation::Mean, &input, &mut output, &[5], &[1]
+            WasmOperation::Mean, &input, &mut output, &[5], &[1], None, false
         ).unwrap();
         
         assert_eq!(output[0], 3.0);
@@ -319,7 +485,7 @@ mod tests {
         let mut output = vec![0.0f32; 1];
         
         execute_reduction_f32(
-            WasmOperation::Max, &input, &mut output, &[5], &[1]
+            WasmOperation::Max, &input, &mut output, &[5], &[1], None, false
         ).unwrap();
         
         assert_eq!(output[0], 8.0);
@@ -331,7 +497,7 @@ mod tests {
         let mut output = vec![0.0f32; 1];
         
         execute_reduction_f32(
-            WasmOperation::Min, &input, &mut output, &[5], &[1]
+            WasmOperation::Min, &input, &mut output, &[5], &[1], None, false
         ).unwrap();
         
         assert_eq!(output[0], 1.0);
@@ -343,7 +509,7 @@ mod tests {
         let mut output = vec![0.0f32; 1];
         
         execute_reduction_f32(
-            WasmOperation::Prod, &input, &mut output, &[4], &[1]
+            WasmOperation::Prod, &input, &mut output, &[4], &[1], None, false
         ).unwrap();
         
         assert_eq!(output[0], 24.0);

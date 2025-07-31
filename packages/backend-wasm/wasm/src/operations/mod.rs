@@ -254,4 +254,70 @@ impl WasmOperationDispatcher {
         // Return a cloned handle
         handle.clone()
     }
+    
+    /// Execute a reduction operation with axis information
+    #[wasm_bindgen]
+    pub fn execute_reduction(
+        &mut self,
+        operation: WasmOperation,
+        input: &WasmBufferHandle,
+        input_meta: &WasmTensorMeta,
+        output_meta: &WasmTensorMeta,
+        axes: Option<Vec<i32>>, // None means reduce all axes
+        keep_dims: bool,
+        output_handle: Option<WasmBufferHandle>,
+    ) -> Result<WasmBufferHandle, JsValue> {
+        // Convert axes to Option<Vec<usize>>
+        let axes_usize = axes.map(|v| v.into_iter().map(|x| x as usize).collect::<Vec<_>>());
+        
+        let result = self.execute_reduction_internal(
+            operation,
+            input.clone(),
+            input_meta.clone(),
+            output_meta.clone(),
+            axes_usize,
+            keep_dims,
+            output_handle
+        );
+        result.map_err(|e| e.into())
+    }
+    
+    fn execute_reduction_internal(
+        &mut self,
+        operation: WasmOperation,
+        input: WasmBufferHandle,
+        input_meta: WasmTensorMeta,
+        output_meta: WasmTensorMeta,
+        axes: Option<Vec<usize>>,
+        keep_dims: bool,
+        output_handle: Option<WasmBufferHandle>,
+    ) -> WasmResult<WasmBufferHandle> {
+        // Create output buffer if not provided
+        let (mut output, needs_initialization) = match output_handle {
+            Some(handle) => (handle, false),
+            None => {
+                let (handle, _write_ptr) = self.memory_manager.create_empty_buffer(output_meta.byte_size());
+                (handle, true)
+            }
+        };
+        
+        // Execute reduction with axis information
+        reduction::execute_reduction_op_with_axes(
+            &mut self.memory_manager,
+            operation,
+            &input,
+            &input_meta,
+            &output,
+            &output_meta,
+            axes.as_deref(),
+            keep_dims,
+        )?;
+        
+        // Mark buffer as initialized if it was newly created
+        if needs_initialization {
+            self.memory_manager.mark_buffer_initialized(&mut output);
+        }
+        
+        Ok(output)
+    }
 }
