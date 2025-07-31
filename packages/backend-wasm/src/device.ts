@@ -4,11 +4,13 @@ import type {
   AnyStorageTransformation,
   ValidateDeviceOperations,
   SliceIndex,
+  DType,
 } from '@typetensor/core';
 import { WASMDeviceData, createWASMDeviceData } from './data';
 import { loadWASMModule } from './loader';
 import { dtypeToWasm, operationToWasm } from './types';
 import type { WASMModule, WASMLoadOptions, WASMCapabilities, WASMMemoryStats } from './types';
+import { MemoryViewManager } from './memory-views';
 
 export class WASMDevice implements Device {
   readonly id: string = 'wasm:0';
@@ -18,6 +20,7 @@ export class WASMDevice implements Device {
   private operationDispatcher: any = null;
   private capabilities: WASMCapabilities | null = null;
   private initialized = false;
+  private memoryViewManager: MemoryViewManager | null = null;
 
   // @ts-expect-error: This property is used for compile-time validation only
   private _operationValidation: ValidateDeviceOperations<
@@ -81,6 +84,10 @@ export class WASMDevice implements Device {
       this.wasmModule = await loadWASMModule(options);
       
       this.operationDispatcher = new this.wasmModule.WasmOperationDispatcher();
+      
+      // Initialize memory view manager
+      this.memoryViewManager = new MemoryViewManager(this.wasmModule.memory);
+      
       this.capabilities = {
         simd: this.wasmModule.has_simd_support(),
         sharedMemory: this.wasmModule.has_shared_memory_support(),
@@ -259,6 +266,9 @@ export class WASMDevice implements Device {
     const wasmData = data as WASMDeviceData;
     
     if (!wasmData.isDisposed()) {
+      // Invalidate all views for this buffer BEFORE releasing it
+      this.memoryViewManager!.invalidateBuffer(wasmData.id);
+      
       const wasmHandle = wasmData.getWASMHandle();
       
       const released = this.operationDispatcher.release_buffer(wasmHandle);
@@ -287,6 +297,49 @@ export class WASMDevice implements Device {
   }
 
   /**
+   * Read data from WASM device with zero-copy view (when possible)
+   * Returns a typed array view directly into WASM memory
+   * 
+   * WARNING: The returned view is only valid until:
+   * - The buffer is released/disposed
+   * - WASM memory grows (rare but possible)
+   * 
+   * For long-term storage, use readData() instead
+   */
+  readDataView(data: DeviceData, dtype: DType<any, any, any>): ArrayBufferView {
+    if (data.device.id !== this.id) {
+      throw new Error(`Cannot read data from device ${data.device.id} on ${this.id}`);
+    }
+
+    this.ensureInitialized();
+    
+    const wasmData = data as WASMDeviceData;
+    const wasmHandle = wasmData.getWASMHandle() as any;
+    
+    // Get buffer info: [ptr, size, initialized]
+    const info = this.operationDispatcher!.get_buffer_view_info(wasmHandle);
+    const ptr = info[0];
+    const size = info[1];
+    const initialized = info[2];
+    
+    if (!initialized) {
+      throw new Error('Cannot create view of uninitialized buffer');
+    }
+    
+    // Create safe zero-copy view with lifetime tracking
+    const bufferId = wasmData.id;
+    return this.memoryViewManager!.createSafeView(bufferId, ptr, size / dtype.__byteSize, dtype);
+  }
+
+  /**
+   * Check if a view created by readDataView is still valid
+   */
+  isViewValid(view: ArrayBufferView): boolean {
+    this.ensureInitialized();
+    return this.memoryViewManager!.isViewValid(view);
+  }
+
+  /**
    * Write data to WASM device
    */
   async writeData(data: DeviceData, buffer: ArrayBuffer): Promise<void> {
@@ -302,6 +355,9 @@ export class WASMDevice implements Device {
 
     const wasmData = data as WASMDeviceData;
     if (!wasmData.isDisposed()) {
+      // Invalidate all views before replacing the buffer
+      this.memoryViewManager!.invalidateBuffer(wasmData.id);
+      
       const oldHandle = wasmData.getWASMHandle();
       this.operationDispatcher.release_buffer(oldHandle);
     }

@@ -50,6 +50,13 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// Get the WebAssembly memory object
+/// Note: wasm-bindgen automatically exports memory, so we provide this helper
+/// to access it from our module if needed
+pub fn get_wasm_memory() -> JsValue {
+    wasm_bindgen::memory()
+}
+
 pub use memory::*;
 pub use operations::*;
 pub use types::*;

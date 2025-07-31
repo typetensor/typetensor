@@ -7,7 +7,7 @@
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
 use crate::memory::{WasmMemoryManager, WasmBufferHandle};
-use crate::simd::{float32, float64};
+use crate::simd::float32;
 
 /// Execute a binary operation
 pub fn execute_binary_op(

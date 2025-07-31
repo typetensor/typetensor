@@ -235,8 +235,6 @@ fn execute_unary_i8(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::WasmMemoryManager;
-    use crate::types::{WasmDType, WasmTensorMeta};
 
     #[test]
     fn test_unary_neg_f32() {

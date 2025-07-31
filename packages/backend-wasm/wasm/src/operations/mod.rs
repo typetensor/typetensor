@@ -248,6 +248,18 @@ impl WasmOperationDispatcher {
         js_sys::Uint8Array::from(&copied_data[..])
     }
     
+    /// Get buffer info for creating zero-copy views
+    /// Returns: [ptr, size, initialized]
+    #[wasm_bindgen]
+    pub fn get_buffer_view_info(&self, handle: &WasmBufferHandle) -> js_sys::Uint32Array {
+        let info = vec![
+            handle.ptr() as u32,
+            handle.size() as u32,
+            if handle.is_initialized() { 1 } else { 0 }
+        ];
+        js_sys::Uint32Array::from(&info[..])
+    }
+    
     /// Compact memory pools to reduce memory usage
     #[wasm_bindgen]
     pub fn compact_pools(&self) {

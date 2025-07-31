@@ -3,6 +3,8 @@ export { WASMDevice } from './device';
 export { WASMDeviceData } from './data';
 export { loadWASMModule } from './loader';
 export * from './types';
+export { MemoryViewManager } from './memory-views';
+export type { MemoryView } from './memory-views';
 
 import { WASMDevice } from './device';
 let _wasmDevice: WASMDevice | null = null;

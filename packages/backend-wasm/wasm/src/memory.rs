@@ -200,6 +200,19 @@ impl WasmBufferHandle {
     pub(crate) fn mark_initialized(&mut self) {
         self.initialized = true;
     }
+    
+    /// Get the raw pointer as a number for JavaScript view creation
+    /// This is safe because JavaScript views are bounds-checked
+    #[wasm_bindgen(getter)]
+    pub fn ptr(&self) -> usize {
+        self.ptr as usize
+    }
+    
+    /// Check if the buffer is initialized and safe to read
+    #[wasm_bindgen(getter)]
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
 }
 
 /// WebAssembly memory manager with buffer pools
@@ -453,7 +466,7 @@ mod tests {
         let data = vec![1u8, 2, 3, 4, 5];
         
         // Create buffer with data
-        let handle = manager.create_buffer_with_data(&data);
+        let handle = manager.create_buffer_with_data(&data).unwrap();
         assert_eq!(handle.size(), 5);
         
         // Read data back
@@ -471,13 +484,13 @@ mod tests {
         
         // Create and release a buffer
         let data1 = vec![1u8, 2, 3, 4];
-        let handle1 = manager.create_buffer_with_data(&data1);
+        let handle1 = manager.create_buffer_with_data(&data1).unwrap();
         let ptr1 = handle1.ptr;
         manager.release_buffer(handle1);
         
         // Create another buffer of the same size - should reuse the same memory
         let data2 = vec![5u8, 6, 7, 8];
-        let handle2 = manager.create_buffer_with_data(&data2);
+        let handle2 = manager.create_buffer_with_data(&data2).unwrap();
         let ptr2 = handle2.ptr;
         
         // Should reuse the same pointer (after zero-ing)
@@ -495,7 +508,7 @@ mod tests {
         let mut manager = WasmMemoryManager::new();
         
         // Create empty buffer
-        let (handle, write_ptr) = manager.create_empty_buffer(100);
+        let (handle, write_ptr) = manager.create_empty_buffer(100).unwrap();
         assert_eq!(handle.size(), 100);
         
         // Write some data
@@ -525,8 +538,8 @@ mod tests {
         
         // Create some buffers
         let data = vec![1u8; 1000];
-        let handle1 = manager.create_buffer_with_data(&data);
-        let handle2 = manager.create_buffer_with_data(&data);
+        let handle1 = manager.create_buffer_with_data(&data).unwrap();
+        let handle2 = manager.create_buffer_with_data(&data).unwrap();
         
         let stats = manager.get_memory_stats();
         assert_eq!(stats.active_buffers(), 2);
