@@ -12,6 +12,7 @@ import { isSimpleAxis, isCompositeAxis, isEllipsisAxis, isSingletonAxis } from '
 import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation } from '../storage/layout';
 import type { RearrangeOp } from '../storage/einops';
+import type { ValidEinopsPattern } from './type-validation';
 
 // =============================================================================
 // Types
@@ -91,7 +92,9 @@ export function rearrange<
   Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
-  pattern: Pattern,
+  pattern: ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> extends string 
+    ? ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> // Show the actual error message
+    : Pattern,
   axes?: Axes,
 ): ChainablePromise<RearrangeOp<S['__output'], Pattern, Axes>> {
   return new ChainablePromise((resolve, reject) => {

@@ -297,6 +297,20 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
       /Identifiers only on one side of expression.*\{batch\}/,
     );
   });
+
+  it('should error on multiple ellipsis in input', async () => {
+    const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+
+    // @ts-expect-error - Type error is expected here!
+    await expect(rearrange(testTensor, '... a ... -> a')).rejects.toThrow(RearrangeError);
+  });
+
+  it('should error on multiple ellipsis in output', async () => {
+    const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+
+    // @ts-expect-error - Type error is expected here!
+    await expect(rearrange(testTensor, 'a -> ... a ...')).rejects.toThrow(RearrangeError);
+  });
 });
 
 // =============================================================================
@@ -307,12 +321,14 @@ describe('Error Handling', () => {
   it('should error on unknown output axis', async () => {
     const testTensor = await ones([32, 64] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, 'h w -> h w c')).rejects.toThrow(RearrangeError);
   });
 
   it('should error on dimension mismatch', async () => {
     const testTensor = await ones([10, 20] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, 'a b c -> a b')).rejects.toThrow(RearrangeError);
   });
 
@@ -335,6 +351,7 @@ describe('Error Handling', () => {
   it('should error on multiple unknowns in composite', async () => {
     const testTensor = await ones([60, 5] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, '(a b c) d -> a b c d')).rejects.toThrow(RearrangeError); // Cannot infer a, b, c
   });
 
@@ -347,6 +364,7 @@ describe('Error Handling', () => {
   it('should error on malformed pattern', async () => {
     const testTensor = await ones([10, 20] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, 'a b -> a b)')).rejects.toThrow(RearrangeError); // Unbalanced parentheses
   });
 
@@ -354,6 +372,7 @@ describe('Error Handling', () => {
     const testTensor = await ones([10, 20] as const, { device: cpu, dtype: float32 });
 
     try {
+      // @ts-expect-error - Type error is expected here!
       await rearrange(testTensor, 'a b -> a b c');
       expect(true).toBe(false); // Should not reach here
     } catch (error) {

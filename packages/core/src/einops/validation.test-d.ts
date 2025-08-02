@@ -6,7 +6,6 @@ import { expectTypeOf } from 'expect-type';
 import type {
   CollectAxisNames,
   HasAxis,
-  CountEllipsis,
   ValidateEllipsisCount,
   HasDuplicateAxes,
   ValidateUniqueAxes,
@@ -23,6 +22,7 @@ import type {
   FindUnknownAxes,
   FindDuplicates,
 } from './validation';
+import type { CountEllipsis } from './type-shape-resolver-utils';
 import type { TypeCompositeAxis } from './type-parser';
 
 // =============================================================================
@@ -110,9 +110,8 @@ import type { TypeCompositeAxis } from './type-parser';
 {
   // Test single ellipsis
   type SingleEllipsis = readonly [{ type: 'simple'; name: 'batch' }, { type: 'ellipsis' }];
-  // Note: CountEllipsis doesn't actually increment, it just detects presence
-  // This is a limitation but works for validation purposes
-  expectTypeOf<CountEllipsis<SingleEllipsis>>().toEqualTypeOf<0>();
+  // Now using the working CountEllipsis that properly counts
+  expectTypeOf<CountEllipsis<SingleEllipsis>>().toEqualTypeOf<1>();
 }
 
 {
@@ -123,8 +122,8 @@ import type { TypeCompositeAxis } from './type-parser';
       axes: readonly [{ type: 'simple'; name: 'h' }, { type: 'ellipsis' }];
     },
   ];
-  // Note: CountEllipsis doesn't actually increment, it just detects presence
-  expectTypeOf<CountEllipsis<EllipsisInComposite>>().toEqualTypeOf<0>();
+  // Now using the working CountEllipsis that properly counts ellipsis inside composites
+  expectTypeOf<CountEllipsis<EllipsisInComposite>>().toEqualTypeOf<1>();
 }
 
 {
