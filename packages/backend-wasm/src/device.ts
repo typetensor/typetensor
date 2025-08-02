@@ -3,23 +3,20 @@ import type {
   DeviceData,
   AnyStorageTransformation,
   ValidateDeviceOperations,
-  SliceIndex,
   DType,
 } from '@typetensor/core';
-import { WASMDeviceData, createWASMDeviceData } from './data';
+import { type WASMDeviceData, createWASMDeviceData } from './data';
 import { loadWASMModule } from './loader';
-import { dtypeToWasm, operationToWasm } from './types';
-import type { WASMModule, WASMLoadOptions, WASMCapabilities, WASMMemoryStats, WASMMemoryConfig } from './types';
-import type { WasmOperationDispatcher, WasmBufferHandle, WasmTensorMeta } from './types/wasm-bindings';
+import type {
+  WASMModule,
+  WASMLoadOptions,
+  WASMCapabilities,
+  WASMMemoryStats,
+  WASMMemoryConfig,
+} from './types';
+import type { WasmOperationDispatcher } from './types/wasm-bindings';
 import { MemoryViewManager } from './memory-views';
-import { getDTypeByteSize } from './utils/dtype-helpers';
-import { 
-  WASMErrorHandler, 
-  WASMInvalidStateError, 
-  WASMOperationError,
-  WASMAllocationError,
-  WASMBoundsError 
-} from './errors';
+import { WASMInvalidStateError, WASMBoundsError } from './errors';
 import { BufferLifecycleManager } from './buffer-lifecycle-manager';
 import { OperationOrchestrator } from './operation-orchestrator';
 import { ViewManager } from './view-manager';
@@ -35,12 +32,12 @@ export class WASMDevice implements Device {
   private initialized = false;
   private memoryViewManager: MemoryViewManager | null = null;
   private memoryConfig: Required<WASMMemoryConfig>;
-  
+
   // New abstraction layers
   private bufferLifecycleManager: BufferLifecycleManager | null = null;
   private operationOrchestrator: OperationOrchestrator | null = null;
   private viewManager: ViewManager | null = null;
-  
+
   // Defensive WASM operations
   private defensiveOperations: any = null;
   private defensiveWrapper: WASMDefensiveWrapper | null = null;
@@ -126,28 +123,28 @@ export class WASMDevice implements Device {
       this.memoryViewManager = new MemoryViewManager(this.wasmModule.memory);
 
       // Initialize defensive WASM operations
-      const defensiveOps = createDefensiveWASMOperations(this.operationDispatcher);
+      const defensiveOps = createDefensiveWASMOperations(this.operationDispatcher!);
       this.defensiveOperations = defensiveOps;
       this.defensiveWrapper = defensiveOps.wrapper;
 
       // Initialize abstraction layers
       this.bufferLifecycleManager = new BufferLifecycleManager(
-        this.operationDispatcher,
+        this.operationDispatcher!,
         this, // Pass the device reference
-        this.memoryConfig
+        this.memoryConfig,
       );
 
       this.operationOrchestrator = new OperationOrchestrator({
         deviceId: this.id,
         wasmModule: this.wasmModule,
-        operationDispatcher: this.operationDispatcher,
-        device: this // Pass the actual device reference
+        operationDispatcher: this.operationDispatcher!,
+        device: this, // Pass the actual device reference
       });
 
       this.viewManager = new ViewManager(
         this.memoryViewManager,
-        this.operationDispatcher,
-        this.id
+        this.operationDispatcher!,
+        this.id,
       );
 
       this.capabilities = {
@@ -160,15 +157,10 @@ export class WASMDevice implements Device {
 
       this.initialized = true;
     } catch (error) {
-      throw new WASMInvalidStateError(
-        'initialize',
-        'uninitialized',
-        'error',
-        { 
-          originalError: error instanceof Error ? error.message : String(error),
-          wasmModuleLoaded: !!this.wasmModule 
-        }
-      );
+      throw new WASMInvalidStateError('initialize', 'uninitialized', 'error', {
+        originalError: error instanceof Error ? error.message : String(error),
+        wasmModuleLoaded: !!this.wasmModule,
+      });
     }
   }
 
@@ -188,39 +180,6 @@ export class WASMDevice implements Device {
   }
 
   /**
-   * Check memory pressure and compact if needed
-   */
-  private checkMemoryPressure(requestedBytes: number): void {
-    if (!this.memoryConfig.autoCompact) {
-      return;
-    }
-
-    const stats = this.getMemoryStats();
-    const currentUsage = stats.totalAllocated;
-    const afterAllocation = currentUsage + requestedBytes;
-    
-    // Check if we would exceed the limit
-    if (afterAllocation > this.memoryConfig.maxMemory) {
-      // Try compaction first
-      this.performIntensiveCleanup();
-      
-      // Check again after compaction
-      const newStats = this.getMemoryStats();
-      const newUsage = newStats.totalAllocated;
-      
-      if (newUsage + requestedBytes > this.memoryConfig.maxMemory) {
-        throw new Error(
-          `Memory limit exceeded: requested ${requestedBytes} bytes, ` +
-          `current usage ${newUsage} bytes, limit ${this.memoryConfig.maxMemory} bytes`
-        );
-      }
-    } else if (currentUsage / this.memoryConfig.maxMemory > this.memoryConfig.compactThreshold) {
-      // Compact if we're above the threshold
-      this.performIntensiveCleanup();
-    }
-  }
-
-  /**
    * Allocate data on the WASM device
    */
   createData(byteLength: number): DeviceData {
@@ -233,39 +192,47 @@ export class WASMDevice implements Device {
         'buffer allocation',
         byteLength,
         { max: MAX_ALLOCATION_SIZE },
-        { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE }
+        { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE },
       );
     }
 
-    // For backward compatibility, we need to keep this synchronous
-    // We'll create a synchronous version that falls back to direct calls
+    // Use BufferLifecycleManager for proper memory management
+    // This is a synchronous wrapper around the async method
     try {
-      // Try direct call first (synchronous)
-      const wasmHandle = this.operationDispatcher!.create_empty_buffer(byteLength);
-      return createWASMDeviceData(this, byteLength, wasmHandle);
-    } catch (error: any) {
-      console.warn('Direct buffer creation failed, this may indicate WASM corruption:', error);
-      
-      // Convert WASM runtime errors to proper error types
-      if (error && error.message) {
-        const errorMessage = error.message;
-        if (errorMessage.includes('Out of bounds') || errorMessage.includes('bounds')) {
-          throw new WASMBoundsError(
-            'buffer allocation',
-            byteLength,
-            { max: MAX_ALLOCATION_SIZE },
-            { requestedSize: byteLength, originalError: errorMessage }
-          );
-        }
-        if (errorMessage.includes('out of memory') || errorMessage.includes('allocation failed')) {
-          throw WASMErrorHandler.createAllocationError(
-            byteLength,
-            error,
-            { limit: MAX_ALLOCATION_SIZE }
-          );
-        }
+      const promise = this.bufferLifecycleManager!.createBuffer(byteLength, this.id);
+      // Since we need synchronous behavior for backward compatibility,
+      // we'll use a synchronous wait mechanism
+      let result: DeviceData | undefined;
+      let error: any;
+      let resolved = false;
+
+      promise
+        .then((data) => {
+          result = data;
+          resolved = true;
+        })
+        .catch((err) => {
+          error = err;
+          resolved = true;
+        });
+
+      // Synchronous wait using a busy loop
+      const startTime = Date.now();
+      while (!resolved && Date.now() - startTime < 5000) {
+        // Wait for resolution
       }
-      
+
+      if (error) {
+        throw error;
+      }
+
+      if (!result) {
+        throw new Error('Buffer creation timed out');
+      }
+
+      return result;
+    } catch (error: any) {
+      console.warn('Buffer creation failed:', error);
       throw error;
     }
   }
@@ -282,7 +249,10 @@ export class WASMDevice implements Device {
       const wasmHandle = this.operationDispatcher!.create_buffer_with_js_data(sourceData);
       return createWASMDeviceData(this, buffer.byteLength, wasmHandle);
     } catch (error) {
-      console.warn('Direct buffer creation with data failed, this may indicate WASM corruption:', error);
+      console.warn(
+        'Direct buffer creation with data failed, this may indicate WASM corruption:',
+        error,
+      );
       throw error;
     }
   }
@@ -311,7 +281,7 @@ export class WASMDevice implements Device {
 
     const wasmData = data as WASMDeviceData;
     const wasmHandle = wasmData.getWASMHandle();
-    
+
     // Use defensive wrapper for WASM operation
     const uint8Array = await this.defensiveOperations.copyBufferToJs(wasmHandle);
 
@@ -319,7 +289,7 @@ export class WASMDevice implements Device {
     if (uint8Array.byteOffset === 0 && uint8Array.byteLength === uint8Array.buffer.byteLength) {
       return uint8Array.buffer;
     }
-    
+
     // Only slice if necessary (when the view is a subset of the buffer)
     return uint8Array.buffer.slice(
       uint8Array.byteOffset,
@@ -374,9 +344,9 @@ export class WASMDevice implements Device {
     // For cloned buffers, we need to decide between:
     // 1. Copy-on-write: Create new buffer, breaking sharing (current approach)
     // 2. In-place update: Modify shared buffer directly
-    // 
+    //
     // We'll use copy-on-write for safety, but this means clones will diverge after writes
-    
+
     // Invalidate all views before replacing the buffer
     this.memoryViewManager!.invalidateBuffer(wasmData.id);
 
@@ -410,15 +380,18 @@ export class WASMDevice implements Device {
    */
   getMemoryStats(): WASMMemoryStats {
     this.ensureInitialized();
-    
+
     // For backward compatibility, use direct calls for memory stats
     try {
       const wasmStats = this.operationDispatcher!.get_memory_stats();
-      
+
       return {
         totalAllocated: wasmStats.total_allocated_bytes,
         activeBuffers: wasmStats.active_buffers,
-        poolSummary: typeof wasmStats.get_pool_summary === 'function' ? wasmStats.get_pool_summary() : 'Pool summary not available',
+        poolSummary:
+          typeof wasmStats.get_pool_summary === 'function'
+            ? wasmStats.get_pool_summary()
+            : 'Pool summary not available',
       };
     } catch (error) {
       console.warn('Direct getMemoryStats failed:', error);
@@ -442,7 +415,7 @@ export class WASMDevice implements Device {
    */
   async performIntensiveCleanup(): Promise<void> {
     this.ensureInitialized();
-    
+
     try {
       // Use defensive wrapper for cleanup
       await this.defensiveOperations.intensiveCleanup();
@@ -492,7 +465,6 @@ export class WASMDevice implements Device {
       throw new Error('WASM device not initialized. Call WASMDevice.create() first.');
     }
   }
-
 
   toString(): string {
     const status = this.initialized ? 'initialized' : 'not initialized';

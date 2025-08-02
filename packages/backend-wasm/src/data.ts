@@ -48,7 +48,7 @@ export class WASMDeviceData implements DeviceData {
   #wasmHandle: unknown;  // Private field
   #wasmModule: WASMModule;
   #disposed = false;
-  #cleanupToken?: object; // Reference for unregistering cleanup
+  #cleanupToken?: object | undefined; // Reference for unregistering cleanup
 
   constructor(device: Device, byteLength: number, wasmHandle: unknown, wasmModule: WASMModule, isClone = false) {
     this.device = device;

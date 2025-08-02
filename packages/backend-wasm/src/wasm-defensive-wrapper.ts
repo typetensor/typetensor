@@ -6,7 +6,7 @@
  */
 
 import type { WasmOperationDispatcher, WasmBufferHandle } from './types/wasm-bindings';
-import { WASMErrorHandler, WASMInvalidStateError } from './errors';
+import { WASMInvalidStateError } from './errors';
 
 export interface WASMOperationOptions {
   maxRetries?: number;

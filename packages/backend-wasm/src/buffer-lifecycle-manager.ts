@@ -8,8 +8,8 @@
 import type { DeviceData } from '@typetensor/core';
 import { WASMDeviceData, createWASMDeviceData } from './data';
 import type { WasmOperationDispatcher } from './types/wasm-bindings';
-import { WASMErrorHandler, WASMAllocationError, WASMBoundsError } from './errors';
-import { createDefensiveWASMOperations, type WASMDefensiveWrapper } from './wasm-defensive-wrapper';
+import { WASMErrorHandler, WASMAllocationError, WASMBoundsError, WASMMemoryLimitError } from './errors';
+import { createDefensiveWASMOperations } from './wasm-defensive-wrapper';
 
 export interface BufferLifecycleManagerConfig {
   maxMemory?: number;
@@ -55,7 +55,7 @@ export class BufferLifecycleManager {
   /**
    * Create a new buffer with specified size
    */
-  async createBuffer(byteLength: number, deviceId: string): Promise<DeviceData> {
+  async createBuffer(byteLength: number, _deviceId: string): Promise<DeviceData> {
     try {
       // Check for reasonable allocation size (e.g., max 1GB)
       const MAX_ALLOCATION_SIZE = 1024 * 1024 * 1024; // 1GB
@@ -69,7 +69,7 @@ export class BufferLifecycleManager {
       }
       
       // Check memory pressure before allocation
-      this.checkMemoryPressure(byteLength);
+      await this.checkMemoryPressure(byteLength);
       
       // For large allocations, try to allocate in smaller chunks first to test memory availability
       if (byteLength > 50 * 1024 * 1024) { // > 50MB
@@ -93,7 +93,7 @@ export class BufferLifecycleManager {
       throw WASMErrorHandler.createAllocationError(
         byteLength,
         error instanceof Error ? error : new Error(String(error)),
-        { limit: this.config.maxMemory }
+        { totalAllocated: 0, limit: this.config.maxMemory }
       );
     }
   }
@@ -101,10 +101,10 @@ export class BufferLifecycleManager {
   /**
    * Create buffer with existing data
    */
-  async createBufferWithData(buffer: ArrayBuffer, deviceId: string): Promise<DeviceData> {
+  async createBufferWithData(buffer: ArrayBuffer, _deviceId: string): Promise<DeviceData> {
     try {
       // Check memory pressure before allocation
-      this.checkMemoryPressure(buffer.byteLength);
+      await this.checkMemoryPressure(buffer.byteLength);
       
       // No need to slice - use the buffer directly
       const sourceData = new Uint8Array(buffer);
@@ -158,7 +158,7 @@ export class BufferLifecycleManager {
       return await this.defensiveOperations.getMemoryStats();
     } catch (error) {
       console.warn('Defensive getMemoryStats failed, using direct call:', error);
-      return this.operationDispatcher.get_memory_stats();
+      return await this.operationDispatcher.get_memory_stats();
     }
   }
 
@@ -217,31 +217,40 @@ export class BufferLifecycleManager {
   /**
    * Check memory pressure and compact if needed
    */
-  private checkMemoryPressure(requestedBytes: number): void {
-    if (!this.config.autoCompact) {
-      return;
-    }
+  private async checkMemoryPressure(requestedBytes: number): Promise<void> {
 
-    const stats = this.getMemoryStats();
+    const stats = await this.getMemoryStats();
     const currentUsage = stats.total_allocated_bytes;
     const afterAllocation = currentUsage + requestedBytes;
     
-    // Check if we would exceed the limit
+    // Always check if we would exceed the limit
     if (afterAllocation > this.config.maxMemory) {
-      // Try compaction first
-      this.performCleanup();
-      
-      // Check again after compaction
-      const newStats = this.getMemoryStats();
-      const newUsage = newStats.total_allocated_bytes;
-      
-      if (newUsage + requestedBytes > this.config.maxMemory) {
-        throw new Error(
-          `Memory limit exceeded: requested ${requestedBytes} bytes, ` +
-          `current usage ${newUsage} bytes, limit ${this.config.maxMemory} bytes`
+      if (this.config.autoCompact) {
+        // Try compaction first
+        this.performCleanup();
+        
+        // Check again after compaction
+        const newStats = await this.getMemoryStats();
+        const newUsage = newStats.total_allocated_bytes;
+        
+        if (newUsage + requestedBytes > this.config.maxMemory) {
+          throw new WASMMemoryLimitError(
+            newUsage,
+            this.config.maxMemory,
+            requestedBytes,
+            { operation: 'buffer_allocation', phase: 'after_compaction' }
+          );
+        }
+      } else {
+        // No compaction enabled, fail immediately
+        throw new WASMMemoryLimitError(
+          currentUsage,
+          this.config.maxMemory,
+          requestedBytes,
+          { operation: 'buffer_allocation', phase: 'no_compaction' }
         );
       }
-    } else if (currentUsage / this.config.maxMemory > this.config.compactThreshold) {
+    } else if (this.config.autoCompact && currentUsage / this.config.maxMemory > this.config.compactThreshold) {
       // Compact if we're above the threshold and haven't compacted recently
       const now = Date.now();
       if (now - this.lastCompactTime > this.compactInterval) {

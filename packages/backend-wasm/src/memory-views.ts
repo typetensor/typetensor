@@ -210,7 +210,7 @@ export class MemoryViewManager {
     const self = this;
     
     return new Proxy(rawView, {
-      get(target, prop, receiver) {
+      get(target, prop) {
         // Check validity before any property access
         if (typeof prop === 'string' && !isNaN(Number(prop))) {
           // Numeric index access - check validity
@@ -270,12 +270,12 @@ export class MemoryViewManager {
         return value;
       },
       
-      set(target, prop, value, receiver) {
+      set(target, prop, value) {
         // Check validity before any property write
         if (!self.isTrackedViewValid(trackedView)) {
           throw new Error('View is no longer valid: buffer has been disposed');
         }
-        return Reflect.set(target, prop, value, receiver);
+        return Reflect.set(target, prop, value, target);
       }
     }) as ArrayBufferView;
   }
@@ -342,7 +342,7 @@ export class MemoryViewManager {
     // Check if this is a proxied view by looking for our tracking
     try {
       // Try to access the length property - this will trigger validation
-      const len = (view as any).length;
+      (view as any).length;
       // If we get here, the view is valid and memory hasn't grown
       return view.buffer === this.memory.buffer;
     } catch (e) {

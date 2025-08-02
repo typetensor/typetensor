@@ -11,7 +11,7 @@ import type { WasmOperationDispatcher, WasmBufferHandle, WasmTensorMeta } from '
 import { dtypeToWasm, operationToWasm } from './types';
 import type { WASMModule } from './types';
 import { getDTypeByteSize } from './utils/dtype-helpers';
-import { WASMErrorHandler, WASMOperationError } from './errors';
+import { WASMOperationError } from './errors';
 
 export interface OperationContext {
   deviceId: string;
@@ -104,7 +104,7 @@ export class OperationOrchestrator {
         {
           inputs: inputInfo,
           outputSize: op.__output.__size,
-          outputDtype: op.__output.__dtype.__name || 'unknown',
+          outputDtype: (op.__output.__dtype as any).__name || 'unknown',
           executionTime
         }
       );
@@ -114,7 +114,7 @@ export class OperationOrchestrator {
   /**
    * Check if operation supports non-contiguous tensors
    */
-  supportsNonContiguous(op: AnyStorageTransformation['__op']): boolean {
+  supportsNonContiguous(_op: AnyStorageTransformation['__op']): boolean {
     // Currently no operations support non-contiguous tensors
     return false;
   }
@@ -136,7 +136,7 @@ export class OperationOrchestrator {
    * Validate operation inputs
    */
   private validateInputs<T extends AnyStorageTransformation>(
-    op: T,
+    _op: T,
     inputs: DeviceData[],
     output?: DeviceData
   ): void {
@@ -261,11 +261,16 @@ export class OperationOrchestrator {
       // For 0-input operations, we already have the pre-allocated buffer
       return outputHandle;
     } else if (wasmInputs.length === 1) {
+      const input0 = wasmInputs[0];
+      const inputMeta0 = inputMetas[0];
+      if (!input0 || !inputMeta0) {
+        throw new Error('Invalid input data for single-input operation');
+      }
       if (params.reductionAxes !== null) {
         return this.context.operationDispatcher.execute_reduction(
           wasmOperation,
-          wasmInputs[0],
-          inputMetas[0],
+          input0,
+          inputMeta0,
           outputMeta,
           params.reductionAxes.length > 0 ? params.reductionAxes : null,
           params.keepDims,
@@ -274,8 +279,8 @@ export class OperationOrchestrator {
       } else if (params.softmaxAxis !== null) {
         return this.context.operationDispatcher.execute_softmax(
           wasmOperation,
-          wasmInputs[0],
-          inputMetas[0],
+          input0,
+          inputMeta0,
           outputMeta,
           params.softmaxAxis,
           outputHandle,
@@ -283,19 +288,26 @@ export class OperationOrchestrator {
       } else {
         return this.context.operationDispatcher.execute_unary(
           wasmOperation,
-          wasmInputs[0],
-          inputMetas[0],
+          input0,
+          inputMeta0,
           outputMeta,
           outputHandle,
         );
       }
     } else if (wasmInputs.length === 2) {
+      const input0 = wasmInputs[0];
+      const input1 = wasmInputs[1];
+      const inputMeta0 = inputMetas[0];
+      const inputMeta1 = inputMetas[1];
+      if (!input0 || !input1 || !inputMeta0 || !inputMeta1) {
+        throw new Error('Invalid input data for binary operation');
+      }
       return this.context.operationDispatcher.execute_binary(
         wasmOperation,
-        wasmInputs[0],
-        wasmInputs[1],
-        inputMetas[0],
-        inputMetas[1],
+        input0,
+        input1,
+        inputMeta0,
+        inputMeta1,
         outputMeta,
         outputHandle,
       );
@@ -351,7 +363,7 @@ export class OperationOrchestrator {
         {
           inputs: [{ id: (input as WASMDeviceData).id, size: input.byteLength, index: 0 }],
           outputSize: op.__output.__size,
-          outputDtype: op.__output.__dtype.__name || 'unknown',
+          outputDtype: (op.__output.__dtype as any).__name || 'unknown',
           executionTime
         }
       );
@@ -418,7 +430,12 @@ export class OperationOrchestrator {
         );
       }
       
-      outputArray[outputFlatIndex] = inputArray[inputFlatIndex];
+      const inputValue = inputArray[inputFlatIndex];
+      if (inputValue !== undefined) {
+        outputArray[outputFlatIndex] = inputValue;
+      } else {
+        throw new Error(`Invalid value at index ${inputFlatIndex}`);
+      }
     }
 
     return outputBuffer;
@@ -433,19 +450,28 @@ export class OperationOrchestrator {
     }
 
     const wasmData = input as WASMDeviceData;
-    const wasmHandle = wasmData.getWASMHandle();
+    const wasmHandle = wasmData.getWASMHandle() as WasmBufferHandle;
     const uint8Array = this.context.operationDispatcher.copy_buffer_to_js(wasmHandle);
 
-    // If the array is already properly aligned, return its buffer directly
-    if (uint8Array.byteOffset === 0 && uint8Array.byteLength === uint8Array.buffer.byteLength) {
-      return uint8Array.buffer;
+    // Ensure we return an ArrayBuffer, not ArrayBufferLike
+    const buffer = uint8Array.buffer;
+    if (buffer instanceof ArrayBuffer) {
+      // If the array is already properly aligned, return its buffer directly
+      if (uint8Array.byteOffset === 0 && uint8Array.byteLength === buffer.byteLength) {
+        return buffer;
+      }
+      
+      // Only slice if necessary (when the view is a subset of the buffer)
+      return buffer.slice(
+        uint8Array.byteOffset,
+        uint8Array.byteOffset + uint8Array.byteLength,
+      );
+    } else {
+      // Handle SharedArrayBuffer case by creating a copy
+      const arrayBuffer = new ArrayBuffer(uint8Array.byteLength);
+      new Uint8Array(arrayBuffer).set(new Uint8Array(buffer, uint8Array.byteOffset, uint8Array.byteLength));
+      return arrayBuffer;
     }
-    
-    // Only slice if necessary (when the view is a subset of the buffer)
-    return uint8Array.buffer.slice(
-      uint8Array.byteOffset,
-      uint8Array.byteOffset + uint8Array.byteLength,
-    );
   }
 
   /**
@@ -512,7 +538,7 @@ export class OperationOrchestrator {
   /**
    * Create typed array from buffer based on dtype
    */
-  private createTypedArray(buffer: ArrayBuffer, dtype: any): ArrayBufferView {
+  private createTypedArray(buffer: ArrayBuffer, dtype: any): Float32Array | Float64Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array {
     switch (dtype.__name || dtype.__dtype) {
       case 'float32':
         return new Float32Array(buffer);
@@ -638,6 +664,8 @@ export class OperationOrchestrator {
       const index = indices[i];
       if (stride !== undefined && index !== undefined) {
         flatIndex += index * stride;
+      } else {
+        throw new Error(`Invalid stride or index at position ${i}: stride=${stride}, index=${index}`);
       }
     }
     return flatIndex;
