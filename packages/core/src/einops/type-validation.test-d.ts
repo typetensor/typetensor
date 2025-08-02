@@ -109,6 +109,10 @@ import type { ValidEinopsPattern } from './type-validation';
   // Test product mismatch detection
   type ProductMismatch = ValidEinopsPattern<'(h w) -> h w', readonly [10], { h: 3, w: 4 }>; // 3*4=12, but dimension is 10
   expectTypeOf<ProductMismatch>().toEqualTypeOf<"[Einops ❌] Shape Error: Composite '(h w)' expects product 10 but axes give 12. Check axis values">();
+
+  // Test fractional dimension detection
+  type FractionalDimension = ValidEinopsPattern<'(h w) -> h w', readonly [13], { h: 4 }>; // 13/4 = 3.25 (non-integer)
+  expectTypeOf<FractionalDimension>().toEqualTypeOf<"[Einops ❌] Shape Error: Pattern '(h w) -> h w' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})">();
 }
 
 // =============================================================================

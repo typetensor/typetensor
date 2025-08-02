@@ -71,7 +71,7 @@ describe('Axis Reordering Operations', () => {
 
 describe('Composite Pattern Operations', () => {
   it('should handle basic composite splitting', async () => {
-    const testTensor = await ones([2048, 3] as const, { device: cpu, dtype: float32 }); // [h*w, channels]
+    const testTensor = await ones([2048, 3] as const, { device: cpu, dtype: float32 }); // [h*w, channels]'
     const result = await rearrange(testTensor, '(h w) c -> h w c', { h: 32 }); // Need to provide h dimension
 
     expect(result.shape).toEqual([32, 64, 3]);
@@ -278,7 +278,7 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
     const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
 
     await expect(rearrange(testTensor, 'a b c -> a c')).rejects.toThrow(
-      /Identifiers only on one side of expression.*\{b\}/
+      /Identifiers only on one side of expression.*\{b\}/,
     );
   });
 
@@ -286,7 +286,7 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
     const testTensor = await ones([2, 3] as const, { device: cpu, dtype: float32 });
 
     await expect(rearrange(testTensor, 'a b -> a b a')).rejects.toThrow(
-      /Indexing expression contains duplicate dimension "a"/
+      /Indexing expression contains duplicate dimension "a"/,
     );
   });
 
@@ -294,7 +294,7 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
     const testTensor = await ones([2, 3, 4, 5] as const, { device: cpu, dtype: float32 });
 
     await expect(rearrange(testTensor, 'batch ... -> ...')).rejects.toThrow(
-      /Identifiers only on one side of expression.*\{batch\}/
+      /Identifiers only on one side of expression.*\{batch\}/,
     );
   });
 });

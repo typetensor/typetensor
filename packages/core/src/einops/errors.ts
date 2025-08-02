@@ -161,3 +161,10 @@ export type ProductMismatchError<
   Expected extends number,
   Actual extends number,
 > = EinopsShapeError<`Composite '${CompositePattern}' expects product ${Expected} but axes give ${Actual}. Check axis values`>;
+
+/**
+ * Create specific fractional dimension error (simplified version)
+ */
+export type FractionalDimensionError<
+  Pattern extends string,
+> = EinopsShapeError<`Pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})`>;

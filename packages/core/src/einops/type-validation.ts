@@ -14,6 +14,7 @@ import type {
   RankMismatchError,
   CompositeResolutionError,
   ProductMismatchError,
+  FractionalDimensionError,
   AxisErrorMessages,
 } from './errors';
 import type { ResolveEinopsShape } from './type-shape-resolver-rearrange';
@@ -35,7 +36,7 @@ import type {
   ValidateCompositeProduct,
   ComputeCompositeProduct,
 } from './type-shape-resolver-utils';
-import type { Add } from 'ts-arithmetic';
+import type { Add, IsInt } from 'ts-arithmetic';
 
 // =============================================================================
 // Helper Types for Error Extraction
@@ -46,6 +47,38 @@ import type { Add } from 'ts-arithmetic';
  * This works correctly unlike [T] extends [string] which fails for never
  */
 type IsNever<T> = [T] extends [never] ? true : false;
+
+/**
+ * Safer integer validation that works with computed types
+ * Uses multiple fallback strategies to handle complex number types
+ */
+type IsSafeInteger<N extends number> = 
+  // First try: Direct IsInt check for literal numbers
+  IsInt<N> extends 1 
+    ? true
+    : // Second try: Check for obvious fractions using template literals
+      `${N}` extends `${string}.${string}`
+      ? false
+      : // Third try: Accept if it's a basic number type (not obviously fractional)
+        N extends number
+        ? true
+        : false;
+
+/**
+ * Check if a shape contains safe integer dimensions
+ * This is more lenient with computed types while still catching obvious fractions
+ */
+type IsValidIntegerShape<S extends Shape> = S extends readonly []
+  ? true // Empty shape is valid
+  : S extends readonly [infer Head, ...infer Tail]
+    ? Head extends number
+      ? IsSafeInteger<Head> extends true
+        ? Tail extends Shape
+          ? IsValidIntegerShape<Tail>
+          : false
+        : false // Non-integer dimension found
+      : false // Non-number dimension
+    : false;
 
 /**
  * Extract the first duplicate axis name from a list of patterns
@@ -149,7 +182,9 @@ type ValidateEinopsPatternStructure<
       ? // Only when existing system fails, provide specific error detection
         DetectSpecificError<Pattern, InputShape, Axes>
       : Result extends Shape
-        ? Result
+        ? IsValidIntegerShape<Result> extends true
+          ? Result // Valid integer shape
+          : FractionalDimensionError<Pattern> // Invalid fractional dimensions
         : DetectSpecificError<Pattern, InputShape, Axes>
     : DetectSpecificError<Pattern, InputShape, Axes>;
 
