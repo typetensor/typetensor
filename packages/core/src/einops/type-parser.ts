@@ -295,12 +295,10 @@ export type ParseCompositeAxis<S extends string> = S extends `(${string}`
             remaining: infer InnerRemaining;
           }
           ? InnerRemaining extends ''
-            ? Patterns extends readonly TypeAxisPattern[]
-              ? {
-                  pattern: { type: 'composite'; axes: Patterns };
-                  remaining: Remaining;
-                }
-              : ParseError<'Invalid composite patterns'>
+            ? {
+                pattern: { type: 'composite'; axes: Patterns };
+                remaining: Remaining;
+              }
             : ParseError<'Invalid composite inner patterns - unparsed content'>
           : ParseAxisList<Inner> extends ParseError<infer Message>
             ? ParseError<`Invalid composite inner patterns: ${Message}`>
@@ -339,7 +337,7 @@ export type ParseSingletonAxis<S extends string> = S extends `1${infer Remaining
  */
 export type ParseAxisList<
   S extends string,
-  Patterns extends readonly TypeAxisPattern[] = readonly [],
+  Patterns extends readonly any[] = readonly [],
 > =
   SkipWhitespace<S> extends infer Trimmed
     ? Trimmed extends string
@@ -385,14 +383,10 @@ export type ParseEinopsPattern<Pattern extends string> =
               patterns: infer OutputPatterns;
               remaining: '';
             }
-            ? InputPatterns extends readonly TypeAxisPattern[]
-              ? OutputPatterns extends readonly TypeAxisPattern[]
-                ? {
-                    input: InputPatterns;
-                    output: OutputPatterns;
-                  }
-                : ParseError<'Invalid output patterns'>
-              : ParseError<'Invalid input patterns'>
+            ? {
+                input: InputPatterns;
+                output: OutputPatterns;
+              }
             : ParseAxisList<OutputStr> extends ParseError<infer Message>
               ? ParseError<`Output parsing failed: ${Message}`>
               : ParseError<'Failed to parse output section'>

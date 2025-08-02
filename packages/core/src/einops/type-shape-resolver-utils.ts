@@ -397,7 +397,7 @@ type MapCompositeAxes<
 /**
  * Count unknown axes in a composite pattern
  */
-type CountUnknownAxes<
+export type CountUnknownAxes<
   Axes extends readonly TypeSimpleAxis[],
   ProvidedAxes extends Record<string, number>,
   Count extends number = 0,

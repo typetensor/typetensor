@@ -14,7 +14,7 @@ import type {
   AnyTensorStorage,
   ComputeStrides,
 } from './layout';
-import type { ResolveEinopsShape } from '../einops/type-shape-resolver-rearrange';
+import type { ValidEinopsPattern } from '../einops/type-validation';
 import type { ResolveReduceShape } from '../einops/type-shape-resolver-reduce';
 import type { ReductionOp } from '../einops/reduce';
 
@@ -58,7 +58,7 @@ export type RearrangeOp<
   Pattern extends string,
   Axes extends Record<string, number> | undefined = undefined,
 > =
-  ResolveEinopsShape<Pattern, Input['__shape'], Axes> extends infer OutputShape
+  ValidEinopsPattern<Pattern, Input['__shape'], Axes> extends infer OutputShape
     ? OutputShape extends Shape
       ? StorageTransformation<
           'rearrange',
@@ -70,11 +70,17 @@ export type RearrangeOp<
           >,
           readonly [Input]
         >
-      : never & {
-          __error: 'Failed to resolve einops pattern';
-          __pattern: Pattern;
-          __inputShape: ShapeToString<Input['__shape']>;
-        }
+      : OutputShape extends string
+        ? never & {
+            __error: OutputShape; // Return the specific error message
+            __pattern: Pattern;
+            __inputShape: ShapeToString<Input['__shape']>;
+          }
+        : never & {
+            __error: 'Failed to resolve einops pattern';
+            __pattern: Pattern;
+            __inputShape: ShapeToString<Input['__shape']>;
+          }
     : never;
 
 // =============================================================================
