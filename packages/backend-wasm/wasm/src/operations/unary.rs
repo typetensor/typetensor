@@ -6,7 +6,8 @@
  */
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
-use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::memory::WasmTensor;
+use crate::arena::TempArena;
 use crate::simd::{float32, float64};
 
 // Use micromath for fast approximations when available
@@ -19,13 +20,23 @@ use crate::fast_math::{fast_sin_f32, fast_cos_f32};
 /// Execute a unary operation
 pub fn execute_unary_op(
     operation: WasmOperation,
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    _output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    
+    // SAFETY: Casting *const u8 to *mut u8 for output tensor
+    // This is safe because:
+    // 1. Each tensor has unique, non-overlapping memory allocated by the bump allocator
+    // 2. The output tensor is semantically intended to be written to
+    // 3. We only have immutable arena access (&TempArena) because operations don't
+    //    need to allocate new memory, just access existing allocations
+    // 4. No aliasing occurs - input and output tensors have different memory regions
+    // 5. The arena's bump allocator ensures memory validity and proper alignment
+    let output_ptr = output.get_read_ptr(arena) as *mut u8;
+    
+    let input_meta = input.metadata();
     let size = input_meta.size();
 
     match input_meta.dtype() {

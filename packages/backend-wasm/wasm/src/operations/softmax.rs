@@ -3,20 +3,22 @@
  */
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
-use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::memory::WasmTensor;
+use crate::arena::TempArena;
 
 /// Execute softmax or log_softmax operation
 pub fn execute_softmax_op(
     operation: WasmOperation,
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
     axis: Option<i32>,
 ) -> WasmResult<()> {
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
     let shape = input_meta.shape();
     let strides = input_meta.strides();
     let ndim = shape.len();

@@ -9,25 +9,26 @@ use wasm_bindgen::prelude::*;
 
 /// Data type enumeration matching TypeTensor's core dtype system
 #[wasm_bindgen]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WasmDType {
-    Int8 = 0,
-    Uint8 = 1,
-    Int16 = 2,
-    Uint16 = 3,
-    Int32 = 4,
-    Uint32 = 5,
-    Float32 = 6,
-    Float64 = 7,
-    BigInt64 = 8,
-    BigUint64 = 9,
+    Bool = 0,      // Stored as uint8 but semantically boolean
+    Int8 = 1,
+    Uint8 = 2,
+    Int16 = 3,
+    Uint16 = 4,
+    Int32 = 5,
+    Uint32 = 6,
+    Float32 = 7,
+    Float64 = 8,
+    BigInt64 = 9,
+    BigUint64 = 10,
 }
 
 impl WasmDType {
     /// Get the byte size of this data type
     pub fn byte_size(&self) -> usize {
         match self {
-            WasmDType::Int8 | WasmDType::Uint8 => 1,
+            WasmDType::Bool | WasmDType::Int8 | WasmDType::Uint8 => 1,
             WasmDType::Int16 | WasmDType::Uint16 => 2,
             WasmDType::Int32 | WasmDType::Uint32 | WasmDType::Float32 => 4,
             WasmDType::Float64 | WasmDType::BigInt64 | WasmDType::BigUint64 => 8,
@@ -57,7 +58,7 @@ impl WasmDType {
 
 /// Tensor operation types matching TypeTensor's core operation system
 #[wasm_bindgen]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WasmOperation {
     // Creation
     Create = 0,

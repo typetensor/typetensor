@@ -6,23 +6,22 @@
  */
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
-use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::memory::WasmTensor;
+use crate::arena::TempArena;
 
 /// Execute a reduction operation (legacy - no axis support)
 pub fn execute_reduction_op(
     operation: WasmOperation,
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
     // Call new version with None axes (reduce all)
     execute_reduction_op_with_axes(
         operation,
         input,
-        input_meta,
         output,
-        output_meta,
+        arena,
         None,
         false,
     )
@@ -31,16 +30,17 @@ pub fn execute_reduction_op(
 /// Execute a reduction operation with axis support
 pub fn execute_reduction_op_with_axes(
     operation: WasmOperation,
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
     axes: Option<&[usize]>,
     keep_dims: bool,
 ) -> WasmResult<()> {
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
     let input_shape = input_meta.shape();
     let input_strides = input_meta.strides();
     

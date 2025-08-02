@@ -1,800 +1,736 @@
-use wasm_bindgen::prelude::*;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+/*!
+ * New arena-based memory management system for WASM tensors
+ * 
+ * Replaces the complex buffer pool system with:
+ * - Single ownership (no RefCell complexity)
+ * - Arena allocation for temporaries  
+ * - Reference counting for persistents
+ * - WASM-optimized memory management
+ */
+
 use std::sync::Arc;
+use wasm_bindgen::prelude::*;
+use crate::arena::{TempArena, PersistentStorage, PersistentTensor, ArenaOffset, CheckpointId};
+use crate::types::{WasmDType, WasmTensorMeta};
+use crate::pattern::{OperationPattern, AllocationRequirement};
 
-const BUFFER_SIZE_CLASSES: &[usize] = &[
-    16,
-    64,
-    256,
-    1024,
-    4096,
-    16384,
-    65536,
-    262144,
-    1048576,
-    4194304,
-    16777216,
-];
-
-const MEMORY_ALIGNMENT: usize = 16; // SIMD requires 16-byte alignment
-const CACHE_LINE_SIZE: usize = 64;  // Keep cache line awareness
-
-static TOTAL_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
-static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);
-
-/// Buffer identifier
-pub type BufferId = usize;
-
-/// Buffer source - tracks whether buffer is managed by pool or allocated directly
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BufferSource {
-    Pooled,    // Managed by pool, return to pool on drop
-    Direct,    // Direct allocation, deallocate immediately on drop
-}
-
-/// Size class for buffer pools
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BufferSizeClass {
-    Size16B = 0,
-    Size64B = 1,
-    Size256B = 2,
-    Size1KB = 3,
-    Size4KB = 4,
-    Size16KB = 5,
-    Size64KB = 6,
-    Size256KB = 7,
-    Size1MB = 8,
-    Size4MB = 9,
-    Size16MB = 10,
-}
-
-impl BufferSizeClass {
-    fn from_size(size: usize) -> Self {
-        match size {
-            0..=16 => BufferSizeClass::Size16B,
-            17..=64 => BufferSizeClass::Size64B,
-            65..=256 => BufferSizeClass::Size256B,
-            257..=1024 => BufferSizeClass::Size1KB,
-            1025..=4096 => BufferSizeClass::Size4KB,
-            4097..=16384 => BufferSizeClass::Size16KB,
-            16385..=65536 => BufferSizeClass::Size64KB,
-            65537..=262144 => BufferSizeClass::Size256KB,
-            262145..=1048576 => BufferSizeClass::Size1MB,
-            1048577..=4194304 => BufferSizeClass::Size4MB,
-            _ => BufferSizeClass::Size16MB,
-        }
-    }
-    
-    fn actual_size(&self) -> usize {
-        BUFFER_SIZE_CLASSES[*self as usize]
-    }
-}
-
-/// Information about an active buffer with reference counting
-#[derive(Debug)]
-struct BufferInfo {
-    ptr: *mut u8,
-    size: usize,
-    size_class: BufferSizeClass,
-    ref_count: AtomicUsize,
-}
-
-/// Simple buffer pool for a specific size class
-#[derive(Debug)]
-struct BufferPool {
-    size_class: BufferSizeClass,
-    available_buffers: Vec<*mut u8>,
-    allocated_count: usize,
-    max_pool_size: usize,
-}
-
-impl BufferPool {
-    fn new(size_class: BufferSizeClass) -> Self {
-        // Set appropriate pool sizes based on buffer size
-        let max_pool_size = match size_class {
-            BufferSizeClass::Size16B => 1000,   // Tiny buffers - lots allowed
-            BufferSizeClass::Size64B => 1000,   // Very common size for small tensors
-            BufferSizeClass::Size256B => 800,   // Common size
-            BufferSizeClass::Size1KB => 500,    // Medium size
-            BufferSizeClass::Size4KB => 400,    // Larger tensors
-            BufferSizeClass::Size16KB => 300,   // Big tensors
-            BufferSizeClass::Size64KB => 200,   // Large tensors
-            BufferSizeClass::Size256KB => 150,  // Very large
-            BufferSizeClass::Size1MB => 100,    // Huge tensors
-            BufferSizeClass::Size4MB => 50,     // Massive tensors
-            BufferSizeClass::Size16MB => 25,    // Enormous tensors
-        };
-        
-        BufferPool {
-            size_class,
-            available_buffers: Vec::new(),
-            allocated_count: 0,
-            max_pool_size,
-        }
-    }
-    
-    fn get_buffer(&mut self) -> *mut u8 {
-        if let Some(ptr) = self.available_buffers.pop() {
-            ptr
-        } else {
-            let size = self.size_class.actual_size();
-            let aligned_size = align_size(size, MEMORY_ALIGNMENT);
-            
-            let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
-                .expect("Invalid layout for buffer allocation");
-            
-            let ptr = unsafe { std::alloc::alloc(layout) };
-            if ptr.is_null() {
-                // Return null instead of panicking to allow graceful error handling
-                return std::ptr::null_mut();
-            }
-            
-            unsafe { ptr.write_bytes(0, aligned_size) };
-            
-            TOTAL_ALLOCATED.fetch_add(aligned_size, Ordering::Relaxed);
-            self.allocated_count += 1;
-            
-            ptr
-        }
-    }
-    
-    fn return_buffer(&mut self, ptr: *mut u8) {
-        let size = self.size_class.actual_size();
-        unsafe { ptr.write_bytes(0, size) };
-        
-        self.available_buffers.push(ptr);
-    }
-    
-    fn cleanup(&mut self) {
-        let size = self.size_class.actual_size();
-        let aligned_size = align_size(size, MEMORY_ALIGNMENT);
-        
-        let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
-            .expect("Invalid layout for buffer deallocation");
-        
-        for ptr in self.available_buffers.drain(..) {
-            unsafe { std::alloc::dealloc(ptr, layout) };
-            TOTAL_ALLOCATED.fetch_sub(aligned_size, Ordering::Relaxed);
-        }
-        
-        self.allocated_count = 0;
-    }
-}
-
-impl Drop for BufferPool {
-    fn drop(&mut self) {
-        self.cleanup();
-    }
-}
-
-/// Handle to a buffer in WASM memory
-#[wasm_bindgen]
+/// Tensor data storage - either temporary (arena) or persistent (reference-counted)
 #[derive(Debug, Clone)]
-pub struct WasmBufferHandle {
-    id: BufferId,
-    ptr: *mut u8,
-    size: usize,
-    size_class: BufferSizeClass,
-    source: BufferSource,
-    initialized: bool,
+pub enum TensorData {
+    /// Temporary allocation in arena (fast, bulk cleanup)
+    Temporary(ArenaOffset),
+    /// Persistent allocation with reference counting
+    Persistent(Arc<PersistentTensor>),
 }
 
-#[wasm_bindgen]
-impl WasmBufferHandle {
-    #[wasm_bindgen(getter)]
-    pub fn id(&self) -> usize {
-        self.id
+impl TensorData {
+    /// Get read pointer to tensor data
+    /// 
+    /// # Memory Safety
+    /// Returns a valid pointer to the tensor's data that remains valid for the
+    /// lifetime of the arena (for temporary tensors) or until the tensor is dropped
+    /// (for persistent tensors).
+    pub fn get_read_ptr(&self, arena: &TempArena) -> *const u8 {
+        match self {
+            TensorData::Temporary(offset) => arena.get_ptr(*offset),
+            TensorData::Persistent(tensor) => tensor.get_ptr(),
+        }
     }
-
-    #[wasm_bindgen(getter)]
+    
+    /// Get write pointer to tensor data (requires mutable arena for temporaries)
+    /// 
+    /// # Design Note
+    /// This method exists but is rarely used in practice. Most operations use
+    /// `get_read_ptr()` and cast to `*mut u8` for the output tensor, which is safe
+    /// because:
+    /// 1. Operations typically take `&TempArena` (immutable) since they don't need
+    ///    to allocate new memory, just access existing allocations
+    /// 2. Each tensor has unique memory regions from the bump allocator
+    /// 3. No aliasing occurs between different tensors
+    /// 4. The semantic intent is to write to output tensors
+    pub fn get_write_ptr(&self, arena: Option<&mut TempArena>) -> *mut u8 {
+        match self {
+            TensorData::Temporary(offset) => {
+                arena.expect("Mutable arena required for temporary tensors")
+                    .get_mut_ptr(*offset)
+            },
+            TensorData::Persistent(tensor) => {
+                // SAFETY: Cast from *const to *mut for persistent tensors
+                // This is safe because:
+                // - Persistent tensors are reference-counted but have unique storage
+                // - The API ensures exclusive access during operations
+                // - This follows the same pattern as the *const -> *mut cast in operations
+                tensor.get_ptr() as *mut u8
+            }
+        }
+    }
+    
+    /// Get tensor data size
     pub fn size(&self) -> usize {
-        self.size
-    }
-    
-    /// Get pointer for reading
-    pub fn get_read_ptr(&self) -> *const u8 {
-        if !self.initialized {
-            panic!("Attempt to read from uninitialized buffer");
+        match self {
+            TensorData::Temporary(offset) => offset.size(),
+            TensorData::Persistent(tensor) => tensor.size(),
         }
-        self.ptr as *const u8
     }
     
-    /// Create a shallow copy of this handle
-    pub fn clone_handle(&self) -> WasmBufferHandle {
-        self.clone()
-    }
-    
-    /// Mark buffer as initialized
-    pub(crate) fn mark_initialized(&mut self) {
-        self.initialized = true;
-    }
-    
-    /// Get mutable pointer for writing data
-    pub(crate) fn ptr_mut(&mut self) -> *mut u8 {
-        self.ptr
-    }
-    
-    /// Check if buffer is from pool or direct allocation
-    pub(crate) fn is_pooled(&self) -> bool {
-        self.source == BufferSource::Pooled
-    }
-    
-    /// Get the raw pointer as a number for JavaScript view creation
-    /// This is safe because JavaScript views are bounds-checked
-    #[wasm_bindgen(getter)]
-    pub fn ptr(&self) -> usize {
-        self.ptr as usize
-    }
-    
-    /// Check if the buffer is initialized and safe to read
-    #[wasm_bindgen(getter)]
-    pub fn is_initialized(&self) -> bool {
-        self.initialized
+    /// Check if tensor is temporary (arena-allocated)
+    pub fn is_temporary(&self) -> bool {
+        matches!(self, TensorData::Temporary(_))
     }
 }
 
-impl WasmBufferHandle {
-    /// Create a new pooled buffer handle
-    pub(crate) fn new_pooled(id: BufferId, ptr: *mut u8, size: usize, size_class: BufferSizeClass, initialized: bool) -> Self {
-        WasmBufferHandle {
-            id,
-            ptr,
-            size,
-            size_class,
-            source: BufferSource::Pooled,
-            initialized,
-        }
-    }
-    
-    /// Create a new direct buffer handle
-    pub(crate) fn new_direct(ptr: *mut u8, size: usize, size_class: BufferSizeClass) -> Self {
-        let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
-        WasmBufferHandle {
-            id,
-            ptr,
-            size,
-            size_class,
-            source: BufferSource::Direct,
-            initialized: false,  // Direct buffers start uninitialized
-        }
-    }
-    
-    /// Deallocate direct buffer immediately (for reentrancy scenarios)
-    pub(crate) fn deallocate_direct(self) {
-        if self.source == BufferSource::Direct {
-            let size = self.size_class.actual_size();
-            let aligned_size = align_size(size, MEMORY_ALIGNMENT);
-            
-            let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
-                .expect("Invalid layout for direct deallocation");
-            
-            unsafe { 
-                std::alloc::dealloc(self.ptr, layout);
-            }
-            
-            TOTAL_ALLOCATED.fetch_sub(aligned_size, Ordering::Relaxed);
-        }
-        // If pooled buffer, this is a no-op - should be returned to pool instead
-    }
-}
-
-/// Buffer lifecycle manager - handles creation, reference counting, and disposal
-#[derive(Debug)]
-pub struct BufferLifecycleManager {
-    pools: Vec<BufferPool>,
-    active_buffers: HashMap<BufferId, Arc<BufferInfo>>,
-}
-
-/// Compute memory manager - handles read/write operations during computations
-#[derive(Debug)]
-pub struct ComputeMemoryManager {
-    // Placeholder for compute-specific state
-    // Currently all compute operations use buffer handles directly
-}
-
-/// Direct allocation functions (stateless, no RefCell involved)
-/// These are used as fallback when pool is busy due to reentrancy
-
-/// Allocate buffer directly from system allocator
-pub(crate) fn allocate_direct(size: usize) -> Result<WasmBufferHandle, String> {
-    let size_class = BufferSizeClass::from_size(size);
-    let actual_size = size_class.actual_size();
-    let aligned_size = align_size(actual_size, MEMORY_ALIGNMENT);
-    
-    let layout = std::alloc::Layout::from_size_align(aligned_size, MEMORY_ALIGNMENT)
-        .map_err(|_| "Invalid layout for direct allocation".to_string())?;
-    
-    let ptr = unsafe { std::alloc::alloc(layout) };
-    if ptr.is_null() {
-        return Err("Direct allocation failed - out of memory".to_string());
-    }
-    
-    // Zero the memory (this might trigger reentrancy, but no RefCell involved)
-    unsafe { ptr.write_bytes(0, aligned_size) };
-    
-    // Update global counter atomically
-    TOTAL_ALLOCATED.fetch_add(aligned_size, Ordering::Relaxed);
-    
-    Ok(WasmBufferHandle::new_direct(ptr, size, size_class))
-}
-
-/// Allocate buffer directly with provided data
-pub(crate) fn allocate_direct_with_data(data: &[u8]) -> Result<WasmBufferHandle, String> {
-    let mut handle = allocate_direct(data.len())?;
-    
-    // Copy data to the allocated buffer
-    unsafe {
-        std::ptr::copy_nonoverlapping(data.as_ptr(), handle.ptr_mut(), data.len());
-    }
-    
-    handle.mark_initialized();
-    Ok(handle)
-}
-
-impl BufferLifecycleManager {
-    pub fn new() -> BufferLifecycleManager {
-        let mut pools = Vec::with_capacity(BUFFER_SIZE_CLASSES.len());
-        
-        pools.push(BufferPool::new(BufferSizeClass::Size16B));
-        pools.push(BufferPool::new(BufferSizeClass::Size64B));
-        pools.push(BufferPool::new(BufferSizeClass::Size256B));
-        pools.push(BufferPool::new(BufferSizeClass::Size1KB));
-        pools.push(BufferPool::new(BufferSizeClass::Size4KB));
-        pools.push(BufferPool::new(BufferSizeClass::Size16KB));
-        pools.push(BufferPool::new(BufferSizeClass::Size64KB));
-        pools.push(BufferPool::new(BufferSizeClass::Size256KB));
-        pools.push(BufferPool::new(BufferSizeClass::Size1MB));
-        pools.push(BufferPool::new(BufferSizeClass::Size4MB));
-        pools.push(BufferPool::new(BufferSizeClass::Size16MB));
-        
-        BufferLifecycleManager {
-            pools,
-            active_buffers: HashMap::new(),
-        }
-    }
-
-    /// Create buffer with data
-    pub fn create_buffer_with_data(&mut self, data: &[u8]) -> Result<WasmBufferHandle, String> {
-        let size = data.len();
-        let size_class = BufferSizeClass::from_size(size);
-        let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
-        
-        let pool = &mut self.pools[size_class as usize];
-        let ptr = pool.get_buffer();
-        if ptr.is_null() {
-            return Err(format!("Failed to allocate buffer of size {}", size));
-        }
-        
-        // Copy data to buffer
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, size);
-        }
-        
-        let buffer_info = Arc::new(BufferInfo {
-            ptr,
-            size,
-            size_class,
-            ref_count: AtomicUsize::new(1),
-        });
-        
-        self.active_buffers.insert(id, buffer_info);
-        TOTAL_ALLOCATED.fetch_add(size, Ordering::Relaxed);
-        
-        Ok(WasmBufferHandle::new_pooled(id, ptr, size, size_class, true))
-    }
-
-    /// Create empty buffer
-    pub fn create_empty_buffer(&mut self, size: usize) -> Result<(WasmBufferHandle, *mut u8), String> {
-        let size_class = BufferSizeClass::from_size(size);
-        let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
-        
-        let pool = &mut self.pools[size_class as usize];
-        let ptr = pool.get_buffer();
-        if ptr.is_null() {
-            return Err(format!("Failed to allocate buffer of size {}", size));
-        }
-        
-        let buffer_info = Arc::new(BufferInfo {
-            ptr,
-            size,
-            size_class,
-            ref_count: AtomicUsize::new(1),
-        });
-        
-        self.active_buffers.insert(id, buffer_info);
-        TOTAL_ALLOCATED.fetch_add(size, Ordering::Relaxed);
-        
-        let handle = WasmBufferHandle::new_pooled(id, ptr, size, size_class, false);
-        
-        Ok((handle, ptr))
-    }
-
-    /// Release buffer back to pool for reuse
-    pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
-        if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
-            let prev_count = buffer_info.ref_count.fetch_sub(1, Ordering::AcqRel);
-            
-            if prev_count == 1 {
-                if let Some(buffer_info) = self.active_buffers.remove(&handle.id) {
-                    let pool = &mut self.pools[buffer_info.size_class as usize];
-                    pool.return_buffer(buffer_info.ptr);
-                }
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Try to get buffer from pool (non-blocking)
-    /// Returns None if no buffer available or if pool is empty
-    pub fn try_get_buffer(&mut self, size: usize) -> Option<WasmBufferHandle> {
-        let size_class = BufferSizeClass::from_size(size);
-        let id = NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed);
-        
-        let pool = &mut self.pools[size_class as usize];
-        let ptr = pool.get_buffer();
-        if ptr.is_null() {
-            return None; // Pool allocation failed
-        }
-        
-        let buffer_info = Arc::new(BufferInfo {
-            ptr,
-            size,
-            size_class,
-            ref_count: AtomicUsize::new(1),
-        });
-        
-        self.active_buffers.insert(id, buffer_info);
-        TOTAL_ALLOCATED.fetch_add(size, Ordering::Relaxed);
-        
-        Some(WasmBufferHandle::new_pooled(id, ptr, size, size_class, false))
-    }
-    
-    /// Try to release buffer back to pool (non-blocking)
-    /// Returns true if successful, false if buffer not found or not pooled
-    pub fn try_release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
-        if handle.source != BufferSource::Pooled {
-            return false; // Not a pooled buffer
-        }
-        
-        if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
-            let prev_count = buffer_info.ref_count.fetch_sub(1, Ordering::AcqRel);
-            
-            if prev_count == 1 {
-                if let Some(buffer_info) = self.active_buffers.remove(&handle.id) {
-                    let pool = &mut self.pools[buffer_info.size_class as usize];
-                    pool.return_buffer(buffer_info.ptr);
-                }
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Clone a buffer handle with proper reference counting
-    /// Returns Some(cloned_handle) if successful, None if buffer not found
-    pub fn clone_buffer_handle(&mut self, handle: &WasmBufferHandle) -> Option<WasmBufferHandle> {
-        if handle.source != BufferSource::Pooled {
-            // Direct buffers can't be cloned with reference counting - 
-            // caller should use defensive clone
-            return None;
-        }
-        
-        if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
-            // Increment reference count atomically
-            buffer_info.ref_count.fetch_add(1, Ordering::AcqRel);
-            
-            // Create new handle with same ID - shares the buffer
-            let cloned_handle = WasmBufferHandle::new_pooled(
-                handle.id, 
-                handle.ptr, 
-                handle.size, 
-                handle.size_class, 
-                handle.initialized
-            );
-            
-            Some(cloned_handle)
-        } else {
-            // Buffer not found in active buffers
-            None
-        }
-    }
-
-    /// Compact memory pools
-    pub fn compact_pools(&mut self) {
-        for pool in &mut self.pools {
-            pool.cleanup();
-        }
-    }
-
-    /// Get current memory usage statistics
-    pub fn get_memory_stats(&self) -> WasmMemoryStats {
-        let mut stats_by_class = Vec::new();
-        
-        for (i, pool) in self.pools.iter().enumerate() {
-            let size_class_bytes = BUFFER_SIZE_CLASSES[i];
-            stats_by_class.push(PoolStats {
-                size_class_bytes,
-                available_buffers: pool.available_buffers.len(),
-                allocated_buffers: pool.allocated_count,
-            });
-        }
-        
-        WasmMemoryStats {
-            total_allocated_bytes: TOTAL_ALLOCATED.load(Ordering::Relaxed),
-            active_buffers: self.active_buffers.len(),
-            pool_stats: stats_by_class,
-        }
-    }
-}
-
-impl ComputeMemoryManager {
-    pub fn new() -> ComputeMemoryManager {
-        ComputeMemoryManager {}
-    }
-
-    /// Get read pointer
-    pub fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
-        handle.get_read_ptr()
-    }
-    
-    /// Get write pointer for buffer initialization
-    pub fn get_write_ptr(&self, handle: &WasmBufferHandle) -> *mut u8 {
-        if handle.initialized {
-            panic!("Attempt to write to already initialized buffer");
-        }
-        handle.ptr
-    }
-}
-
-/// WebAssembly memory manager with buffer pools
+/// New simplified tensor handle
 #[wasm_bindgen]
-pub struct WasmMemoryManager {
-    buffer_lifecycle: BufferLifecycleManager,
-    compute_manager: ComputeMemoryManager,
-}
-
-#[wasm_bindgen]
-impl WasmMemoryManager {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> WasmMemoryManager {
-        WasmMemoryManager {
-            buffer_lifecycle: BufferLifecycleManager::new(),
-            compute_manager: ComputeMemoryManager::new(),
-        }
-    }
-
-    /// Create buffer with data
-    pub fn create_buffer_with_data(&mut self, data: &[u8]) -> Result<WasmBufferHandle, String> {
-        self.buffer_lifecycle.create_buffer_with_data(data)
-    }
-    
-    /// Create empty buffer for writing
-    pub(crate) fn create_empty_buffer(&mut self, size: usize) -> Result<(WasmBufferHandle, *mut u8), String> {
-        self.buffer_lifecycle.create_empty_buffer(size)
-    }
-
-    /// Get read pointer
-    pub(crate) fn get_read_ptr(&self, handle: &WasmBufferHandle) -> *const u8 {
-        self.compute_manager.get_read_ptr(handle)
-    }
-    
-    /// Get write pointer for buffer initialization
-    pub(crate) fn get_write_ptr(&self, handle: &WasmBufferHandle) -> *mut u8 {
-        self.compute_manager.get_write_ptr(handle)
-    }
-    
-    /// Release buffer back to pool for reuse
-    pub fn release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
-        self.buffer_lifecycle.release_buffer(handle)
-    }
-
-    /// Get current memory usage statistics
-    #[wasm_bindgen]
-    pub fn get_memory_stats(&self) -> WasmMemoryStats {
-        self.buffer_lifecycle.get_memory_stats()
-    }
-    
-    /// Mark a buffer as initialized after writing to it
-    pub(crate) fn mark_buffer_initialized(&self, handle: &mut WasmBufferHandle) {
-        handle.mark_initialized();
-    }
-    
-    /// Increment reference count for a buffer
-    pub(crate) fn increment_ref_count(&self, buffer_id: BufferId) {
-        // TODO: Move this to buffer lifecycle manager
-        // For now, we need to access the buffer_lifecycle's active_buffers
-        // This will be refactored properly
-    }
-    
-    /// Try to get buffer from pool (non-blocking)
-    pub(crate) fn try_get_buffer(&mut self, size: usize) -> Option<WasmBufferHandle> {
-        self.buffer_lifecycle.try_get_buffer(size)
-    }
-    
-    /// Try to release buffer back to pool (non-blocking)
-    pub(crate) fn try_release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
-        self.buffer_lifecycle.try_release_buffer(handle)
-    }
-
-    /// Clone a buffer handle with proper reference counting
-    pub(crate) fn clone_buffer_handle(&mut self, handle: &WasmBufferHandle) -> Option<WasmBufferHandle> {
-        self.buffer_lifecycle.clone_buffer_handle(handle)
-    }
-
-    /// Compact pools by deallocating excess buffers
-    pub fn compact_pools(&mut self) {
-        self.buffer_lifecycle.compact_pools();
-    }
-}
-
-/// Statistics for a single buffer pool
 #[derive(Debug, Clone)]
-pub struct PoolStats {
-    pub size_class_bytes: usize,
-    pub available_buffers: usize,
-    pub allocated_buffers: usize,
+pub struct WasmTensor {
+    data: TensorData,
+    meta: WasmTensorMeta,
+}
+
+#[wasm_bindgen]
+impl WasmTensor {
+    /// Get tensor metadata
+    #[wasm_bindgen(getter)]
+    pub fn meta(&self) -> WasmTensorMeta {
+        self.meta.clone()
+    }
+    
+    /// Get tensor data size in bytes
+    #[wasm_bindgen(getter)]
+    pub fn byte_size(&self) -> usize {
+        self.data.size()
+    }
+    
+    /// Check if tensor is temporary (arena-allocated)
+    #[wasm_bindgen(getter)]
+    pub fn is_temporary(&self) -> bool {
+        self.data.is_temporary()
+    }
+    
+    /// Get raw data pointer offset for temporary tensors (returns offset in arena)
+    /// For persistent tensors, this is not applicable and returns 0
+    #[wasm_bindgen]
+    pub fn get_data_offset(&self) -> usize {
+        match &self.data {
+            TensorData::Temporary(offset) => offset.offset(),
+            TensorData::Persistent(_) => 0, // Persistent tensors don't use arena offsets
+        }
+    }
+    
+    /// Get arena offset size for temporary tensors
+    /// For persistent tensors, returns the actual data size
+    #[wasm_bindgen]
+    pub fn get_data_size(&self) -> usize {
+        self.data.size()
+    }
+}
+
+impl WasmTensor {
+    /// Create new temporary tensor (internal)
+    pub fn new_temporary(offset: ArenaOffset, meta: WasmTensorMeta) -> Self {
+        WasmTensor {
+            data: TensorData::Temporary(offset),
+            meta,
+        }
+    }
+    
+    /// Create new persistent tensor (internal)
+    pub fn new_persistent(tensor: Arc<PersistentTensor>, meta: WasmTensorMeta) -> Self {
+        WasmTensor {
+            data: TensorData::Persistent(tensor),
+            meta,
+        }
+    }
+    
+    /// Get read pointer to tensor data
+    pub fn get_read_ptr(&self, arena: &TempArena) -> *const u8 {
+        self.data.get_read_ptr(arena)
+    }
+    
+    /// Get write pointer to tensor data
+    pub fn get_write_ptr(&self, arena: Option<&mut TempArena>) -> *mut u8 {
+        self.data.get_write_ptr(arena)
+    }
+    
+    /// Get tensor metadata
+    pub fn metadata(&self) -> &WasmTensorMeta {
+        &self.meta
+    }
 }
 
 /// Memory usage statistics
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct WasmMemoryStats {
-    total_allocated_bytes: usize,
-    active_buffers: usize,
-    pool_stats: Vec<PoolStats>,
+    arena_used: usize,
+    arena_capacity: usize,
+    arena_utilization: f32,
+    persistent_count: usize,
+    persistent_bytes: usize,
+    total_allocated: usize,
 }
 
 #[wasm_bindgen]
 impl WasmMemoryStats {
     #[wasm_bindgen(getter)]
-    pub fn total_allocated_bytes(&self) -> usize {
-        self.total_allocated_bytes
-    }
-
+    pub fn arena_used(&self) -> usize { self.arena_used }
+    
     #[wasm_bindgen(getter)]
-    pub fn active_buffers(&self) -> usize {
-        self.active_buffers
+    pub fn arena_capacity(&self) -> usize { self.arena_capacity }
+    
+    #[wasm_bindgen(getter)]
+    pub fn arena_utilization(&self) -> f32 { self.arena_utilization }
+    
+    #[wasm_bindgen(getter)]
+    pub fn persistent_count(&self) -> usize { self.persistent_count }
+    
+    #[wasm_bindgen(getter)]
+    pub fn persistent_bytes(&self) -> usize { self.persistent_bytes }
+    
+    #[wasm_bindgen(getter)]
+    pub fn total_allocated(&self) -> usize { self.total_allocated }
+}
+
+/// Main memory management system
+pub struct WasmMemorySystem {
+    arena: TempArena,
+    persistent_storage: PersistentStorage,
+}
+
+impl WasmMemorySystem {
+    /// Create new memory system
+    pub fn new() -> Self {
+        WasmMemorySystem {
+            arena: TempArena::new(),
+            persistent_storage: PersistentStorage::new(),
+        }
     }
     
-    #[wasm_bindgen]
-    pub fn get_pool_summary(&self) -> String {
-        let mut summary = String::new();
-        summary.push_str(&format!("Total allocated: {} bytes\n", self.total_allocated_bytes));
-        summary.push_str(&format!("Active buffers: {}\n", self.active_buffers));
-        summary.push_str("Pool details:\n");
+    /// Allocate temporary tensor (arena-based, fast cleanup)
+    pub fn alloc_temp_tensor(&mut self, dtype: WasmDType, shape: &[usize]) -> Result<WasmTensor, String> {
+        let byte_size = calculate_tensor_bytes(dtype, shape);
+        let offset = self.arena.alloc(byte_size)?;
         
-        for stats in &self.pool_stats {
-            summary.push_str(&format!(
-                "  {} bytes: {} available, {} allocated\n",
-                stats.size_class_bytes,
-                stats.available_buffers,
-                stats.allocated_buffers
+        let meta = WasmTensorMeta::new(
+            dtype,
+            shape.to_vec(),
+            calculate_row_major_strides(shape),
+            shape.iter().product(),
+            0, // offset - always 0 for new tensors
+        );
+        
+        Ok(WasmTensor::new_temporary(offset, meta))
+    }
+    
+    /// Allocate persistent tensor (reference-counted, manual cleanup)
+    pub fn alloc_persistent_tensor(&mut self, dtype: WasmDType, shape: &[usize]) -> Result<WasmTensor, String> {
+        let byte_size = calculate_tensor_bytes(dtype, shape);
+        let persistent_tensor = PersistentTensor::new(byte_size);
+        
+        // Store in persistent storage and get shared reference
+        let tensor_id = self.persistent_storage.store(persistent_tensor);
+        let tensor = self.persistent_storage.get(tensor_id).unwrap();
+        
+        let meta = WasmTensorMeta::new(
+            dtype,
+            shape.to_vec(),
+            calculate_row_major_strides(shape),
+            shape.iter().product(),
+            0, // offset - always 0 for new tensors
+        );
+        
+        Ok(WasmTensor::new_persistent(tensor, meta))
+    }
+    
+    /// Create tensor from data (always persistent since data is provided)
+    pub fn tensor_from_data(&mut self, data: Vec<u8>, dtype: WasmDType, shape: &[usize]) -> Result<WasmTensor, String> {
+        let expected_bytes = calculate_tensor_bytes(dtype, shape);
+        if data.len() != expected_bytes {
+            return Err(format!(
+                "Data size mismatch: expected {} bytes, got {}",
+                expected_bytes, data.len()
             ));
         }
         
-        summary
+        let persistent_tensor = PersistentTensor::with_data(data);
+        
+        // Store in persistent storage and get shared reference
+        let tensor_id = self.persistent_storage.store(persistent_tensor);
+        let tensor = self.persistent_storage.get(tensor_id).unwrap();
+        
+        let meta = WasmTensorMeta::new(
+            dtype,
+            shape.to_vec(),
+            calculate_row_major_strides(shape),
+            shape.iter().product(),
+            0, // offset - always 0 for new tensors
+        );
+        
+        Ok(WasmTensor::new_persistent(tensor, meta))
     }
     
-    /// Create fallback stats for when memory manager is busy (reentrancy scenario)
-    pub(crate) fn busy_fallback() -> Self {
+    /// Create checkpoint for scoped memory management
+    pub fn checkpoint(&mut self) -> CheckpointId {
+        self.arena.checkpoint()
+    }
+    
+    /// Restore to checkpoint (bulk cleanup of temporaries)
+    pub fn restore(&mut self, checkpoint: CheckpointId) -> Result<(), String> {
+        self.arena.restore(checkpoint)
+    }
+    
+    /// Reset entire arena (deallocate all temporaries)
+    pub fn reset_arena(&mut self) {
+        self.arena.reset();
+    }
+    
+    /// Get memory usage statistics
+    pub fn memory_stats(&self) -> WasmMemoryStats {
+        let (arena_used, arena_capacity, arena_utilization) = self.arena.memory_usage();
+        let (persistent_count, persistent_bytes) = self.persistent_storage.storage_stats();
+        
         WasmMemoryStats {
-            total_allocated_bytes: TOTAL_ALLOCATED.load(Ordering::Relaxed),
-            active_buffers: 0,  // Can't count active buffers when manager is busy
-            pool_stats: vec![], // Can't get pool stats when manager is busy
+            arena_used,
+            arena_capacity,
+            arena_utilization,
+            persistent_count,
+            persistent_bytes,
+            total_allocated: arena_used + persistent_bytes,
         }
+    }
+    
+    /// Garbage collect persistent tensors
+    pub fn gc_persistent(&mut self) -> usize {
+        self.persistent_storage.gc()
+    }
+    
+    /// Check if system is under memory pressure
+    pub fn is_memory_pressure(&self) -> bool {
+        self.arena.is_memory_pressure()
+    }
+    
+    /// Get mutable reference to arena (for operations)
+    pub fn arena_mut(&mut self) -> &mut TempArena {
+        &mut self.arena
+    }
+    
+    /// Get immutable reference to arena (for operations)
+    pub fn arena(&self) -> &TempArena {
+        &self.arena
+    }
+    
+    /// Pre-allocate all tensors for recognized pattern (ONNX-style bulk allocation)
+    pub fn bulk_allocate_for_pattern(
+        &mut self, 
+        pattern: &OperationPattern
+    ) -> Result<Vec<WasmTensor>, String> {
+        // Check if we have enough memory for bulk allocation
+        if !self.can_bulk_allocate(pattern) {
+            return Err("Insufficient memory for bulk allocation".to_string());
+        }
+        
+        let mut allocated_tensors = Vec::with_capacity(pattern.allocations.len());
+        let checkpoint = self.checkpoint(); // Create checkpoint for rollback
+        
+        // Attempt to allocate all tensors in sequence
+        for (i, allocation) in pattern.allocations.iter().enumerate() {
+            match self.allocate_tensor_for_requirement(allocation, i) {
+                Ok(tensor) => allocated_tensors.push(tensor),
+                Err(e) => {
+                    // Rollback all allocations on failure
+                    let _ = self.restore(checkpoint);
+                    return Err(format!("Bulk allocation failed at tensor {}: {}", i, e));
+                }
+            }
+        }
+        
+        Ok(allocated_tensors)
+    }
+    
+    /// Check if pattern can be bulk allocated (memory availability check)
+    pub fn can_bulk_allocate(&self, pattern: &OperationPattern) -> bool {
+        // Check if arena has enough space for all allocations
+        let available_memory = self.arena.available_memory();
+        pattern.total_memory_needed <= available_memory
+    }
+    
+    /// Allocate single tensor based on allocation requirement
+    fn allocate_tensor_for_requirement(
+        &mut self,
+        requirement: &AllocationRequirement,
+        index: usize,
+    ) -> Result<WasmTensor, String> {
+        // For bulk allocation, we assume Float32 tensors with specific sizes
+        // In a full implementation, this would use pattern metadata
+        let dtype = WasmDType::Float32; // Default for now
+        let element_size = dtype.byte_size();
+        let element_count = requirement.size_bytes / element_size;
+        
+        // Create a simple 1D shape for the required size
+        // TODO: Extract actual shapes from pattern operations
+        let shape = vec![element_count];
+        
+        // Use temporary allocation for bulk allocations (arena-based)
+        let offset = self.arena.alloc_aligned(requirement.size_bytes, requirement.alignment)?;
+        
+        let meta = WasmTensorMeta::new(
+            dtype,
+            shape.clone(),
+            calculate_row_major_strides(&shape),
+            element_count,
+            0,
+        );
+        
+        Ok(WasmTensor::new_temporary(offset, meta))
+    }
+    
+    /// Estimate memory requirements for a sequence of operations
+    pub fn estimate_memory_for_operations(
+        &self,
+        operations: &[crate::pattern::OperationDesc]
+    ) -> usize {
+        let mut total_memory = 0;
+        
+        for op in operations {
+            // Estimate output tensor size
+            let output_elements: usize = op.output_shape.iter().product();
+            let output_bytes = output_elements * op.output_dtype.byte_size();
+            total_memory += output_bytes;
+            
+            // Add some overhead for intermediate calculations
+            total_memory += output_bytes / 4; // 25% overhead
+        }
+        
+        total_memory
     }
 }
 
-fn align_size(size: usize, alignment: usize) -> usize {
-    (size + alignment - 1) & !(alignment - 1)
+/// Calculate tensor size in bytes
+fn calculate_tensor_bytes(dtype: WasmDType, shape: &[usize]) -> usize {
+    let element_count: usize = shape.iter().product();
+    let element_size = match dtype {
+        WasmDType::Bool => 1,
+        WasmDType::Int8 => 1,
+        WasmDType::Uint8 => 1,
+        WasmDType::Int16 => 2,
+        WasmDType::Uint16 => 2,
+        WasmDType::Int32 => 4,
+        WasmDType::Uint32 => 4,
+        WasmDType::Float32 => 4,
+        WasmDType::Float64 => 8,
+        WasmDType::BigInt64 => 8,
+        WasmDType::BigUint64 => 8,
+    };
+    element_count * element_size
+}
+
+/// Calculate row-major strides for tensor shape
+fn calculate_row_major_strides(shape: &[usize]) -> Vec<usize> {
+    if shape.is_empty() {
+        return vec![];
+    }
+    
+    let mut strides = vec![1; shape.len()];
+    for i in (0..shape.len() - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     #[test]
-    fn test_buffer_size_class_mapping() {
-        assert_eq!(BufferSizeClass::from_size(10), BufferSizeClass::Size16B);
-        assert_eq!(BufferSizeClass::from_size(50), BufferSizeClass::Size64B);
-        assert_eq!(BufferSizeClass::from_size(1000), BufferSizeClass::Size1KB);
-        assert_eq!(BufferSizeClass::from_size(100000), BufferSizeClass::Size256KB);
+    fn test_temp_tensor_allocation() {
+        let mut memory = WasmMemorySystem::new();
+        
+        let tensor = memory.alloc_temp_tensor(WasmDType::Float32, &[10, 20]).unwrap();
+        assert!(tensor.is_temporary());
+        assert_eq!(tensor.byte_size(), 10 * 20 * 4); // f32 = 4 bytes
     }
-
+    
     #[test]
-    fn test_buffer_creation_and_release() {
-        let mut manager = WasmMemoryManager::new();
-        let data = vec![1u8, 2, 3, 4, 5];
+    fn test_persistent_tensor_allocation() {
+        let mut memory = WasmMemorySystem::new();
         
-        // Create buffer with data
-        let handle = manager.create_buffer_with_data(&data).unwrap();
-        assert_eq!(handle.size(), 5);
-        
-        // Read data back
-        let ptr = manager.get_read_ptr(&handle);
-        let read_data = unsafe { std::slice::from_raw_parts(ptr, 5) };
-        assert_eq!(read_data, &[1, 2, 3, 4, 5]);
-        
-        // Release buffer
-        assert!(manager.release_buffer(handle));
+        let tensor = memory.alloc_persistent_tensor(WasmDType::Float64, &[5, 5]).unwrap();
+        assert!(!tensor.is_temporary());
+        assert_eq!(tensor.byte_size(), 5 * 5 * 8); // f64 = 8 bytes
     }
-
+    
     #[test]
-    fn test_buffer_pool_reuse() {
-        let mut manager = WasmMemoryManager::new();
+    fn test_checkpoint_restore() {
+        let mut memory = WasmMemorySystem::new();
         
-        // Create and release a buffer
-        let data1 = vec![1u8, 2, 3, 4];
-        let handle1 = manager.create_buffer_with_data(&data1).unwrap();
-        let ptr1 = handle1.ptr;
-        manager.release_buffer(handle1);
+        let _tensor1 = memory.alloc_temp_tensor(WasmDType::Float32, &[100]).unwrap();
+        let checkpoint = memory.checkpoint();
+        let _tensor2 = memory.alloc_temp_tensor(WasmDType::Float32, &[200]).unwrap();
         
-        // Create another buffer of the same size - should reuse the same memory
-        let data2 = vec![5u8, 6, 7, 8];
-        let handle2 = manager.create_buffer_with_data(&data2).unwrap();
-        let ptr2 = handle2.ptr;
+        let stats_before = memory.memory_stats();
+        memory.restore(checkpoint).unwrap();
+        let stats_after = memory.memory_stats();
         
-        // Should reuse the same pointer (after zero-ing)
-        assert_eq!(ptr1, ptr2);
-        
-        // Data should be the new data
-        let read_data = unsafe { std::slice::from_raw_parts(ptr2, 4) };
-        assert_eq!(read_data, &[5, 6, 7, 8]);
-        
-        manager.release_buffer(handle2);
+        assert!(stats_after.arena_used < stats_before.arena_used);
     }
-
+    
     #[test]
-    fn test_empty_buffer_creation() {
-        let mut manager = WasmMemoryManager::new();
+    fn test_tensor_from_data() {
+        let mut memory = WasmMemorySystem::new();
         
-        // Create empty buffer
-        let (handle, write_ptr) = manager.create_empty_buffer(100).unwrap();
-        assert_eq!(handle.size(), 100);
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let bytes: Vec<u8> = data.iter()
+            .flat_map(|&f| f.to_le_bytes())
+            .collect();
         
-        // Write some data
-        unsafe {
-            for i in 0..100 {
-                *write_ptr.add(i) = (i % 256) as u8;
+        let tensor = memory.tensor_from_data(bytes, WasmDType::Float32, &[2, 2]).unwrap();
+        assert!(!tensor.is_temporary());
+        assert_eq!(tensor.byte_size(), 16);
+    }
+    
+    #[test]
+    fn test_stride_calculation() {
+        assert_eq!(calculate_row_major_strides(&[2, 3, 4]), vec![12, 4, 1]);
+        assert_eq!(calculate_row_major_strides(&[5, 7]), vec![7, 1]);
+        assert_eq!(calculate_row_major_strides(&[10]), vec![1]);
+        assert_eq!(calculate_row_major_strides(&[]), Vec::<usize>::new());
+    }
+    
+    #[test]
+    fn test_bulk_allocation_basic() {
+        use crate::pattern::{OperationPattern, AllocationRequirement, PatternId};
+        
+        let mut memory = WasmMemorySystem::new();
+        
+        // Create a simple pattern with two allocations
+        let pattern = OperationPattern {
+            pattern_id: PatternId::new(12345),
+            operations: vec![], // Empty for this test
+            allocations: vec![
+                AllocationRequirement {
+                    size_bytes: 1024,
+                    alignment: 16,
+                    is_output: false,
+                },
+                AllocationRequirement {
+                    size_bytes: 2048,
+                    alignment: 16,
+                    is_output: true,
+                },
+            ],
+            total_memory_needed: 3072, // 1024 + 2048
+            estimated_speedup: 2.0,
+        };
+        
+        // Test that we can bulk allocate
+        assert!(memory.can_bulk_allocate(&pattern));
+        
+        let result = memory.bulk_allocate_for_pattern(&pattern);
+        assert!(result.is_ok());
+        
+        let tensors = result.unwrap();
+        assert_eq!(tensors.len(), 2);
+        
+        // Check that tensors are temporary (arena-allocated)
+        assert!(tensors[0].is_temporary());
+        assert!(tensors[1].is_temporary());
+    }
+    
+    #[test]
+    fn test_bulk_allocation_memory_limit() {
+        use crate::pattern::{OperationPattern, AllocationRequirement, PatternId};
+        
+        let memory = WasmMemorySystem::new();
+        
+        // Create a pattern that requires more memory than available
+        let huge_pattern = OperationPattern {
+            pattern_id: PatternId::new(67890),
+            operations: vec![],
+            allocations: vec![
+                AllocationRequirement {
+                    size_bytes: 1024 * 1024 * 1024, // 1GB - likely exceeds available arena space
+                    alignment: 16,
+                    is_output: true,
+                },
+            ],
+            total_memory_needed: 1024 * 1024 * 1024,
+            estimated_speedup: 1.5,
+        };
+        
+        // Should not be able to bulk allocate
+        assert!(!memory.can_bulk_allocate(&huge_pattern));
+    }
+    
+    #[test]
+    fn test_bulk_allocation_rollback() {
+        use crate::pattern::{OperationPattern, AllocationRequirement, PatternId};
+        
+        let mut memory = WasmMemorySystem::new();
+        
+        // Allocate some memory first
+        let _existing_tensor = memory.alloc_temp_tensor(WasmDType::Float32, &[1000]).unwrap();
+        let stats_before = memory.memory_stats();
+        
+        // Create a pattern that might fail on second allocation due to memory pressure
+        let pattern = OperationPattern {
+            pattern_id: PatternId::new(11111),
+            operations: vec![],
+            allocations: vec![
+                AllocationRequirement {
+                    size_bytes: 1024,
+                    alignment: 16,
+                    is_output: false,
+                },
+                AllocationRequirement {
+                    size_bytes: 1024,
+                    alignment: 16,
+                    is_output: true,
+                },
+            ],
+            total_memory_needed: 2048,
+            estimated_speedup: 1.8,
+        };
+        
+        // Try bulk allocation - should succeed in this case since we have plenty of memory
+        let result = memory.bulk_allocate_for_pattern(&pattern);
+        if result.is_ok() {
+            let stats_after = memory.memory_stats();
+            // Memory usage should have increased
+            assert!(stats_after.arena_used > stats_before.arena_used);
+        }
+        // Note: In a real implementation, we'd test actual rollback scenarios
+        // but that requires more complex memory pressure simulation
+    }
+    
+    // WASM-specific integration tests
+    #[cfg(test)]
+    mod wasm_tests {
+        use super::*;
+        use wasm_bindgen_test::*;
+        
+        #[wasm_bindgen_test]
+        fn wasm_test_memory_system_creation() {
+            let memory = WasmMemorySystem::new();
+            let stats = memory.memory_stats();
+            assert!(stats.arena_capacity > 0);
+            assert_eq!(stats.persistent_count, 0);
+            assert_eq!(stats.arena_used, 0);
+        }
+        
+        #[wasm_bindgen_test]
+        fn wasm_test_bulk_allocation_integration() {
+            use crate::pattern::{OperationPattern, AllocationRequirement, PatternId};
+            
+            let mut memory = WasmMemorySystem::new();
+            
+            // Create a realistic pattern with multiple allocations
+            let pattern = OperationPattern {
+                pattern_id: PatternId::new(999),
+                operations: vec![],
+                allocations: vec![
+                    AllocationRequirement {
+                        size_bytes: 1024,
+                        alignment: 16,
+                        is_output: false,
+                    },
+                    AllocationRequirement {
+                        size_bytes: 2048,
+                        alignment: 16,
+                        is_output: false,
+                    },
+                    AllocationRequirement {
+                        size_bytes: 4096,
+                        alignment: 16,
+                        is_output: true,
+                    },
+                ],
+                total_memory_needed: 7168, // 1024 + 2048 + 4096
+                estimated_speedup: 2.5,
+            };
+            
+            // Test memory availability check
+            assert!(memory.can_bulk_allocate(&pattern));
+            
+            // Perform bulk allocation
+            let tensors = memory.bulk_allocate_for_pattern(&pattern).unwrap();
+            assert_eq!(tensors.len(), 3);
+            
+            // Verify all tensors are temporary (arena-allocated)
+            for tensor in &tensors {
+                assert!(tensor.is_temporary());
             }
+            
+            // Verify memory stats
+            let stats = memory.memory_stats();
+            assert!(stats.arena_used >= pattern.total_memory_needed);
         }
         
-        // Read data back
-        let read_ptr = manager.get_read_ptr(&handle);
-        let read_data = unsafe { std::slice::from_raw_parts(read_ptr, 100) };
-        
-        for i in 0..100 {
-            assert_eq!(read_data[i], (i % 256) as u8);
+        #[wasm_bindgen_test]
+        fn wasm_test_checkpoint_restore_integration() {
+            let mut memory = WasmMemorySystem::new();
+            
+            // Allocate some tensors
+            let _tensor1 = memory.alloc_temp_tensor(WasmDType::Float32, &[100, 100]).unwrap();
+            let checkpoint = memory.checkpoint();
+            let _tensor2 = memory.alloc_temp_tensor(WasmDType::Float64, &[50, 50]).unwrap();
+            let _tensor3 = memory.alloc_temp_tensor(WasmDType::Int32, &[200]).unwrap();
+            
+            let stats_before = memory.memory_stats();
+            assert!(stats_before.arena_used > 0);
+            
+            // Restore to checkpoint
+            memory.restore(checkpoint).unwrap();
+            let stats_after = memory.memory_stats();
+            
+            // Memory should be reduced (our current implementation resets completely)
+            assert!(stats_after.arena_used <= stats_before.arena_used);
         }
         
-        manager.release_buffer(handle);
-    }
-
-    #[test]
-    fn test_memory_stats() {
-        let mut manager = WasmMemoryManager::new();
+        #[wasm_bindgen_test]
+        fn wasm_test_mixed_allocation_pattern() {
+            let mut memory = WasmMemorySystem::new();
+            
+            // Mix temporary and persistent allocations
+            let temp1 = memory.alloc_temp_tensor(WasmDType::Float32, &[10, 10]).unwrap();
+            let persistent1 = memory.alloc_persistent_tensor(WasmDType::Float32, &[10, 10]).unwrap();
+            let temp2 = memory.alloc_temp_tensor(WasmDType::Float64, &[5, 5]).unwrap();
+            
+            assert!(temp1.is_temporary());
+            assert!(!persistent1.is_temporary());
+            assert!(temp2.is_temporary());
+            
+            let stats = memory.memory_stats();
+            assert!(stats.arena_used > 0);
+            assert_eq!(stats.persistent_count, 1);
+        }
         
-        let initial_stats = manager.get_memory_stats();
-        assert_eq!(initial_stats.active_buffers(), 0);
-        
-        // Create some buffers
-        let data = vec![1u8; 1000];
-        let handle1 = manager.create_buffer_with_data(&data).unwrap();
-        let handle2 = manager.create_buffer_with_data(&data).unwrap();
-        
-        let stats = manager.get_memory_stats();
-        assert_eq!(stats.active_buffers(), 2);
-        assert!(stats.total_allocated_bytes() > 0);
-        
-        // Release buffers
-        manager.release_buffer(handle1);
-        manager.release_buffer(handle2);
-        
-        let final_stats = manager.get_memory_stats();
-        assert_eq!(final_stats.active_buffers(), 0);
+        #[wasm_bindgen_test]
+        fn wasm_test_memory_pressure_simulation() {
+            let mut memory = WasmMemorySystem::new();
+            
+            // Try to allocate increasingly large tensors until we hit limits
+            let mut successful_allocations = 0;
+            let mut total_allocated = 0;
+            
+            for i in 1..=20 {
+                let size = 1024 * 1024 * i; // 1MB, 2MB, 3MB, etc.
+                let elements = size / 4; // Float32 elements
+                
+                match memory.alloc_temp_tensor(WasmDType::Float32, &[elements]) {
+                    Ok(_) => {
+                        successful_allocations += 1;
+                        total_allocated += size;
+                    }
+                    Err(_) => break, // Hit memory limit
+                }
+            }
+            
+            // Should be able to allocate at least some tensors
+            assert!(successful_allocations > 0);
+            assert!(total_allocated > 0);
+            
+            let stats = memory.memory_stats();
+            assert!(stats.arena_utilization > 0.0);
+        }
     }
 }

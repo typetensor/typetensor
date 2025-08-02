@@ -6,22 +6,28 @@
  */
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
-use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::memory::WasmTensor;
+use crate::arena::TempArena;
 use crate::simd::float32;
 
 /// Execute a binary operation
 pub fn execute_binary_op(
     operation: WasmOperation,
-    input_a: &WasmBufferHandle,
-    input_b: &WasmBufferHandle,
-    input_meta_a: &WasmTensorMeta,
-    input_meta_b: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input_a: &WasmTensor,
+    input_b: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
-    let input_a_ptr = input_a.get_read_ptr();
-    let input_b_ptr = input_b.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_a_ptr = input_a.get_read_ptr(arena);
+    let input_b_ptr = input_b.get_read_ptr(arena);
+    
+    // SAFETY: Safe pointer cast - see MEMORY_SAFETY.md for detailed explanation
+    // Each tensor has unique memory from bump allocator, no aliasing occurs
+    let output_ptr = output.get_read_ptr(arena) as *mut u8;
+    
+    let input_meta_a = input_a.metadata();
+    let input_meta_b = input_b.metadata();
+    let output_meta = output.metadata();
 
     // Check if we can use fast path (same size, no broadcasting)
     let same_size = input_meta_a.size() == input_meta_b.size() && 

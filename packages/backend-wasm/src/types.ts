@@ -1,103 +1,69 @@
+/**
+ * Minimal type definitions for WASM backend - Direct interface to Rust
+ * 
+ * This file provides the simplest possible interface to the WasmExecutor
+ * with zero abstraction layers.
+ */
 
-import type { AnyDType } from '@typetensor/core';
+// Re-export the exact WASM types from the generated bindings
+export type {
+  WasmExecutor,
+  WasmTensor,
+  WasmTensorMeta,
+  WasmMemoryStats,
+  WasmDType,
+  WasmOperation,
+  PatternCacheStats,
+} from '../wasm/pkg/typetensor_wasm';
 
-export const DTYPE_MAPPING: Record<string, number> = {
-  'int8': 0,
-  'uint8': 1,
-  'int16': 2,
-  'uint16': 3,
-  'int32': 4,
-  'uint32': 5,
-  'float32': 6,
-  'float64': 7,
-  'bigint64': 8,
-  'biguint64': 9,
+// Operation mapping - ONLY operations actually implemented in Rust backend
+export const OPS = {
+  // Unary operations (implemented in unary.rs)
+  neg: 1, abs: 2, sin: 3, cos: 4, exp: 5, log: 6, sqrt: 7, square: 8,
+  
+  // Binary operations (implemented in binary.rs)
+  add: 10, sub: 11, mul: 12, div: 13,
+  
+  // Matrix operations (implemented in matmul.rs)
+  matmul: 30,
 } as const;
 
-export const REVERSE_DTYPE_MAPPING: Record<number, string> = Object.fromEntries(
-  Object.entries(DTYPE_MAPPING).map(([k, v]) => [v, k])
-);
-
-export const OPERATION_MAPPING: Record<string, number> = {
-  'create': 0,
-  'neg': 1,
-  'abs': 2,
-  'sin': 3,
-  'cos': 4,
-  'exp': 5,
-  'log': 6,
-  'sqrt': 7,
-  'square': 8,
-  'add': 10,
-  'sub': 11,
-  'mul': 12,
-  'div': 13,
-  'reshape': 20,
-  'view': 21,
-  'slice': 22,
-  'flatten': 23,
-  'permute': 24,
-  'transpose': 25,
-  'squeeze': 26,
-  'unsqueeze': 27,
-  'expand': 28,
-  'tile': 29,
-  'matmul': 30,
-  'softmax': 40,
-  'log_softmax': 41,
-  'sum': 50,
-  'mean': 51,
-  'max': 52,
-  'min': 53,
-  'prod': 54,
-  'rearrange': 60,
-  'reduce': 61,
+// Data type mapping - matches WasmDType enum exactly  
+export const DTYPES = {
+  bool: 0,
+  int8: 1, 
+  uint8: 2,
+  int16: 3,
+  uint16: 4, 
+  int32: 5,
+  uint32: 6,
+  float32: 7,
+  float64: 8,
+  bigint64: 9,
+  biguint64: 10,
 } as const;
 
-export function dtypeToWasm(dtype: AnyDType): number {
-  const dtypeName = (dtype as any).__dtype || (dtype as any).__name || 'unknown';
-  const wasmValue = DTYPE_MAPPING[dtypeName];
-  if (wasmValue === undefined) {
-    throw new Error(`Unsupported dtype: ${dtypeName}. Available: ${Object.keys(DTYPE_MAPPING).join(', ')}`);
-  }
-  return wasmValue;
-}
+// Type helpers for operation and dtype mapping
+export type OperationName = keyof typeof OPS;
+export type DTypeName = keyof typeof DTYPES;
 
-export function operationToWasm(operation: string): number {
-  const wasmValue = OPERATION_MAPPING[operation];
-  if (wasmValue === undefined) {
-    throw new Error(`Unsupported operation: ${operation}`);
-  }
-  return wasmValue;
-}
-
+// WASM module interface for loading
 export interface WASMModule {
   memory: WebAssembly.Memory;
-  greet(): void;
-  get_version(): string;
-  WasmOperationDispatcher: any; // Defined in wasm-bindings.d.ts
-  WasmMemoryManager: any; // Defined in wasm-bindings.d.ts
-  WasmBufferHandle: any; // Defined in wasm-bindings.d.ts
-  WasmTensorMeta: any; // Defined in wasm-bindings.d.ts
-  has_simd_support(): boolean;
-  has_shared_memory_support(): boolean;
-  get_optimal_thread_count(): number;
+  WasmExecutor: typeof import('../wasm/pkg/typetensor_wasm').WasmExecutor;
 }
 
+// Loading options (minimal)
 export interface WASMLoadOptions {
   debug?: boolean;
-  memoryConfig?: WASMMemoryConfig;
+  memoryConfig?: {
+    maxMemory?: number;
+    compactThreshold?: number;
+    autoCompact?: boolean;
+  };
 }
 
-export interface WASMMemoryConfig {
-  /** Maximum memory limit in bytes. Default: 512MB */
-  maxMemory?: number;
-  /** Compact when memory usage exceeds this threshold (0-1). Default: 0.8 */
-  compactThreshold?: number;
-  /** Enable automatic compaction. Default: true */
-  autoCompact?: boolean;
-}
-
+// Device capabilities
 export interface WASMCapabilities {
   simd: boolean;
   sharedMemory: boolean;
@@ -106,8 +72,9 @@ export interface WASMCapabilities {
   version: string;
 }
 
+// Simplified memory stats for backward compatibility
 export interface WASMMemoryStats {
   totalAllocated: number;
-  activeBuffers: number;
-  poolSummary?: string;
+  activeBuffers: number; 
+  poolSummary: string;
 }

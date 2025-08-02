@@ -1,12 +1,17 @@
 
 mod utils;
-mod memory;
 mod operations;
 mod types;
-mod debug;
 mod simd;
 mod fast_math;
-mod view_descriptor;
+mod arena;        // New arena-based memory system
+mod memory;       // Main memory management system
+mod executor;     // Main operation executor (replaces WasmOperationDispatcher)
+mod pattern;      // Operation pattern recognition and caching
+mod checkpoint_assessment;  // Assessment tests for checkpoint system
+mod temp_interface_assessment;  // Assessment tests for temporary interface
+mod bulk_allocation_assessment;  // Assessment tests for bulk allocation shape handling
+// mod performance_benchmarks;  // Performance validation and benchmarks - removed for now
 
 use wasm_bindgen::prelude::*;
 
@@ -58,9 +63,9 @@ pub fn get_wasm_memory() -> JsValue {
     wasm_bindgen::memory()
 }
 
-pub use memory::*;
 pub use operations::*;
 pub use types::*;
 pub use utils::*;
-pub use debug::*;
 pub use simd::*;
+pub use memory::*;
+pub use executor::*;

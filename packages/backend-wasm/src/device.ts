@@ -1,171 +1,97 @@
+/**
+ * Minimal WASM Device - Direct WasmExecutor integration
+ * 
+ * This implementation removes all abstraction layers and directly
+ * uses WasmExecutor with arena-based memory management.
+ */
+
 import type {
   Device,
   DeviceData,
   AnyStorageTransformation,
   ValidateDeviceOperations,
-  DType,
+  AnyDType,
 } from '@typetensor/core';
-import { type WASMDeviceData, createWASMDeviceData } from './data';
-import { loadWASMModule } from './loader';
+import { WASMTensorData, createWASMTensorData } from './data';
 import type {
-  WASMModule,
-  WASMLoadOptions,
+  WasmExecutor,
+  WasmTensor,
+  WasmDType,
+  WasmOperation,
   WASMCapabilities,
   WASMMemoryStats,
-  WASMMemoryConfig,
+  WASMLoadOptions,
 } from './types';
-import type { WasmOperationDispatcher } from './types/wasm-bindings';
-import { MemoryViewManager } from './memory-views';
-import { WASMInvalidStateError, WASMBoundsError } from './errors';
-import { BufferLifecycleManager } from './buffer-lifecycle-manager';
-import { OperationOrchestrator } from './operation-orchestrator';
-import { ViewManager } from './view-manager';
-import { createDefensiveWASMOperations, type WASMDefensiveWrapper } from './wasm-defensive-wrapper';
+import { OPS, DTYPES } from './types';
 
 export class WASMDevice implements Device {
-  readonly id: string = 'wasm:0';
-  readonly type: string = 'wasm';
-
-  private wasmModule: WASMModule | null = null;
-  private operationDispatcher: WasmOperationDispatcher | null = null;
-  private capabilities: WASMCapabilities | null = null;
+  readonly type = 'wasm';
+  readonly id = 'wasm:0';
+  
+  private executor: WasmExecutor | null = null;
   private initialized = false;
-  private memoryViewManager: MemoryViewManager | null = null;
-  private memoryConfig: Required<WASMMemoryConfig>;
-
-  // New abstraction layers
-  private bufferLifecycleManager: BufferLifecycleManager | null = null;
-  private operationOrchestrator: OperationOrchestrator | null = null;
-  private viewManager: ViewManager | null = null;
-
-  // Defensive WASM operations
-  private defensiveOperations: any = null;
-  private defensiveWrapper: WASMDefensiveWrapper | null = null;
+  private useCustomPatternCache?: { maxPatterns: number; maxMemoryMB: number };
 
   // @ts-expect-error: This property is used for compile-time validation only
   private _operationValidation: ValidateDeviceOperations<
-    | 'create'
-    | 'neg'
-    | 'abs'
-    | 'sin'
-    | 'cos'
-    | 'exp'
-    | 'log'
-    | 'sqrt'
-    | 'square' // Unary ops
-    | 'add'
-    | 'sub'
-    | 'mul'
-    | 'div' // Binary ops
-    | 'reshape'
-    | 'view'
-    | 'slice'
-    | 'flatten'
-    | 'permute'
-    | 'transpose'
-    | 'squeeze'
-    | 'unsqueeze'
-    | 'expand'
-    | 'tile' // View ops
+    | 'neg' | 'abs' | 'sin' | 'cos' | 'exp' | 'log' | 'sqrt' | 'square' // Unary ops
+    | 'add' | 'sub' | 'mul' | 'div' // Binary ops  
     | 'matmul' // Matrix ops
-    | 'softmax'
-    | 'log_softmax' // Activation ops
-    | 'sum'
-    | 'mean'
-    | 'max'
-    | 'min'
-    | 'prod' // Reduction ops
   > = true;
-
-  private constructor() {
-    // Set default memory configuration - no limits by default
-    this.memoryConfig = {
-      maxMemory: Number.MAX_SAFE_INTEGER, // No limit by default
-      compactThreshold: 0.8,
-      autoCompact: false, // Disabled by default
-    };
-  }
 
   /**
    * Create and initialize a new WASM device
-   *
-   * @param options Loading options for the WASM module
-   * @returns Promise resolving to initialized WASM device
    */
   static async create(options: WASMLoadOptions = {}): Promise<WASMDevice> {
     const device = new WASMDevice();
-    await device.initialize(options);
+    await device.init(options);
+    return device;
+  }
+
+  /**
+   * Create WASM device with custom pattern cache settings
+   */
+  static async createWithPatternCache(
+    maxPatterns: number,
+    maxMemoryMB: number,
+    options: WASMLoadOptions = {}
+  ): Promise<WASMDevice> {
+    const device = new WASMDevice();
+    device.useCustomPatternCache = { maxPatterns, maxMemoryMB };
+    await device.init(options);
     return device;
   }
 
   /**
    * Initialize the WASM device
    */
-  private async initialize(options: WASMLoadOptions): Promise<void> {
+  private async init(_options: WASMLoadOptions): Promise<void> {
     if (this.initialized) {
       return;
     }
 
-    // Apply memory configuration from options
-    if (options.memoryConfig) {
-      this.memoryConfig = {
-        ...this.memoryConfig,
-        ...options.memoryConfig,
-      };
-    }
-
     try {
-      this.wasmModule = await loadWASMModule(options);
-
-      this.operationDispatcher = new this.wasmModule.WasmOperationDispatcher();
-
-      // Initialize memory view manager
-      this.memoryViewManager = new MemoryViewManager(this.wasmModule.memory);
-
-      // Initialize defensive WASM operations
-      const defensiveOps = createDefensiveWASMOperations(this.operationDispatcher!);
-      this.defensiveOperations = defensiveOps;
-      this.defensiveWrapper = defensiveOps.wrapper;
-
-      // Initialize abstraction layers
-      this.bufferLifecycleManager = new BufferLifecycleManager(
-        this.operationDispatcher!,
-        this, // Pass the device reference
-        this.memoryConfig,
-      );
-
-      this.operationOrchestrator = new OperationOrchestrator({
-        deviceId: this.id,
-        wasmModule: this.wasmModule,
-        operationDispatcher: this.operationDispatcher!,
-        device: this, // Pass the actual device reference
-      });
-
-      this.viewManager = new ViewManager(
-        this.memoryViewManager,
-        this.operationDispatcher!,
-        this.id,
-      );
-
-      this.capabilities = {
-        simd: this.wasmModule.has_simd_support(),
-        sharedMemory: this.wasmModule.has_shared_memory_support(),
-        optimalThreadCount: this.wasmModule.get_optimal_thread_count(),
-        availableMemory: 256 * 1024 * 1024,
-        version: this.wasmModule.get_version(),
-      };
-
+      // Import WASM module (auto-initializes)
+      const wasmModule = await import('../wasm/pkg/typetensor_wasm.js');
+      
+      // Create WasmExecutor with optional pattern cache settings
+      if (this.useCustomPatternCache) {
+        this.executor = wasmModule.WasmExecutor.new_with_pattern_cache(
+          this.useCustomPatternCache.maxPatterns,
+          this.useCustomPatternCache.maxMemoryMB
+        );
+      } else {
+        this.executor = new wasmModule.WasmExecutor();
+      }
+      
       this.initialized = true;
     } catch (error) {
-      throw new WASMInvalidStateError('initialize', 'uninitialized', 'error', {
-        originalError: error instanceof Error ? error.message : String(error),
-        wasmModuleLoaded: !!this.wasmModule,
-      });
+      throw new Error(`Failed to initialize WASM device: ${error}`);
     }
   }
 
   /**
-   * Execute a tensor operation
+   * Execute a tensor operation with direct WasmExecutor calls
    */
   async execute<T extends AnyStorageTransformation>(
     op: T,
@@ -174,197 +100,192 @@ export class WASMDevice implements Device {
   ): Promise<DeviceData> {
     this.ensureInitialized();
 
-    // Delegate to OperationOrchestrator
-    const result = await this.operationOrchestrator!.execute(op, inputs, output);
-    return result.outputData;
+    // Convert inputs to WasmTensor
+    const wasmInputs = inputs.map(input => (input as WASMTensorData).wasmTensor);
+    
+    // Allocate output tensor if not provided
+    const outputTensor = output ? 
+      (output as WASMTensorData).wasmTensor :
+      this.allocateOutputTensor(op);
+
+    // Direct operation dispatch based on input count
+    const wasmOp = this.mapOperation(op.__op);
+    
+    try {
+      if (inputs.length === 1) {
+        // Unary operation
+        this.executor!.execute_unary(wasmOp, wasmInputs[0]!, outputTensor);
+      } else if (inputs.length === 2) {
+        // Binary or matrix operation
+        if (op.__op === 'matmul') {
+          this.executor!.execute_matmul(wasmInputs[0]!, wasmInputs[1]!, outputTensor);
+        } else {
+          this.executor!.execute_binary(wasmOp, wasmInputs[0]!, wasmInputs[1]!, outputTensor);
+        }
+      } else {
+        throw new Error(`Unsupported input count: ${inputs.length} for operation ${op.__op}`);
+      }
+
+      return createWASMTensorData(this, outputTensor);
+
+    } catch (error) {
+      throw new Error(`WASM operation failed: ${error}`);
+    }
   }
 
   /**
-   * Allocate data on the WASM device
+   * Create data using arena allocation
    */
   createData(byteLength: number): DeviceData {
     this.ensureInitialized();
 
-    // Check for reasonable allocation size (e.g., max 1GB)
-    const MAX_ALLOCATION_SIZE = 1024 * 1024 * 1024; // 1GB
-    if (byteLength > MAX_ALLOCATION_SIZE) {
-      throw new WASMBoundsError(
-        'buffer allocation',
-        byteLength,
-        { max: MAX_ALLOCATION_SIZE },
-        { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE },
-      );
-    }
-
-    // Use BufferLifecycleManager for proper memory management
-    // This is a synchronous wrapper around the async method
-    try {
-      const promise = this.bufferLifecycleManager!.createBuffer(byteLength, this.id);
-      // Since we need synchronous behavior for backward compatibility,
-      // we'll use a synchronous wait mechanism
-      let result: DeviceData | undefined;
-      let error: any;
-      let resolved = false;
-
-      promise
-        .then((data) => {
-          result = data;
-          resolved = true;
-        })
-        .catch((err) => {
-          error = err;
-          resolved = true;
-        });
-
-      // Synchronous wait using a busy loop
-      const startTime = Date.now();
-      while (!resolved && Date.now() - startTime < 5000) {
-        // Wait for resolution
-      }
-
-      if (error) {
-        throw error;
-      }
-
-      if (!result) {
-        throw new Error('Buffer creation timed out');
-      }
-
-      return result;
-    } catch (error: any) {
-      console.warn('Buffer creation failed:', error);
-      throw error;
-    }
+    // Default to Float32 and infer shape from byte length
+    const elementCount = Math.ceil(byteLength / 4); // 4 bytes per float32
+    const shape = new Uint32Array([elementCount]);
+    
+    const tensor = this.executor!.alloc_temp_tensor(DTYPES.float32, shape);
+    return createWASMTensorData(this, tensor);
   }
 
   /**
-   * Create data with existing buffer
+   * Create data from existing buffer
    */
   createDataWithBuffer(buffer: ArrayBuffer): DeviceData {
     this.ensureInitialized();
 
-    // For backward compatibility, keep this synchronous with fallback
-    try {
-      const sourceData = new Uint8Array(buffer);
-      const wasmHandle = this.operationDispatcher!.create_buffer_with_js_data(sourceData);
-      return createWASMDeviceData(this, buffer.byteLength, wasmHandle);
-    } catch (error) {
-      console.warn(
-        'Direct buffer creation with data failed, this may indicate WASM corruption:',
-        error,
-      );
-      throw error;
-    }
+    const data = new Uint8Array(buffer);
+    const shape = new Uint32Array([Math.ceil(buffer.byteLength / 4)]); // Assume Float32
+    
+    const tensor = this.executor!.tensor_from_data(data, DTYPES.float32, shape);
+    return createWASMTensorData(this, tensor);
   }
 
   /**
-   * Dispose device data
+   * Create data from existing buffer with specific shape and dtype
+   */
+  createDataWithBufferAndShape(buffer: ArrayBuffer, dtype: AnyDType, tensorShape: readonly number[]): DeviceData {
+    this.ensureInitialized();
+
+    const data = new Uint8Array(buffer);
+    const shape = new Uint32Array(tensorShape);
+    const wasmDType = this.mapDType(dtype);
+    
+    const tensor = this.executor!.tensor_from_data(data, wasmDType, shape);
+    return createWASMTensorData(this, tensor);
+  }
+
+  /**
+   * Dispose device data (no-op - arena handles cleanup)
    */
   disposeData(data: DeviceData): void {
+    // Arena automatically handles cleanup - no manual disposal needed
     if (data.device.id !== this.id) {
       throw new Error(`Cannot dispose data from device ${data.device.id} on ${this.id}`);
     }
-
-    // Delegate to BufferLifecycleManager
-    this.bufferLifecycleManager!.disposeBuffer(data);
   }
 
   /**
    * Read data from WASM device
    */
   async readData(data: DeviceData): Promise<ArrayBuffer> {
+    this.ensureInitialized();
+    
     if (data.device.id !== this.id) {
       throw new Error(`Cannot read data from device ${data.device.id} on ${this.id}`);
     }
 
+    const wasmTensorData = data as WASMTensorData;
+    
+    // Use the new WASM bridge method to copy tensor data to JavaScript
+    const uint8Data = this.executor!.copy_tensor_data_to_js(wasmTensorData.wasmTensor);
+    
+    // Convert Uint8Array to ArrayBuffer
+    return uint8Data.buffer.slice(uint8Data.byteOffset, uint8Data.byteOffset + uint8Data.byteLength);
+  }
+
+  /**
+   * Create typed array view with actual tensor data
+   */
+  readDataView(data: DeviceData, dtype: AnyDType): ArrayBufferView {
     this.ensureInitialized();
-
-    const wasmData = data as WASMDeviceData;
-    const wasmHandle = wasmData.getWASMHandle();
-
-    // Use defensive wrapper for WASM operation
-    const uint8Array = await this.defensiveOperations.copyBufferToJs(wasmHandle);
-
-    // If the array is already properly aligned, return its buffer directly
-    if (uint8Array.byteOffset === 0 && uint8Array.byteLength === uint8Array.buffer.byteLength) {
-      return uint8Array.buffer;
+    
+    if (data.device.id !== this.id) {
+      throw new Error(`Cannot read data from device ${data.device.id} on ${this.id}`);
     }
 
-    // Only slice if necessary (when the view is a subset of the buffer)
-    return uint8Array.buffer.slice(
-      uint8Array.byteOffset,
-      uint8Array.byteOffset + uint8Array.byteLength,
-    );
+    const wasmTensorData = data as WASMTensorData;
+    const tensor = wasmTensorData.wasmTensor;
+    
+    // Get the actual tensor data from WASM memory
+    const uint8Data = this.executor!.copy_tensor_data_to_js(tensor);
+    
+    // Calculate element count based on total bytes and requested dtype element size
+    const totalBytes = uint8Data.byteLength;
+    const dtypeElementSizes: Record<string, number> = {
+      'float32': 4,
+      'float64': 8,
+      'int32': 4,
+      'uint8': 1,
+    };
+    
+    const elementSize = dtypeElementSizes[dtype.__dtype];
+    if (!elementSize) {
+      throw new Error(`Unsupported dtype for view: ${dtype.__dtype}`);
+    }
+    
+    const elementCount = totalBytes / elementSize;
+    
+    // Create appropriate typed array view based on dtype
+    switch (dtype.__dtype) {
+      case 'float32':
+        return new Float32Array(uint8Data.buffer, uint8Data.byteOffset, elementCount);
+      case 'float64':
+        return new Float64Array(uint8Data.buffer, uint8Data.byteOffset, elementCount);
+      case 'int32':
+        return new Int32Array(uint8Data.buffer, uint8Data.byteOffset, elementCount);
+      case 'uint8':
+        return new Uint8Array(uint8Data.buffer, uint8Data.byteOffset, elementCount);
+      default:
+        throw new Error(`Unsupported dtype for view: ${dtype.__dtype}`);
+    }
   }
 
   /**
-   * Read data from WASM device with zero-copy view (when possible)
-   * Returns a typed array view directly into WASM memory
-   *
-   * WARNING: The returned view is only valid until:
-   * - The buffer is released/disposed
-   * - WASM memory grows (rare but possible)
-   *
-   * For long-term storage, use readData() instead
+   * Check if view is valid (always true with arena - arena handles safety)
    */
-  readDataView(data: DeviceData, dtype: DType<any, any, any>): ArrayBufferView {
-    this.ensureInitialized();
-
-    // Delegate to ViewManager
-    return this.viewManager!.createView(data, { dtype });
-  }
-
-  /**
-   * Check if a view created by readDataView is still valid
-   */
-  isViewValid(view: ArrayBufferView): boolean {
-    this.ensureInitialized();
-    return this.viewManager!.isViewValid(view);
+  isViewValid(_view: ArrayBufferView): boolean {
+    return true; // Arena ensures views are always safe
   }
 
   /**
    * Write data to WASM device
    */
   async writeData(data: DeviceData, buffer: ArrayBuffer): Promise<void> {
+    this.ensureInitialized();
+    
     if (data.device.id !== this.id) {
       throw new Error(`Cannot write data to device ${data.device.id} on ${this.id}`);
     }
 
     if (buffer.byteLength !== data.byteLength) {
       throw new Error(
-        `Buffer size mismatch: expected ${data.byteLength} bytes, got ${buffer.byteLength} bytes`,
+        `Buffer size mismatch: expected ${data.byteLength} bytes, got ${buffer.byteLength} bytes`
       );
     }
 
-    const wasmData = data as WASMDeviceData;
-    if (wasmData.isDisposed()) {
-      throw new Error('Cannot write to disposed WASMDeviceData');
-    }
-
-    // For cloned buffers, we need to decide between:
-    // 1. Copy-on-write: Create new buffer, breaking sharing (current approach)
-    // 2. In-place update: Modify shared buffer directly
-    //
-    // We'll use copy-on-write for safety, but this means clones will diverge after writes
-
-    // Invalidate all views before replacing the buffer
-    this.memoryViewManager!.invalidateBuffer(wasmData.id);
-
-    // Create the buffer directly with the defensive operation dispatcher
-    // We can't use BufferLifecycleManager here because we need the raw handle
-    const sourceData = new Uint8Array(buffer);
-    const newHandle = await this.defensiveOperations.createBufferWithData(sourceData);
-
-    // updateHandle will handle the old handle cleanup and update reference counting
-    wasmData.updateHandle(newHandle);
+    const wasmTensorData = data as WASMTensorData;
+    const uint8Data = new Uint8Array(buffer);
+    
+    // Use the new WASM bridge method to copy JavaScript data to tensor
+    this.executor!.copy_js_data_to_tensor(wasmTensorData.wasmTensor, uint8Data);
   }
 
   /**
-   * Check if WASM backend supports non-contiguous tensors for a specific operation
+   * Check if device supports non-contiguous tensors
    */
-  supportsNonContiguous(op: AnyStorageTransformation['__op']): boolean {
-    this.ensureInitialized();
-    return this.operationOrchestrator!.supportsNonContiguous(op);
+  supportsNonContiguous(_op: AnyStorageTransformation['__op']): boolean {
+    // Most operations support non-contiguous tensors with arena allocation
+    return true;
   }
 
   /**
@@ -372,7 +293,14 @@ export class WASMDevice implements Device {
    */
   getCapabilities(): WASMCapabilities {
     this.ensureInitialized();
-    return this.capabilities!;
+    
+    return {
+      simd: true, // Assume SIMD support
+      sharedMemory: false,
+      optimalThreadCount: 1,
+      availableMemory: 256 * 1024 * 1024, // 256MB
+      version: '0.1.0'
+    };
   }
 
   /**
@@ -380,95 +308,141 @@ export class WASMDevice implements Device {
    */
   getMemoryStats(): WASMMemoryStats {
     this.ensureInitialized();
-
-    // For backward compatibility, use direct calls for memory stats
-    try {
-      const wasmStats = this.operationDispatcher!.get_memory_stats();
-
-      return {
-        totalAllocated: wasmStats.total_allocated_bytes,
-        activeBuffers: wasmStats.active_buffers,
-        poolSummary:
-          typeof wasmStats.get_pool_summary === 'function'
-            ? wasmStats.get_pool_summary()
-            : 'Pool summary not available',
-      };
-    } catch (error) {
-      console.warn('Direct getMemoryStats failed:', error);
-      return {
-        totalAllocated: 0,
-        activeBuffers: 0,
-        poolSummary: 'Memory stats unavailable due to WASM error',
-      };
-    }
+    
+    const wasmStats = this.executor!.memory_stats();
+    
+    return {
+      totalAllocated: wasmStats.arena_used,
+      activeBuffers: 0, // Arena doesn't track individual buffers
+      poolSummary: `Arena: ${wasmStats.arena_used}/${wasmStats.arena_capacity} bytes`
+    };
   }
 
   /**
-   * Get current memory configuration
-   */
-  getMemoryConfig(): WASMMemoryConfig {
-    return { ...this.memoryConfig };
-  }
-
-  /**
-   * Perform intensive cleanup - useful during benchmarks or stress testing
-   */
-  async performIntensiveCleanup(): Promise<void> {
-    this.ensureInitialized();
-
-    try {
-      // Use defensive wrapper for cleanup
-      await this.defensiveOperations.intensiveCleanup();
-    } catch (error) {
-      console.warn('Defensive intensive cleanup failed, using fallback:', error);
-      // Fallback to BufferLifecycleManager
-      this.bufferLifecycleManager!.performCleanup();
-    }
-  }
-
-  /**
-   * Check if the device is initialized
+   * Check if device is initialized
    */
   isInitialized(): boolean {
     return this.initialized;
   }
 
   /**
-   * Get the underlying WASM module (for advanced use cases)
+   * Scope management for automatic cleanup
    */
-  getWASMModule(): WASMModule {
+  withScope<T>(fn: () => T): T {
     this.ensureInitialized();
-    return this.wasmModule!;
+    
+    const checkpoint = this.executor!.checkpoint();
+    try {
+      return fn();
+    } finally {
+      this.executor!.restore(checkpoint);
+    }
   }
 
   /**
-   * Get defensive wrapper statistics (for debugging)
+   * Begin a memory scope (returns checkpoint ID)
    */
-  getDefensiveStats() {
+  beginScope(): number {
     this.ensureInitialized();
-    return this.defensiveWrapper?.getStats() || null;
+    return this.executor!.checkpoint();
   }
 
   /**
-   * Reset defensive wrapper statistics
+   * End a memory scope (restore to checkpoint)
    */
-  resetDefensiveStats(): void {
+  endScope(checkpointId: number): void {
     this.ensureInitialized();
-    this.defensiveWrapper?.resetStats();
+    this.executor!.restore(checkpointId);
   }
 
   /**
-   * Ensure the device is initialized
+   * Garbage collect persistent tensors
+   */
+  gc(): number {
+    this.ensureInitialized();
+    return this.executor!.gc();
+  }
+
+  /**
+   * Get pattern cache statistics for optimization insights
+   */
+  getPatternCacheStats(): import('../wasm/pkg/typetensor_wasm').PatternCacheStats {
+    this.ensureInitialized();
+    return this.executor!.pattern_cache_stats();
+  }
+
+  /**
+   * Enable or disable pattern optimization
+   */
+  setPatternOptimization(enabled: boolean): void {
+    this.ensureInitialized();
+    this.executor!.set_pattern_optimization(enabled);
+  }
+
+  /**
+   * Clear the pattern cache (useful for benchmarking)
+   */
+  clearPatternCache(): void {
+    this.ensureInitialized();
+    this.executor!.clear_pattern_cache();
+  }
+
+  /**
+   * Allocate a persistent tensor (manual memory management)
+   */
+  createPersistentData(dtype: AnyDType, shape: number[]): DeviceData {
+    this.ensureInitialized();
+    
+    const wasmDType = this.mapDType(dtype);
+    const wasmShape = new Uint32Array(shape);
+    
+    const tensor = this.executor!.alloc_persistent_tensor(wasmDType, wasmShape);
+    return createWASMTensorData(this, tensor);
+  }
+
+  /**
+   * Map TypeTensor operation name to WasmOperation
+   */
+  private mapOperation(op: string): WasmOperation {
+    const wasmOp = OPS[op as keyof typeof OPS];
+    if (wasmOp === undefined) {
+      throw new Error(`Unsupported operation: ${op}. Available: ${Object.keys(OPS).join(', ')}`);
+    }
+    return wasmOp;
+  }
+
+  /**
+   * Map TypeTensor dtype to WasmDType
+   */
+  private mapDType(dtype: AnyDType): WasmDType {
+    const wasmDType = DTYPES[dtype.__dtype as keyof typeof DTYPES];
+    if (wasmDType === undefined) {
+      throw new Error(`Unsupported dtype: ${dtype.__dtype}. Available: ${Object.keys(DTYPES).join(', ')}`);
+    }
+    return wasmDType;
+  }
+
+  /**
+   * Allocate output tensor based on operation metadata
+   */
+  private allocateOutputTensor(op: AnyStorageTransformation): WasmTensor {
+    const shape = new Uint32Array(op.__output.__shape);
+    const dtype = this.mapDType(op.__output.__dtype);
+    
+    return this.executor!.alloc_temp_tensor(dtype, shape);
+  }
+
+  /**
+   * Ensure device is initialized
    */
   private ensureInitialized(): void {
-    if (!this.initialized || !this.wasmModule || !this.operationDispatcher) {
+    if (!this.initialized || !this.executor) {
       throw new Error('WASM device not initialized. Call WASMDevice.create() first.');
     }
   }
 
   toString(): string {
     const status = this.initialized ? 'initialized' : 'not initialized';
-    const version = this.capabilities?.version || 'unknown';
-    return `WASMDevice(id=${this.id}, version=${version}, ${status})`;
+    return `WASMDevice(id=${this.id}, ${status})`;
   }
 }

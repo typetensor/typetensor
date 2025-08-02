@@ -6,43 +6,46 @@
  */
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
-use crate::memory::{WasmMemoryManager, WasmBufferHandle};
+use crate::memory::WasmTensor;
+use crate::arena::TempArena;
 
 /// Execute a view operation
 pub fn execute_view_op(
     operation: WasmOperation,
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
+    
     match operation {
         WasmOperation::Reshape | WasmOperation::View | WasmOperation::Flatten => {
             // For now, copy the data until we have proper view support
             // TODO: Implement zero-copy views with shared buffers
-            execute_copy_reshape(input, input_meta, output, output_meta)
+            execute_copy_reshape(input, output, arena)
         }
         WasmOperation::Slice => {
             // Slice operation requires data copying to extract the sliced portion
-            execute_slice_op(input, input_meta, output, output_meta)
+            execute_slice_op(input, output, arena)
         }
         WasmOperation::Permute | WasmOperation::Transpose => {
             // Transpose operations may require data copying depending on the implementation
-            execute_transpose_op(input, input_meta, output, output_meta)
+            execute_transpose_op(input, output, arena)
         }
         WasmOperation::Squeeze | WasmOperation::Unsqueeze => {
             // For now, copy the data until we have proper view support
             // TODO: Implement zero-copy views with shared buffers
-            execute_copy_reshape(input, input_meta, output, output_meta)
+            execute_copy_reshape(input, output, arena)
         }
         WasmOperation::Expand => {
             // For now, implement expand by copying with broadcasting
             // TODO: Implement zero-copy expand with stride tricks
-            execute_expand_op(input, input_meta, output, output_meta)
+            execute_expand_op(input, output, arena)
         }
         WasmOperation::Tile => {
             // Tile operation requires data copying
-            execute_tile_op(input, input_meta, output, output_meta)
+            execute_tile_op(input, output, arena)
         }
         _ => Err(WasmError::InvalidOperation),
     }
@@ -50,16 +53,17 @@ pub fn execute_view_op(
 
 /// Execute slice operation
 fn execute_slice_op(
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
     // Get pointers to input and output data
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     
     // Get tensor metadata
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
     let input_shape = input_meta.shape();
     let input_strides = input_meta.strides();
     let output_shape = output_meta.shape();
@@ -102,14 +106,15 @@ fn execute_slice_op(
 
 /// Execute transpose operation
 fn execute_transpose_op(
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
     let input_shape = input_meta.shape();
     let input_strides = input_meta.strides();
     let output_shape = output_meta.shape();
@@ -150,14 +155,15 @@ fn execute_transpose_op(
 
 /// Execute tile operation
 fn execute_tile_op(
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
     let input_shape = input_meta.shape();
     let output_shape = output_meta.shape();
     let input_strides = input_meta.strides();
@@ -499,19 +505,21 @@ fn slice_i32(
 
 /// Execute a simple copy for reshape/flatten operations
 fn execute_copy_reshape(
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
+    
     // Verify same total size
     if input_meta.size() != output_meta.size() {
         return Err(WasmError::InvalidShape);
     }
     
     // Simple memory copy since reshape doesn't change data order
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     let byte_size = input_meta.byte_size();
     
     unsafe {
@@ -523,14 +531,15 @@ fn execute_copy_reshape(
 
 /// Execute expand operation with broadcasting
 fn execute_expand_op(
-    input: &WasmBufferHandle,
-    input_meta: &WasmTensorMeta,
-    output: &WasmBufferHandle,
-    output_meta: &WasmTensorMeta,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
 ) -> WasmResult<()> {
-    let input_ptr = input.get_read_ptr();
-    let output_ptr = output.ptr() as *mut u8; // Cast to pointer
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8; // Cast to mut for operations
     
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
     let input_shape = input_meta.shape();
     let output_shape = output_meta.shape();
     let input_strides = input_meta.strides();
