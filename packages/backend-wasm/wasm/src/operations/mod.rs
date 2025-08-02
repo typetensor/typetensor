@@ -314,12 +314,44 @@ impl WasmOperationDispatcher {
         // If busy, skip cleanup - it's not critical
     }
     
-    /// Clone a buffer handle
+    /// Clone a buffer handle with proper reference counting
     #[wasm_bindgen]
     pub fn clone_buffer_handle(&self, handle: &WasmBufferHandle) -> WasmBufferHandle {
-        // TODO: Implement reference counting with memory_manager
-        // self.memory_manager.borrow().increment_ref_count(handle.id());
-        handle.clone()
+        // FAST PATH: Try to increment reference count (non-blocking)
+        if let Ok(mut manager) = self.memory_manager.try_borrow_mut() {
+            if let Some(cloned_handle) = manager.clone_buffer_handle(handle) {
+                return cloned_handle;
+            }
+        }
+        
+        // SLOW PATH: If memory manager is busy or buffer not found in pool,
+        // create a new direct allocation clone (defensive fallback)
+        // This preserves safety even under reentrancy
+        match self.create_defensive_clone(handle) {
+            Ok(cloned_handle) => cloned_handle,
+            Err(e) => {
+                wasm_bindgen::throw_str(&format!("Failed to clone buffer handle: {}", e));
+            }
+        }
+    }
+    
+    /// Create a defensive clone when memory manager is busy
+    /// This creates a new allocation with copied data to preserve safety
+    fn create_defensive_clone(&self, handle: &WasmBufferHandle) -> Result<WasmBufferHandle, String> {
+        // Read data from original handle
+        let src_ptr = handle.get_read_ptr();
+        let size = handle.size();
+        
+        // Create new direct allocation
+        let mut new_handle = crate::memory::allocate_direct(size)?;
+        
+        // Copy data to new allocation
+        unsafe {
+            std::ptr::copy_nonoverlapping(src_ptr, new_handle.ptr_mut(), size);
+        }
+        
+        new_handle.mark_initialized();
+        Ok(new_handle)
     }
     
     /// Create an empty buffer without data copy using fast-path/slow-path pattern

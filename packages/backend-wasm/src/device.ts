@@ -20,6 +20,10 @@ import {
   WASMAllocationError,
   WASMBoundsError 
 } from './errors';
+import { BufferLifecycleManager } from './buffer-lifecycle-manager';
+import { OperationOrchestrator } from './operation-orchestrator';
+import { ViewManager } from './view-manager';
+import { createDefensiveWASMOperations, type WASMDefensiveWrapper } from './wasm-defensive-wrapper';
 
 export class WASMDevice implements Device {
   readonly id: string = 'wasm:0';
@@ -31,6 +35,15 @@ export class WASMDevice implements Device {
   private initialized = false;
   private memoryViewManager: MemoryViewManager | null = null;
   private memoryConfig: Required<WASMMemoryConfig>;
+  
+  // New abstraction layers
+  private bufferLifecycleManager: BufferLifecycleManager | null = null;
+  private operationOrchestrator: OperationOrchestrator | null = null;
+  private viewManager: ViewManager | null = null;
+  
+  // Defensive WASM operations
+  private defensiveOperations: any = null;
+  private defensiveWrapper: WASMDefensiveWrapper | null = null;
 
   // @ts-expect-error: This property is used for compile-time validation only
   private _operationValidation: ValidateDeviceOperations<
@@ -112,6 +125,31 @@ export class WASMDevice implements Device {
       // Initialize memory view manager
       this.memoryViewManager = new MemoryViewManager(this.wasmModule.memory);
 
+      // Initialize defensive WASM operations
+      const defensiveOps = createDefensiveWASMOperations(this.operationDispatcher);
+      this.defensiveOperations = defensiveOps;
+      this.defensiveWrapper = defensiveOps.wrapper;
+
+      // Initialize abstraction layers
+      this.bufferLifecycleManager = new BufferLifecycleManager(
+        this.operationDispatcher,
+        this, // Pass the device reference
+        this.memoryConfig
+      );
+
+      this.operationOrchestrator = new OperationOrchestrator({
+        deviceId: this.id,
+        wasmModule: this.wasmModule,
+        operationDispatcher: this.operationDispatcher,
+        device: this // Pass the actual device reference
+      });
+
+      this.viewManager = new ViewManager(
+        this.memoryViewManager,
+        this.operationDispatcher,
+        this.id
+      );
+
       this.capabilities = {
         simd: this.wasmModule.has_simd_support(),
         sharedMemory: this.wasmModule.has_shared_memory_support(),
@@ -144,143 +182,9 @@ export class WASMDevice implements Device {
   ): Promise<DeviceData> {
     this.ensureInitialized();
 
-    for (const input of inputs) {
-      if (input.device.id !== this.id) {
-        throw new Error(`Input tensor is on device ${input.device.id}, expected ${this.id}`);
-      }
-    }
-
-    if (output && output.device.id !== this.id) {
-      throw new Error(`Output tensor is on device ${output.device.id}, expected ${this.id}`);
-    }
-
-    if (op.__op === 'slice') {
-      return this.executeSliceOp(op as any, inputs[0]!);
-    }
-
-    let reductionAxes: number[] | null = null;
-    let keepDims = false;
-    if (
-      op.__op === 'sum' ||
-      op.__op === 'mean' ||
-      op.__op === 'max' ||
-      op.__op === 'min' ||
-      op.__op === 'prod'
-    ) {
-      const reductionOp = op as any;
-      const axesKey = `__${op.__op}Axes`; // e.g., __sumAxes, __meanAxes, __prodAxes
-      reductionAxes =
-        reductionOp[axesKey] === undefined ? null : Array.from(reductionOp[axesKey] || []);
-      keepDims = reductionOp.__keepDims || false;
-    }
-
-    let softmaxAxis: number | null = null;
-    if (op.__op === 'softmax' || op.__op === 'log_softmax') {
-      const softmaxOp = op as any;
-      if (op.__op === 'softmax') {
-        softmaxAxis = softmaxOp.__softmaxAxis ?? null;
-      } else {
-        softmaxAxis = softmaxOp.__logSoftmaxAxis ?? null;
-      }
-    }
-
-    try {
-      const wasmInputs: WasmBufferHandle[] = [];
-      const inputHandles: WasmBufferHandle[] = [];
-
-      for (let i = 0; i < inputs.length; i++) {
-        const wasmData = inputs[i] as WASMDeviceData;
-        const handle = wasmData.getWASMHandle() as WasmBufferHandle;
-
-        inputHandles.push(handle);
-        wasmInputs.push(handle);
-      }
-      const inputMetas = inputs.map(
-        (input, i) => this.createTensorMeta([...op.__inputs], input, i),
-      );
-
-      const outputMeta = this.createTensorMeta([op.__output], null, 0);
-      const wasmOperation = operationToWasm(op.__op);
-
-      // ALWAYS pre-allocate output buffer upfront to avoid nested RefCell borrows
-      let outputHandle: WasmBufferHandle;
-      if (output) {
-        outputHandle = (output as WASMDeviceData).getWASMHandle();
-      } else {
-        // Pre-allocate output buffer - single RefCell borrow
-        const outputSize = op.__output.__size * getDTypeByteSize(op.__output.__dtype);
-        const zeroBuffer = new ArrayBuffer(outputSize);
-        outputHandle = this.operationDispatcher.create_buffer_with_js_data(
-          new Uint8Array(zeroBuffer),
-        );
-      }
-
-      let resultHandle;
-      if (inputs.length === 0) {
-        // For 0-input operations, we already have the pre-allocated buffer
-        resultHandle = outputHandle;
-      } else if (inputs.length === 1) {
-        if (reductionAxes !== null) {
-          resultHandle = this.operationDispatcher.execute_reduction(
-            wasmOperation,
-            wasmInputs[0],
-            inputMetas[0],
-            outputMeta,
-            reductionAxes.length > 0 ? reductionAxes : null,
-            keepDims,
-            outputHandle, // Always provided - never null
-          );
-        } else if (softmaxAxis !== null) {
-          resultHandle = this.operationDispatcher.execute_softmax(
-            wasmOperation,
-            wasmInputs[0],
-            inputMetas[0],
-            outputMeta,
-            softmaxAxis,
-            outputHandle, // Always provided - never null
-          );
-        } else {
-          resultHandle = this.operationDispatcher.execute_unary(
-            wasmOperation,
-            wasmInputs[0],
-            inputMetas[0],
-            outputMeta,
-            outputHandle, // Always provided - never null
-          );
-        }
-      } else if (inputs.length === 2) {
-        resultHandle = this.operationDispatcher.execute_binary(
-          wasmOperation,
-          wasmInputs[0],
-          wasmInputs[1],
-          inputMetas[0],
-          inputMetas[1],
-          outputMeta,
-          outputHandle, // Always provided - never null
-        );
-      } else {
-        throw new Error(`Unsupported number of inputs: ${inputs.length}`);
-      }
-
-      const resultSize = op.__output.__size * getDTypeByteSize(op.__output.__dtype);
-      return createWASMDeviceData(this, resultSize, resultHandle);
-    } catch (error) {
-      const inputInfo = inputs.map((input, i) => ({
-        id: (input as WASMDeviceData).id,
-        size: input.byteLength,
-        index: i
-      }));
-      
-      throw new WASMOperationError(
-        op.__op,
-        error instanceof Error ? error.message : String(error),
-        {
-          inputs: inputInfo,
-          outputSize: op.__output.__size,
-          outputDtype: op.__output.__dtype.__name || 'unknown'
-        }
-      );
-    }
+    // Delegate to OperationOrchestrator
+    const result = await this.operationOrchestrator!.execute(op, inputs, output);
+    return result.outputData;
   }
 
   /**
@@ -322,62 +226,47 @@ export class WASMDevice implements Device {
   createData(byteLength: number): DeviceData {
     this.ensureInitialized();
 
+    // Check for reasonable allocation size (e.g., max 1GB)
+    const MAX_ALLOCATION_SIZE = 1024 * 1024 * 1024; // 1GB
+    if (byteLength > MAX_ALLOCATION_SIZE) {
+      throw new WASMBoundsError(
+        'buffer allocation',
+        byteLength,
+        { max: MAX_ALLOCATION_SIZE },
+        { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE }
+      );
+    }
+
+    // For backward compatibility, we need to keep this synchronous
+    // We'll create a synchronous version that falls back to direct calls
     try {
-      // Check for reasonable allocation size (e.g., max 1GB)
-      const MAX_ALLOCATION_SIZE = 1024 * 1024 * 1024; // 1GB
-      if (byteLength > MAX_ALLOCATION_SIZE) {
-        throw new WASMBoundsError(
-          'buffer allocation',
-          byteLength,
-          { max: MAX_ALLOCATION_SIZE },
-          { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE }
-        );
-      }
-      
-      // Check memory pressure before allocation
-      this.checkMemoryPressure(byteLength);
-      
-      // For large allocations, try to allocate in smaller chunks first to test memory availability
-      if (byteLength > 50 * 1024 * 1024) { // > 50MB
-        try {
-          // Try a small test allocation first
-          const testBuffer = new ArrayBuffer(1024);
-          const testHandle = this.operationDispatcher.create_buffer_with_js_data(
-            new Uint8Array(testBuffer),
-          );
-          this.operationDispatcher.release_buffer(testHandle);
-        } catch (testError) {
-          throw new WASMAllocationError(
-            byteLength,
-            'Memory system not ready for large allocation',
-            [
-              'Try disposing unused buffers with device.disposeData()',
-              'Consider calling device.performIntensiveCleanup() to free memory pools',
-              'Break large allocations into smaller chunks'
-            ],
-            { testError: testError instanceof Error ? testError.message : String(testError) }
-          );
-        }
-      }
-      
-      // Use zero-allocation method - no JavaScript buffer needed
-      const wasmHandle = this.operationDispatcher.create_empty_buffer(byteLength);
+      // Try direct call first (synchronous)
+      const wasmHandle = this.operationDispatcher!.create_empty_buffer(byteLength);
       return createWASMDeviceData(this, byteLength, wasmHandle);
     } catch (error: any) {
-      // Don't re-throw our own errors
-      if (error instanceof WASMBoundsError || error instanceof WASMAllocationError) {
-        throw error;
+      console.warn('Direct buffer creation failed, this may indicate WASM corruption:', error);
+      
+      // Convert WASM runtime errors to proper error types
+      if (error && error.message) {
+        const errorMessage = error.message;
+        if (errorMessage.includes('Out of bounds') || errorMessage.includes('bounds')) {
+          throw new WASMBoundsError(
+            'buffer allocation',
+            byteLength,
+            { max: MAX_ALLOCATION_SIZE },
+            { requestedSize: byteLength, originalError: errorMessage }
+          );
+        }
+        if (errorMessage.includes('out of memory') || errorMessage.includes('allocation failed')) {
+          throw WASMErrorHandler.createAllocationError(
+            byteLength,
+            error,
+            { limit: MAX_ALLOCATION_SIZE }
+          );
+        }
       }
       
-      // Use error handler to create appropriate error type
-      // Don't call getMemoryStats() here - the operation dispatcher might be in an invalid state
-      throw WASMErrorHandler.createAllocationError(
-        byteLength,
-        error instanceof Error ? error : new Error(String(error)),
-        {
-          limit: this.memoryConfig.maxMemory
-        }
-      );
+      throw error;
     }
   }
 
@@ -387,37 +276,14 @@ export class WASMDevice implements Device {
   createDataWithBuffer(buffer: ArrayBuffer): DeviceData {
     this.ensureInitialized();
 
+    // For backward compatibility, keep this synchronous with fallback
     try {
-      // No need to slice - use the buffer directly
       const sourceData = new Uint8Array(buffer);
-
-      // Handle Result type from WASM
-      let wasmHandle;
-      try {
-        wasmHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
-      } catch (wasmError) {
-        // Don't call getMemoryStats() here - the operation dispatcher might be in an invalid state
-        throw WASMErrorHandler.createAllocationError(
-          buffer.byteLength,
-          wasmError instanceof Error ? wasmError : new Error(String(wasmError)),
-          {
-            limit: this.memoryConfig.maxMemory
-          }
-        );
-      }
-
+      const wasmHandle = this.operationDispatcher!.create_buffer_with_js_data(sourceData);
       return createWASMDeviceData(this, buffer.byteLength, wasmHandle);
     } catch (error) {
-      // Don't re-wrap our own errors
-      if (error instanceof WASMAllocationError) {
-        throw error;
-      }
-      
-      throw new WASMOperationError(
-        'createDataWithBuffer',
-        error instanceof Error ? error.message : String(error),
-        { bufferSize: buffer.byteLength }
-      );
+      console.warn('Direct buffer creation with data failed, this may indicate WASM corruption:', error);
+      throw error;
     }
   }
 
@@ -429,39 +295,8 @@ export class WASMDevice implements Device {
       throw new Error(`Cannot dispose data from device ${data.device.id} on ${this.id}`);
     }
 
-    const wasmData = data as WASMDeviceData;
-
-    if (!wasmData.isDisposed()) {
-      // Invalidate all views for this buffer BEFORE releasing it
-      this.memoryViewManager!.invalidateBuffer(wasmData.id);
-
-      try {
-        const wasmHandle = wasmData.getWASMHandle();
-        const released = this.operationDispatcher.release_buffer(wasmHandle);
-
-        if (!released) {
-          // Buffer release failure during normal disposal is a cleanup error
-          const error = WASMErrorHandler.createBufferReleaseError(
-            wasmData.id,
-            released,
-            { operation: 'disposeData', deviceId: this.id }
-          );
-          WASMErrorHandler.handle(error);
-        }
-      } catch (error) {
-        // Handle any errors during disposal as cleanup errors
-        const cleanupError = WASMErrorHandler.createBufferReleaseError(
-          wasmData.id,
-          false,
-          { 
-            operation: 'disposeData', 
-            deviceId: this.id,
-            originalError: error instanceof Error ? error.message : String(error)
-          }
-        );
-        WASMErrorHandler.handle(cleanupError);
-      }
-    }
+    // Delegate to BufferLifecycleManager
+    this.bufferLifecycleManager!.disposeBuffer(data);
   }
 
   /**
@@ -476,7 +311,9 @@ export class WASMDevice implements Device {
 
     const wasmData = data as WASMDeviceData;
     const wasmHandle = wasmData.getWASMHandle();
-    const uint8Array = this.operationDispatcher!.copy_buffer_to_js(wasmHandle);
+    
+    // Use defensive wrapper for WASM operation
+    const uint8Array = await this.defensiveOperations.copyBufferToJs(wasmHandle);
 
     // If the array is already properly aligned, return its buffer directly
     if (uint8Array.byteOffset === 0 && uint8Array.byteLength === uint8Array.buffer.byteLength) {
@@ -501,28 +338,10 @@ export class WASMDevice implements Device {
    * For long-term storage, use readData() instead
    */
   readDataView(data: DeviceData, dtype: DType<any, any, any>): ArrayBufferView {
-    if (data.device.id !== this.id) {
-      throw new Error(`Cannot read data from device ${data.device.id} on ${this.id}`);
-    }
-
     this.ensureInitialized();
 
-    const wasmData = data as WASMDeviceData;
-    const wasmHandle = wasmData.getWASMHandle() as WasmBufferHandle;
-
-    // Get buffer info: [ptr, size, initialized]
-    const info = this.operationDispatcher!.get_buffer_view_info(wasmHandle);
-    const ptr = info[0];
-    const size = info[1];
-    const initialized = info[2];
-
-    if (!initialized) {
-      throw new Error('Cannot create view of uninitialized buffer');
-    }
-
-    // Create safe zero-copy view with lifetime tracking
-    const bufferId = wasmData.id;
-    return this.memoryViewManager!.createSafeView(bufferId, ptr, size / getDTypeByteSize(dtype), dtype);
+    // Delegate to ViewManager
+    return this.viewManager!.createView(data, { dtype });
   }
 
   /**
@@ -530,7 +349,7 @@ export class WASMDevice implements Device {
    */
   isViewValid(view: ArrayBufferView): boolean {
     this.ensureInitialized();
-    return this.memoryViewManager!.isViewValid(view);
+    return this.viewManager!.isViewValid(view);
   }
 
   /**
@@ -548,23 +367,34 @@ export class WASMDevice implements Device {
     }
 
     const wasmData = data as WASMDeviceData;
-    if (!wasmData.isDisposed()) {
-      // Invalidate all views before replacing the buffer
-      this.memoryViewManager!.invalidateBuffer(wasmData.id);
+    if (wasmData.isDisposed()) {
+      throw new Error('Cannot write to disposed WASMDeviceData');
     }
 
-    const sourceData = new Uint8Array(buffer);
-    const newHandle = this.operationDispatcher.create_buffer_with_js_data(sourceData);
+    // For cloned buffers, we need to decide between:
+    // 1. Copy-on-write: Create new buffer, breaking sharing (current approach)
+    // 2. In-place update: Modify shared buffer directly
+    // 
+    // We'll use copy-on-write for safety, but this means clones will diverge after writes
+    
+    // Invalidate all views before replacing the buffer
+    this.memoryViewManager!.invalidateBuffer(wasmData.id);
 
-    // updateHandle will handle the old handle cleanup
+    // Create the buffer directly with the defensive operation dispatcher
+    // We can't use BufferLifecycleManager here because we need the raw handle
+    const sourceData = new Uint8Array(buffer);
+    const newHandle = await this.defensiveOperations.createBufferWithData(sourceData);
+
+    // updateHandle will handle the old handle cleanup and update reference counting
     wasmData.updateHandle(newHandle);
   }
 
   /**
    * Check if WASM backend supports non-contiguous tensors for a specific operation
    */
-  supportsNonContiguous(_op: AnyStorageTransformation['__op']): boolean {
-    return false;
+  supportsNonContiguous(op: AnyStorageTransformation['__op']): boolean {
+    this.ensureInitialized();
+    return this.operationOrchestrator!.supportsNonContiguous(op);
   }
 
   /**
@@ -580,13 +410,24 @@ export class WASMDevice implements Device {
    */
   getMemoryStats(): WASMMemoryStats {
     this.ensureInitialized();
-    const wasmStats = this.operationDispatcher.get_memory_stats();
-
-    return {
-      totalAllocated: wasmStats.total_allocated_bytes,
-      activeBuffers: wasmStats.active_buffers,
-      poolSummary: wasmStats.get_pool_summary(),
-    };
+    
+    // For backward compatibility, use direct calls for memory stats
+    try {
+      const wasmStats = this.operationDispatcher!.get_memory_stats();
+      
+      return {
+        totalAllocated: wasmStats.total_allocated_bytes,
+        activeBuffers: wasmStats.active_buffers,
+        poolSummary: typeof wasmStats.get_pool_summary === 'function' ? wasmStats.get_pool_summary() : 'Pool summary not available',
+      };
+    } catch (error) {
+      console.warn('Direct getMemoryStats failed:', error);
+      return {
+        totalAllocated: 0,
+        activeBuffers: 0,
+        poolSummary: 'Memory stats unavailable due to WASM error',
+      };
+    }
   }
 
   /**
@@ -599,15 +440,16 @@ export class WASMDevice implements Device {
   /**
    * Perform intensive cleanup - useful during benchmarks or stress testing
    */
-  performIntensiveCleanup(): void {
+  async performIntensiveCleanup(): Promise<void> {
     this.ensureInitialized();
-    this.operationDispatcher.intensive_cleanup();
-
-    // Hint to JS garbage collector (if available)
-    if (typeof global !== 'undefined' && global.gc) {
-      global.gc();
-    } else if (typeof window !== 'undefined' && (window as any).gc) {
-      (window as any).gc();
+    
+    try {
+      // Use defensive wrapper for cleanup
+      await this.defensiveOperations.intensiveCleanup();
+    } catch (error) {
+      console.warn('Defensive intensive cleanup failed, using fallback:', error);
+      // Fallback to BufferLifecycleManager
+      this.bufferLifecycleManager!.performCleanup();
     }
   }
 
@@ -627,6 +469,22 @@ export class WASMDevice implements Device {
   }
 
   /**
+   * Get defensive wrapper statistics (for debugging)
+   */
+  getDefensiveStats() {
+    this.ensureInitialized();
+    return this.defensiveWrapper?.getStats() || null;
+  }
+
+  /**
+   * Reset defensive wrapper statistics
+   */
+  resetDefensiveStats(): void {
+    this.ensureInitialized();
+    this.defensiveWrapper?.resetStats();
+  }
+
+  /**
    * Ensure the device is initialized
    */
   private ensureInitialized(): void {
@@ -635,319 +493,6 @@ export class WASMDevice implements Device {
     }
   }
 
-  /**
-   * Create tensor metadata for WASM operations
-   */
-  private createTensorMeta(tensorInfos: any[], _data: DeviceData | null, index = 0): WasmTensorMeta {
-    const tensorInfo = tensorInfos[index];
-    if (!tensorInfo) {
-      throw new Error(`Missing tensor info at index ${index}`);
-    }
-
-    const wasmDtype = dtypeToWasm(tensorInfo.__dtype);
-    const shapeArray = tensorInfo.__shape.map((n: any) => Math.floor(Number(n)));
-    const stridesArray = tensorInfo.__strides.map((n: any) => Math.floor(Number(n)));
-    const size = Math.floor(Number(tensorInfo.__size));
-    const offset = Math.floor(Number(tensorInfo.__offset || 0));
-
-    const WasmTensorMeta = this.wasmModule!.WasmTensorMeta;
-
-    const meta = new WasmTensorMeta(wasmDtype, shapeArray, stridesArray, size, offset);
-
-    return meta;
-  }
-
-  /**
-   * Execute a slice operation on WASM device (TypeScript implementation)
-   */
-  private async executeSliceOp(
-    op: AnyStorageTransformation & { __op: 'slice' },
-    input: DeviceData,
-  ): Promise<DeviceData> {
-    const sliceIndices = (op.__output as any).__sliceIndices as SliceIndex[];
-    const inputStorage = op.__inputs[0];
-    if (!inputStorage) {
-      throw new Error('Slice operation missing input storage metadata');
-    }
-
-    const inputShape = inputStorage.__shape;
-    const inputStrides = inputStorage.__strides;
-    const dtype = inputStorage.__dtype;
-
-    const outputShape = op.__output.__shape;
-    const outputBuffer = await this.createSlicedBuffer(
-      input,
-      sliceIndices,
-      inputShape,
-      inputStrides,
-      outputShape,
-      dtype,
-    );
-
-    return this.createDataWithBuffer(outputBuffer);
-  }
-
-  /**
-   * Create sliced buffer from input data
-   */
-  private async createSlicedBuffer(
-    input: DeviceData,
-    sliceIndices: SliceIndex[],
-    inputShape: readonly number[],
-    inputStrides: readonly number[],
-    outputShape: readonly number[],
-    dtype: DType<any, any, any>,
-  ): Promise<ArrayBuffer> {
-    // Validate slice indices before processing
-    this.validateSliceIndices(sliceIndices, inputShape);
-    
-    const inputBuffer = await this.readData(input);
-
-    const outputSize = outputShape.reduce((a, b) => a * b, 1);
-    const outputBuffer = new ArrayBuffer(outputSize * getDTypeByteSize(dtype));
-
-    const inputArray = this.createTypedArray(inputBuffer, dtype);
-    const outputArray = this.createTypedArray(outputBuffer, dtype);
-    
-    // Add bounds checking
-    const inputLength = inputArray.length;
-    
-    for (let outputFlatIndex = 0; outputFlatIndex < outputSize; outputFlatIndex++) {
-      const outputIndices = this.flatIndexToIndices(outputFlatIndex, outputShape);
-      const inputIndices = this.mapOutputToInputIndices(outputIndices, sliceIndices, inputShape);
-
-      const inputFlatIndex = this.computeFlatIndex(inputIndices, inputStrides);
-      
-      // BOUNDS CHECK: Validate index is within bounds
-      if (inputFlatIndex < 0 || inputFlatIndex >= inputLength) {
-        throw new Error(
-          `Index ${inputFlatIndex} out of bounds for array of length ${inputLength}. ` +
-          `Input indices: [${inputIndices.join(', ')}], shape: [${inputShape.join(', ')}]`
-        );
-      }
-      
-      outputArray[outputFlatIndex] = inputArray[inputFlatIndex];
-    }
-
-    return outputBuffer;
-  }
-
-  /**
-   * Validate slice indices to ensure they are within bounds
-   */
-  private validateSliceIndices(
-    sliceIndices: SliceIndex[],
-    shape: readonly number[]
-  ): void {
-    for (let i = 0; i < sliceIndices.length && i < shape.length; i++) {
-      const slice = sliceIndices[i];
-      const dimSize = shape[i];
-      
-      if (dimSize === undefined || dimSize <= 0) {
-        throw new Error(`Invalid shape dimension at index ${i}: ${dimSize}`);
-      }
-      
-      if (typeof slice === 'number') {
-        const normalizedIndex = slice < 0 ? dimSize + slice : slice;
-        if (normalizedIndex < 0 || normalizedIndex >= dimSize) {
-          throw new WASMBoundsError(
-            `slice dimension ${i}`,
-            slice,
-            { min: -dimSize, max: dimSize - 1, size: dimSize },
-            { dimension: i, originalIndex: slice, normalizedIndex }
-          );
-        }
-      } else if (slice && typeof slice === 'object') {
-        const start = slice.start ?? 0;
-        const stop = slice.stop ?? dimSize;
-        const step = slice.step ?? 1;
-        
-        const normalizedStart = start < 0 ? dimSize + start : start;
-        const normalizedStop = stop < 0 ? dimSize + stop : stop;
-        
-        if (normalizedStart < 0 || normalizedStart > dimSize) {
-          throw new WASMBoundsError(
-            `slice start for dimension ${i}`,
-            start,
-            { min: -dimSize, max: dimSize, size: dimSize },
-            { dimension: i, originalStart: start, normalizedStart }
-          );
-        }
-        
-        if (normalizedStop < 0 || normalizedStop > dimSize) {
-          throw new WASMBoundsError(
-            `slice stop for dimension ${i}`,
-            stop, 
-            { min: -dimSize, max: dimSize, size: dimSize },
-            { dimension: i, originalStop: stop, normalizedStop }
-          );
-        }
-        
-        if (step === 0) {
-          throw new WASMBoundsError(
-            `slice step for dimension ${i}`,
-            step,
-            { min: Number.NEGATIVE_INFINITY, max: Number.POSITIVE_INFINITY },
-            { dimension: i, step, note: 'Step cannot be zero' }
-          );
-        }
-        
-        if (step < 0 && normalizedStart < normalizedStop) {
-          throw new Error(
-            `Invalid slice range for negative step: start=${start}, stop=${stop}, step=${step}`
-          );
-        }
-        
-        if (step > 0 && normalizedStart > normalizedStop) {
-          throw new Error(
-            `Invalid slice range for positive step: start=${start}, stop=${stop}, step=${step}`
-          );
-        }
-      }
-    }
-  }
-
-  /**
-   * Create typed array from buffer based on dtype
-   */
-  private createTypedArray(buffer: ArrayBuffer, dtype: DType<any, any, any>): ArrayBufferView {
-    switch (dtype.__name || dtype.__dtype) {
-      case 'float32':
-        return new Float32Array(buffer);
-      case 'float64':
-        return new Float64Array(buffer);
-      case 'int32':
-        return new Int32Array(buffer);
-      case 'uint32':
-        return new Uint32Array(buffer);
-      case 'int16':
-        return new Int16Array(buffer);
-      case 'uint16':
-        return new Uint16Array(buffer);
-      case 'int8':
-        return new Int8Array(buffer);
-      case 'uint8':
-        return new Uint8Array(buffer);
-      default:
-        throw new Error(`Unsupported dtype: ${dtype.__name || dtype.__dtype}`);
-    }
-  }
-
-  /**
-   * Convert flat index to multi-dimensional indices
-   */
-  private flatIndexToIndices(flatIndex: number, shape: readonly number[]): number[] {
-    const indices: number[] = [];
-    let remaining = flatIndex;
-
-    for (let i = 0; i < shape.length; i++) {
-      const dim = shape[i];
-      if (dim === undefined) {
-        throw new Error(`Invalid shape dimension at index ${i}`);
-      }
-      const stride = shape.slice(i + 1).reduce((a, b) => a * b, 1);
-      indices[i] = Math.floor(remaining / stride);
-      remaining %= stride;
-    }
-
-    return indices;
-  }
-
-  /**
-   * Map output indices to input indices using slice specifications
-   */
-  private mapOutputToInputIndices(
-    outputIndices: number[],
-    sliceIndices: SliceIndex[],
-    inputShape: readonly number[],
-  ): number[] {
-    const inputIndices: number[] = [];
-    let outputDim = 0;
-
-    for (let inputDim = 0; inputDim < inputShape.length; inputDim++) {
-      const sliceIndex = inputDim < sliceIndices.length ? sliceIndices[inputDim] : null;
-      const inputSize = inputShape[inputDim];
-
-      if (inputSize === undefined) {
-        throw new Error(`Invalid input shape dimension at index ${inputDim}`);
-      }
-
-      if (typeof sliceIndex === 'number') {
-        const normalizedIndex = sliceIndex < 0 ? inputSize + sliceIndex : sliceIndex;
-        
-        // BOUNDS CHECK: Ensure normalized index is within bounds
-        if (normalizedIndex < 0 || normalizedIndex >= inputSize) {
-          throw new WASMBoundsError(
-            `mapped output index for dimension ${inputDim}`,
-            sliceIndex,
-            { min: -inputSize, max: inputSize - 1, size: inputSize },
-            { 
-              inputDimension: inputDim,
-              originalIndex: sliceIndex, 
-              normalizedIndex,
-              inputSize 
-            }
-          );
-        }
-        
-        inputIndices[inputDim] = normalizedIndex;
-      } else if (sliceIndex === null) {
-        const outputIndex = outputIndices[outputDim];
-        if (outputIndex === undefined) {
-          throw new Error(`Missing output index for dimension ${outputDim}`);
-        }
-        inputIndices[inputDim] = outputIndex;
-        outputDim++;
-      } else {
-        const outputIndex = outputIndices[outputDim];
-        if (outputIndex === undefined) {
-          throw new Error(`Missing output index for dimension ${outputDim}`);
-        }
-
-        if (sliceIndex && typeof sliceIndex === 'object') {
-          const start =
-            sliceIndex.start !== undefined
-              ? sliceIndex.start < 0
-                ? inputSize + sliceIndex.start
-                : sliceIndex.start
-              : 0;
-          const step = sliceIndex.step ?? 1;
-
-          const computedIndex = start + outputIndex * step;
-          
-          // BOUNDS CHECK: Ensure computed index is within bounds
-          if (computedIndex < 0 || computedIndex >= inputSize) {
-            throw new Error(
-              `Computed index ${computedIndex} (start=${start} + ${outputIndex} * step=${step}) ` +
-              `is out of bounds for dimension ${inputDim} of size ${inputSize}`
-            );
-          }
-          
-          inputIndices[inputDim] = computedIndex;
-        } else {
-          throw new Error(`Invalid slice index type for SliceSpec: ${typeof sliceIndex}`);
-        }
-        outputDim++;
-      }
-    }
-
-    return inputIndices;
-  }
-
-  /**
-   * Compute flat index from multi-dimensional indices and strides
-   */
-  private computeFlatIndex(indices: number[], strides: readonly number[]): number {
-    let flatIndex = 0;
-    for (let i = 0; i < indices.length; i++) {
-      const stride = strides[i];
-      const index = indices[i];
-      if (stride !== undefined && index !== undefined) {
-        flatIndex += index * stride;
-      }
-    }
-    return flatIndex;
-  }
 
   toString(): string {
     const status = this.initialized ? 'initialized' : 'not initialized';

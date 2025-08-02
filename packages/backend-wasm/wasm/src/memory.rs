@@ -474,6 +474,35 @@ impl BufferLifecycleManager {
         }
     }
 
+    /// Clone a buffer handle with proper reference counting
+    /// Returns Some(cloned_handle) if successful, None if buffer not found
+    pub fn clone_buffer_handle(&mut self, handle: &WasmBufferHandle) -> Option<WasmBufferHandle> {
+        if handle.source != BufferSource::Pooled {
+            // Direct buffers can't be cloned with reference counting - 
+            // caller should use defensive clone
+            return None;
+        }
+        
+        if let Some(buffer_info) = self.active_buffers.get(&handle.id) {
+            // Increment reference count atomically
+            buffer_info.ref_count.fetch_add(1, Ordering::AcqRel);
+            
+            // Create new handle with same ID - shares the buffer
+            let cloned_handle = WasmBufferHandle::new_pooled(
+                handle.id, 
+                handle.ptr, 
+                handle.size, 
+                handle.size_class, 
+                handle.initialized
+            );
+            
+            Some(cloned_handle)
+        } else {
+            // Buffer not found in active buffers
+            None
+        }
+    }
+
     /// Compact memory pools
     pub fn compact_pools(&mut self) {
         for pool in &mut self.pools {
@@ -589,6 +618,11 @@ impl WasmMemoryManager {
     /// Try to release buffer back to pool (non-blocking)
     pub(crate) fn try_release_buffer(&mut self, handle: WasmBufferHandle) -> bool {
         self.buffer_lifecycle.try_release_buffer(handle)
+    }
+
+    /// Clone a buffer handle with proper reference counting
+    pub(crate) fn clone_buffer_handle(&mut self, handle: &WasmBufferHandle) -> Option<WasmBufferHandle> {
+        self.buffer_lifecycle.clone_buffer_handle(handle)
     }
 
     /// Compact pools by deallocating excess buffers

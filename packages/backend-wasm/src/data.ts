@@ -3,20 +3,37 @@ import type { WASMModule } from './types';
 import { getLoadedWASMModule } from './loader';
 import { WASMErrorHandler, WASMCleanupFinalizationError } from './errors';
 
-// Global cleanup registry for automatic buffer disposal
+// Shared reference counting for coordinated cleanup
+const sharedBufferRefs = new Map<string, { 
+  refCount: number; 
+  device: any; 
+  wasmHandle: any; 
+  cleanupToken?: object;
+}>();
+
+// Global cleanup registry for automatic buffer disposal with coordination
 const cleanupRegistry =
   typeof FinalizationRegistry !== 'undefined'
-    ? new FinalizationRegistry((cleanup: { device: any; wasmHandle: any }) => {
+    ? new FinalizationRegistry((bufferId: string) => {
         try {
-          // This runs when WASMDeviceData is garbage collected
-          if (cleanup.device && cleanup.device.operationDispatcher && cleanup.wasmHandle) {
-            cleanup.device.operationDispatcher.release_buffer(cleanup.wasmHandle);
+          // This runs when a WASMDeviceData is garbage collected
+          const bufferRef = sharedBufferRefs.get(bufferId);
+          if (bufferRef) {
+            bufferRef.refCount--;
+            
+            // Only cleanup when all references are gone
+            if (bufferRef.refCount <= 0) {
+              if (bufferRef.device && bufferRef.device.operationDispatcher && bufferRef.wasmHandle) {
+                bufferRef.device.operationDispatcher.release_buffer(bufferRef.wasmHandle);
+              }
+              sharedBufferRefs.delete(bufferId);
+            }
           }
         } catch (error) {
           // Handle finalization errors properly
           const cleanupError = new WASMCleanupFinalizationError(
             error instanceof Error ? error.message : String(error),
-            { cleanup }
+            { bufferId }
           );
           WASMErrorHandler.handle(cleanupError);
         }
@@ -33,17 +50,40 @@ export class WASMDeviceData implements DeviceData {
   #disposed = false;
   #cleanupToken?: object; // Reference for unregistering cleanup
 
-  constructor(device: Device, byteLength: number, wasmHandle: unknown, wasmModule: WASMModule) {
+  constructor(device: Device, byteLength: number, wasmHandle: unknown, wasmModule: WASMModule, isClone = false) {
     this.device = device;
     this.byteLength = byteLength;
     this.#wasmHandle = wasmHandle;
     this.#wasmModule = wasmModule;
     this.id = `wasm-data-${(wasmHandle as any).id}`;
 
-    // Register for automatic cleanup when this object is garbage collected
+    // Register for coordinated automatic cleanup
     if (cleanupRegistry) {
+      if (!isClone) {
+        // First instance - create shared reference entry
+        sharedBufferRefs.set(this.id, {
+          refCount: 1,
+          device,
+          wasmHandle
+        });
+      } else {
+        // Clone - increment existing reference count
+        const bufferRef = sharedBufferRefs.get(this.id);
+        if (bufferRef) {
+          bufferRef.refCount++;
+        } else {
+          // Fallback: create new entry if original was already cleaned up
+          sharedBufferRefs.set(this.id, {
+            refCount: 1,
+            device,
+            wasmHandle
+          });
+        }
+      }
+      
+      // Register this instance for cleanup (passes buffer ID, not cleanup data)
       this.#cleanupToken = {};
-      cleanupRegistry.register(this, { device, wasmHandle }, this.#cleanupToken);
+      cleanupRegistry.register(this, this.id, this.#cleanupToken);
     }
   }
 
@@ -55,7 +95,8 @@ export class WASMDeviceData implements DeviceData {
     const device = this.device as any;
     const clonedHandle = device.operationDispatcher.clone_buffer_handle(this.#wasmHandle);
 
-    return new WASMDeviceData(this.device, this.byteLength, clonedHandle, this.#wasmModule);
+    // Create clone with coordinated reference counting
+    return new WASMDeviceData(this.device, this.byteLength, clonedHandle, this.#wasmModule, true);
   }
 
   dispose(): void {
@@ -70,33 +111,69 @@ export class WASMDeviceData implements DeviceData {
       cleanupRegistry.unregister(this.#cleanupToken);
     }
 
-    // Release the WASM buffer back to the pool
-    try {
-      const device = this.device as any;
-      if (device.operationDispatcher && this.#wasmHandle) {
-        const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
-        if (!released) {
-          // Buffer release failure during disposal is a cleanup error
-          const error = WASMErrorHandler.createBufferReleaseError(
+    // Invalidate all views for this buffer BEFORE releasing it
+    const device = this.device as any;
+    if (device.memoryViewManager) {
+      device.memoryViewManager.invalidateBuffer(this.id);
+    }
+
+    // Coordinate with shared reference counting
+    const bufferRef = sharedBufferRefs.get(this.id);
+    if (bufferRef) {
+      bufferRef.refCount--;
+      
+      // Only release WASM buffer when all references are gone
+      if (bufferRef.refCount <= 0) {
+        try {
+          if (device.operationDispatcher && this.#wasmHandle) {
+            const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
+            if (!released) {
+              // Buffer release failure during disposal is a cleanup error
+              const error = WASMErrorHandler.createBufferReleaseError(
+                this.id,
+                released,
+                { operation: 'dispose', deviceId: this.device.id }
+              );
+              WASMErrorHandler.handle(error);
+            }
+          }
+        } catch (error) {
+          // Handle disposal errors as cleanup errors
+          const cleanupError = WASMErrorHandler.createBufferReleaseError(
             this.id,
-            released,
-            { operation: 'dispose', deviceId: this.device.id }
+            false,
+            { 
+              operation: 'dispose', 
+              deviceId: this.device.id,
+              originalError: error instanceof Error ? error.message : String(error)
+            }
           );
-          WASMErrorHandler.handle(error);
+          WASMErrorHandler.handle(cleanupError);
         }
+        
+        // Clean up shared reference entry
+        sharedBufferRefs.delete(this.id);
       }
-    } catch (error) {
-      // Handle disposal errors as cleanup errors
-      const cleanupError = WASMErrorHandler.createBufferReleaseError(
-        this.id,
-        false,
-        { 
-          operation: 'dispose', 
-          deviceId: this.device.id,
-          originalError: error instanceof Error ? error.message : String(error)
+      // If refCount > 0, other clones still exist - don't release WASM buffer yet
+    } else {
+      // Fallback: no shared ref entry, release directly (shouldn't happen in normal flow)
+      try {
+        const device = this.device as any;
+        if (device.operationDispatcher && this.#wasmHandle) {
+          device.operationDispatcher.release_buffer(this.#wasmHandle);
         }
-      );
-      WASMErrorHandler.handle(cleanupError);
+      } catch (error) {
+        const cleanupError = WASMErrorHandler.createBufferReleaseError(
+          this.id,
+          false,
+          { 
+            operation: 'dispose_fallback', 
+            deviceId: this.device.id,
+            originalError: error instanceof Error ? error.message : String(error)
+          }
+        );
+        WASMErrorHandler.handle(cleanupError);
+      }
     }
 
     // Clear references
@@ -105,7 +182,12 @@ export class WASMDeviceData implements DeviceData {
   }
 
   getRefCount(): number {
-    return this.#disposed ? 0 : 1;
+    if (this.#disposed) {
+      return 0;
+    }
+    
+    const bufferRef = sharedBufferRefs.get(this.id);
+    return bufferRef ? bufferRef.refCount : 1;
   }
 
   getWASMHandle(): unknown {
@@ -190,36 +272,64 @@ export class WASMDeviceData implements DeviceData {
       throw new Error('Cannot update handle of disposed WASMDeviceData');
     }
     
-    // Clean up old handle if needed and valid
+    // Check if we're trying to update with the same handle
+    if (this.#wasmHandle === newHandle) {
+      // No-op: same handle, nothing to update
+      return;
+    }
+    
+    const oldId = this.id;
     const device = this.device as any;
-    if (this.#wasmHandle && device.operationDispatcher && this.#wasmHandle !== null) {
-      try {
-        const released = device.operationDispatcher.release_buffer(this.#wasmHandle);
-        if (!released) {
-          // Handle old buffer release failure as cleanup error
-          const error = WASMErrorHandler.createBufferReleaseError(
-            this.id,
-            released,
-            { operation: 'updateHandle', deviceId: this.device.id }
-          );
-          WASMErrorHandler.handle(error);
-        }
-      } catch (error) {
-        // Handle cleanup errors gracefully - old handle might already be invalid
-        const cleanupError = WASMErrorHandler.createBufferReleaseError(
-          this.id,
-          false,
-          { 
-            operation: 'updateHandle', 
-            deviceId: this.device.id,
-            originalError: error instanceof Error ? error.message : String(error)
+    
+    // When updating handle, we're breaking sharing (copy-on-write)
+    // Decrement old buffer's reference count
+    const oldBufferRef = sharedBufferRefs.get(oldId);
+    if (oldBufferRef) {
+      oldBufferRef.refCount--;
+      
+      // If this was the last reference to the old buffer, clean it up
+      if (oldBufferRef.refCount <= 0) {
+        try {
+          if (device.operationDispatcher && this.#wasmHandle) {
+            device.operationDispatcher.release_buffer(this.#wasmHandle);
           }
-        );
-        WASMErrorHandler.handle(cleanupError);
+        } catch (error) {
+          // Handle cleanup errors gracefully
+          const cleanupError = WASMErrorHandler.createBufferReleaseError(
+            oldId,
+            false,
+            { 
+              operation: 'updateHandle_cleanup', 
+              deviceId: this.device.id,
+              originalError: error instanceof Error ? error.message : String(error)
+            }
+          );
+          WASMErrorHandler.handle(cleanupError);
+        }
+        sharedBufferRefs.delete(oldId);
       }
     }
     
+    // Update to new handle
     this.#wasmHandle = newHandle;
+    
+    // Create new ID for the new handle and new shared reference entry
+    const newId = `wasm-data-${(newHandle as any).id}`;
+    (this as any).id = newId; // Update the ID (casting to any since id is readonly)
+    
+    // Create new shared reference entry for this buffer
+    sharedBufferRefs.set(newId, {
+      refCount: 1,
+      device: this.device,
+      wasmHandle: newHandle
+    });
+    
+    // Re-register with cleanup registry under new ID
+    if (cleanupRegistry && this.#cleanupToken) {
+      cleanupRegistry.unregister(this.#cleanupToken);
+      this.#cleanupToken = {};
+      cleanupRegistry.register(this, newId, this.#cleanupToken);
+    }
   }
 
   [Symbol.dispose](): void {

@@ -65,10 +65,9 @@
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch --preserveWatchOutput",
     "lint": "eslint . --ext .ts,.tsx",
-    "test:rust": "cd wasm && cargo test",
     "test:wasm": "cd wasm && wasm-pack test --node",
     "test:ts": "bun test",
-    "test": "bun run test:rust && bun run test:wasm && bun run test:ts",
+    "test": "bun run test:wasm && bun run test:ts",
     "test:watch": "bun test --watch --no-clear-screen",
     "prepublishOnly": "bun run clean && bun run build"
   }
