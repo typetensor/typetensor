@@ -13,6 +13,8 @@ import type {
   DuplicateAxisError,
   RankMismatchError,
   CompositeResolutionError,
+  ProductMismatchError,
+  AxisErrorMessages,
 } from './errors';
 import type { ResolveEinopsShape } from './type-shape-resolver-rearrange';
 import type {
@@ -26,9 +28,12 @@ import type {
 import type {
   HasDuplicateAxisNames,
   CountConsumingAxes,
+  CountEllipsis,
   FlattenAxes,
   CountUnknownAxes,
   AllAxesProvided,
+  ValidateCompositeProduct,
+  ComputeCompositeProduct,
 } from './type-shape-resolver-utils';
 import type { Add } from 'ts-arithmetic';
 
@@ -162,18 +167,21 @@ export type DetectSpecificError<
     ? ParsedAST extends TypeEinopsAST
       ? // Check for specific error patterns using IsNever to distinguish never from strings
         IsNever<CheckForDuplicateAxes<ParsedAST>> extends true
-        ? // No duplicate error, check for unknown axes
-          IsNever<CheckForUnknownAxes<ParsedAST>> extends true
-          ? // No unknown error, check for rank mismatch
-            IsNever<CheckForRankMismatch<ParsedAST, InputShape>> extends true
-            ? // No rank error, check for composite errors
-              CheckForCompositeErrors<ParsedAST, InputShape, Axes> extends infer CompositeError
-              ? IsNever<CompositeError> extends true
-                ? EinopsParseError<'Pattern validation failed'> // Generic fallback
-                : CompositeError // Return specific composite error
-              : EinopsParseError<'Pattern validation failed'>
-            : CheckForRankMismatch<ParsedAST, InputShape> // Return specific rank mismatch error
-          : CheckForUnknownAxes<ParsedAST> // Return specific unknown axis error
+        ? // No duplicate error, check for multiple ellipsis
+          IsNever<CheckForMultipleEllipsis<ParsedAST>> extends true
+          ? // No ellipsis error, check for unknown axes
+            IsNever<CheckForUnknownAxes<ParsedAST>> extends true
+            ? // No unknown error, check for rank mismatch
+              IsNever<CheckForRankMismatch<ParsedAST, InputShape>> extends true
+              ? // No rank error, check for composite errors
+                CheckForCompositeErrors<ParsedAST, InputShape, Axes> extends infer CompositeError
+                ? IsNever<CompositeError> extends true
+                  ? EinopsParseError<'Pattern validation failed'> // Generic fallback
+                  : CompositeError // Return specific composite error
+                : EinopsParseError<'Pattern validation failed'>
+              : CheckForRankMismatch<ParsedAST, InputShape> // Return specific rank mismatch error
+            : CheckForUnknownAxes<ParsedAST> // Return specific unknown axis error
+          : CheckForMultipleEllipsis<ParsedAST> // Return specific multiple ellipsis error
         : CheckForDuplicateAxes<ParsedAST> // Return specific duplicate axis error
       : ParsedAST extends TypeParseError<infer ErrorMsg>
         ? EinopsParseError<ErrorMsg>
@@ -274,6 +282,25 @@ export type CheckForRankMismatch<AST extends TypeEinopsAST, InputShape extends S
     : never;
 
 /**
+ * Check for multiple ellipsis patterns (only one ellipsis per side allowed)
+ */
+export type CheckForMultipleEllipsis<AST extends TypeEinopsAST> =
+  CountEllipsis<AST['input']> extends infer InputEllipsisCount
+    ? InputEllipsisCount extends number
+      ? InputEllipsisCount extends 0 | 1
+        ? // Input ellipsis count is valid, check output
+          CountEllipsis<AST['output']> extends infer OutputEllipsisCount
+          ? OutputEllipsisCount extends number
+            ? OutputEllipsisCount extends 0 | 1
+              ? never // Both sides have valid ellipsis counts
+              : AxisErrorMessages['MultipleEllipsisOutput']
+            : never
+          : never
+        : AxisErrorMessages['MultipleEllipsisInput']
+      : never
+    : never;
+
+/**
  * Check for composite pattern resolution errors
  */
 type CheckForCompositeErrors<
@@ -327,7 +354,14 @@ type CheckCompositeResolution<
       ? Axes extends Record<string, number>
         ? // Check if all axes are provided or if we can resolve with missing axes
           AllAxesProvided<FlatAxes, Axes> extends true
-          ? never // All axes provided, should be resolvable
+          ? // All axes provided, validate that their product matches the dimension
+            ValidateCompositeProduct<FlatAxes, Dimension, Axes> extends true
+            ? never // Product is correct, should be resolvable
+            : ProductMismatchError<
+                FormatCompositePattern<Composite>, 
+                Dimension, 
+                ComputeCompositeProduct<FlatAxes, Axes>
+              >
           : CountUnknownAxes<FlatAxes, Axes> extends infer UnknownCount
             ? UnknownCount extends number
               ? UnknownCount extends 0

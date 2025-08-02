@@ -98,6 +98,17 @@ import type { ValidEinopsPattern } from './type-validation';
 
   type BadComposite = ValidEinopsPattern<'(h w) -> h w', readonly [6]>; // Missing axis spec
   expectTypeOf<BadComposite>().toEqualTypeOf<"[Einops ❌] Shape Error: Cannot resolve '(h w)' from dimension 6. Specify axis values: rearrange(tensor, pattern, {axis: number})">();
+
+  // Test multiple ellipsis detection
+  type MultipleEllipsisInput = ValidEinopsPattern<'h ... w ... -> h w', readonly [2, 3, 4, 5]>;
+  expectTypeOf<MultipleEllipsisInput>().toEqualTypeOf<"[Einops ❌] Axis Error: Multiple ellipsis '...' in input. Only one ellipsis allowed per side">();
+
+  type MultipleEllipsisOutput = ValidEinopsPattern<'h w -> ... c ...', readonly [2, 3]>;
+  expectTypeOf<MultipleEllipsisOutput>().toEqualTypeOf<"[Einops ❌] Axis Error: Multiple ellipsis '...' in output. Only one ellipsis allowed per side">();
+
+  // Test product mismatch detection
+  type ProductMismatch = ValidEinopsPattern<'(h w) -> h w', readonly [10], { h: 3, w: 4 }>; // 3*4=12, but dimension is 10
+  expectTypeOf<ProductMismatch>().toEqualTypeOf<"[Einops ❌] Shape Error: Composite '(h w)' expects product 10 but axes give 12. Check axis values">();
 }
 
 // =============================================================================
