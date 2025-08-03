@@ -535,7 +535,9 @@ describe('Singleton Dimensions', () => {
 describe('Error Cases', () => {
   it('should throw error for unknown axes in output', async () => {
     const testTensor = await ones([2, 3] as const, { device: cpu, dtype: float32 });
+    // @ts-expect-error - TypeScript should show: [Reduce ❌] Axis Error: Cannot create new axis 'c' in reduce output
     await expect(reduce(testTensor, 'h w -> h w c', 'sum')).rejects.toThrow(ReduceError);
+    // @ts-expect-error - TypeScript should show: [Reduce ❌] Axis Error: Cannot create new axis 'c' in reduce output
     await expect(reduce(testTensor, 'h w -> h w c', 'sum')).rejects.toThrow(
       'Unknown axes in output',
     );
@@ -556,6 +558,7 @@ describe('Error Cases', () => {
 
   it('should throw error for duplicate axes in output', async () => {
     const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+    // @ts-expect-error - TypeScript should show: [Reduce ❌] Axis Error: Duplicate axis 'h' in output
     await expect(reduce(testTensor, 'h w c -> h h', 'sum')).rejects.toThrow(
       'Duplicate axes in output pattern',
     );
@@ -563,6 +566,7 @@ describe('Error Cases', () => {
 
   it('should throw error for multiple ellipsis', async () => {
     const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+    // @ts-expect-error - TypeScript should show: [Reduce ❌] Axis Error: Multiple ellipsis '...' in input
     await expect(reduce(testTensor, '... ... c -> c', 'sum')).rejects.toThrow('Multiple ellipsis');
   });
 
@@ -589,6 +593,7 @@ describe('Error Cases', () => {
     const testTensor = await ones([4, 6] as const, { device: cpu, dtype: float32 });
     // h*h2 = 3*2 = 6 ≠ 4
     await expect(
+      // @ts-expect-error - TypeScript should show: [Reduce ❌] Shape Error: Cannot resolve '(h h2)' from dimension 4
       reduce(testTensor, '(h h2) w -> h w', 'sum', false, { h: 3, h2: 2 }),
     ).rejects.toThrow();
   });

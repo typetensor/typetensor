@@ -168,3 +168,87 @@ export type ProductMismatchError<
 export type FractionalDimensionError<
   Pattern extends string,
 > = EinopsShapeError<`Pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})`>;
+
+// =============================================================================
+// Reduce-Specific Error Types
+// =============================================================================
+
+/**
+ * Reduce parse error - issues with reduce pattern syntax
+ *
+ * @example
+ * type Error = ReduceParseError<"Missing arrow operator '->'">;
+ * // Result: "[Reduce ❌] Parse Error: Missing arrow operator '->'"
+ */
+export type ReduceParseError<Message extends string> = `[Reduce ❌] Parse Error: ${Message}`;
+
+/**
+ * Reduce axis error - issues with reduce axis names and usage
+ *
+ * @example
+ * type Error = ReduceAxisError<"Cannot create new axis 'z' in reduce output">;
+ * // Result: "[Reduce ❌] Axis Error: Cannot create new axis 'z' in reduce output"
+ */
+export type ReduceAxisError<Message extends string> = `[Reduce ❌] Axis Error: ${Message}`;
+
+/**
+ * Reduce shape error - issues with reduce dimension compatibility
+ *
+ * @example
+ * type Error = ReduceShapeError<"Cannot resolve '(h w)' in reduce pattern">;
+ * // Result: "[Reduce ❌] Shape Error: Cannot resolve '(h w)' in reduce pattern"
+ */
+export type ReduceShapeError<Message extends string> = `[Reduce ❌] Shape Error: ${Message}`;
+
+// =============================================================================
+// Reduce-Specific Error Factory Functions
+// =============================================================================
+
+/**
+ * Create specific error for attempting to create new axes in reduce output
+ * Reduce operations can only preserve or remove axes, never create new ones
+ */
+export type ReduceNewAxisError<
+  AxisName extends string,
+  InputAxes extends readonly string[],
+> = ReduceAxisError<`Cannot create new axis '${AxisName}' in reduce output. Available input axes: [${FormatAxesList<InputAxes>}]. Reduce can only preserve or remove axes`>;
+
+/**
+ * Create specific duplicate axis error for reduce operations
+ */
+export type ReduceDuplicateAxisError<
+  AxisName extends string,
+  Side extends 'input' | 'output',
+> = ReduceAxisError<`Duplicate axis '${AxisName}' in ${Side}. Each axis can appear at most once per side`>;
+
+/**
+ * Create specific rank mismatch error for reduce operations
+ */
+export type ReduceRankMismatchError<
+  Expected extends number,
+  Actual extends number,
+> = ReduceShapeError<`Reduce pattern expects ${Expected} dimensions but tensor has ${Actual}`>;
+
+/**
+ * Create specific composite resolution error for reduce operations
+ */
+export type ReduceCompositeResolutionError<
+  CompositePattern extends string,
+  Dimension extends number,
+> = ReduceShapeError<`Cannot resolve '${CompositePattern}' from dimension ${Dimension}. Specify axis values: reduce(tensor, pattern, operation, keepDims, {axis: number})`>;
+
+/**
+ * Create specific dimension product mismatch error for reduce operations
+ */
+export type ReduceProductMismatchError<
+  CompositePattern extends string,
+  Expected extends number,
+  Actual extends number,
+> = ReduceShapeError<`Composite '${CompositePattern}' expects product ${Expected} but axes give ${Actual}. Check axis values`>;
+
+/**
+ * Create specific fractional dimension error for reduce operations
+ */
+export type ReduceFractionalDimensionError<
+  Pattern extends string,
+> = ReduceShapeError<`Reduce pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: reduce(tensor, pattern, operation, keepDims, {axis: integer})`>;

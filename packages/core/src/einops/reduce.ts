@@ -18,6 +18,7 @@ import {
 import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
 import type { ReduceEinopsOp } from '../storage/einops';
+import type { ValidReducePattern } from './type-shape-resolver-reduce';
 
 // =============================================================================
 // Types
@@ -108,7 +109,9 @@ export function reduce<
   const Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
-  pattern: Pattern,
+  pattern: ValidReducePattern<Pattern, S['__output']['__shape'], KeepDims, Axes> extends string 
+    ? ValidReducePattern<Pattern, S['__output']['__shape'], KeepDims, Axes> // Show the actual error message
+    : Pattern,
   operation: Op = 'mean' as Op,
   keepDims?: KeepDims,
   axes?: Axes,
