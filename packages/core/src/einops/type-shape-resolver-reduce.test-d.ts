@@ -2,7 +2,7 @@
  * Type-level tests for einops reduce shape resolver
  */
 
-import type { ResolveReduceShape } from './type-shape-resolver-reduce';
+import type { ResolveReduceShape, ValidReducePattern } from './type-shape-resolver-reduce';
 import { expectTypeOf } from 'expect-type';
 
 // =============================================================================
@@ -228,10 +228,10 @@ import { expectTypeOf } from 'expect-type';
 }
 
 // =============================================================================
-// Error Cases (should resolve to never)
+// Error Cases (should resolve to never with ResolveReduceShape)
 // =============================================================================
 
-// Test 16: Invalid patterns
+// Test 16: Invalid patterns with ResolveReduceShape (legacy behavior)
 {
   // Unknown axis in output
   type Result1 = ResolveReduceShape<'h w -> h w c', readonly [2, 3], false, { c: 1 }>;
@@ -251,4 +251,91 @@ import { expectTypeOf } from 'expect-type';
   // Wrong decomposition
   type Result = ResolveReduceShape<'(h h2) w -> h w', readonly [4, 6], false, { h: 3; h2: 2 }>;
   expectTypeOf<Result>().toBeNever();
+}
+
+// =============================================================================
+// Enhanced Error Cases with ValidReducePattern (should show specific errors)
+// =============================================================================
+
+// Test 18: Parse errors
+{
+  // Missing arrow operator
+  type Result1 = ValidReducePattern<'h w c', readonly [2, 3, 4]>;
+  expectTypeOf<Result1>().toEqualTypeOf<"[Reduce ❌] Parse Error: Missing arrow operator '->'. Pattern must be 'input -> output'">();
+
+  // Empty input for non-scalar tensor
+  type Result2 = ValidReducePattern<' -> c', readonly [2, 3, 4]>;
+  expectTypeOf<Result2>().toEqualTypeOf<"[Reduce ❌] Parse Error: Empty input pattern. Specify input axes before '->'">();
+}
+
+// Test 19: Axis errors
+{
+  // New axis creation (invalid for reduce)
+  type Result1 = ValidReducePattern<'h w -> h w c', readonly [2, 3]>;
+  expectTypeOf<Result1>().toEqualTypeOf<'[Reduce ❌] Axis Error: Cannot create new axis \'c\' in reduce output. Available input axes: [\'h\', \'w\']. Reduce can only preserve or remove axes'>();
+
+  // Duplicate axes in input
+  type Result2 = ValidReducePattern<'h h w -> h', readonly [2, 2, 3]>;
+  expectTypeOf<Result2>().toEqualTypeOf<'[Reduce ❌] Axis Error: Duplicate axis \'h\' in input. Each axis can appear at most once per side'>();
+
+  // Duplicate axes in output
+  type Result3 = ValidReducePattern<'h w c -> h h', readonly [2, 3, 4]>;
+  expectTypeOf<Result3>().toEqualTypeOf<'[Reduce ❌] Axis Error: Duplicate axis \'h\' in output. Each axis can appear at most once per side'>();
+
+  // Multiple ellipsis in input
+  type Result4 = ValidReducePattern<'... a ... -> a', readonly [2, 3, 4]>;
+  expectTypeOf<Result4>().toEqualTypeOf<'[Reduce ❌] Axis Error: Multiple ellipsis \'...\' in input. Only one ellipsis allowed per side'>();
+
+  // Multiple ellipsis in output
+  type Result5 = ValidReducePattern<'a -> ... a ...', readonly [2, 3, 4]>;
+  expectTypeOf<Result5>().toEqualTypeOf<'[Reduce ❌] Axis Error: Multiple ellipsis \'...\' in output. Only one ellipsis allowed per side'>();
+}
+
+// Test 20: Shape errors
+{
+  // Rank mismatch
+  type Result1 = ValidReducePattern<'h w c -> c', readonly [2, 3]>;
+  expectTypeOf<Result1>().toEqualTypeOf<'[Reduce ❌] Shape Error: Reduce pattern expects 3 dimensions but tensor has 2'>();
+
+  // Composite resolution error
+  type Result2 = ValidReducePattern<'(h h2) w -> h w', readonly [4, 6], false, { h: 3; h2: 2 }>;
+  expectTypeOf<Result2>().toEqualTypeOf<'[Reduce ❌] Shape Error: Cannot resolve \'(h h2)\' from dimension 4. Specify axis values: reduce(tensor, pattern, operation, keepDims, {axis: number})'>();
+}
+
+// Test 21: Fractional dimension errors (if we add integer validation)
+{
+  // This would catch fractional dimensions if our integer validation detects them
+  // type Result = ValidReducePattern<'h w -> h', readonly [2.5, 3]>;
+  // expectTypeOf<Result>().toEqualTypeOf<'[Reduce ❌] Shape Error: Reduce pattern \'h w -> h\' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: reduce(tensor, pattern, operation, keepDims, {axis: integer})'>();
+}
+
+// =============================================================================
+// Valid Cases with ValidReducePattern (should return shapes)
+// =============================================================================
+
+// Test 22: Valid patterns should return shapes, not error messages
+{
+  // Simple reduction
+  type Result1 = ValidReducePattern<'h w c -> c', readonly [2, 3, 4]>;
+  expectTypeOf<Result1>().toEqualTypeOf<readonly [4]>();
+
+  // Identity pattern
+  type Result2 = ValidReducePattern<'h w -> h w', readonly [2, 3]>;
+  expectTypeOf<Result2>().toEqualTypeOf<readonly [2, 3]>();
+
+  // Global reduction
+  type Result3 = ValidReducePattern<'h w c ->', readonly [2, 3, 4]>;
+  expectTypeOf<Result3>().toEqualTypeOf<readonly []>();
+
+  // Ellipsis patterns
+  type Result4 = ValidReducePattern<'batch ... c -> batch c', readonly [2, 3, 4, 5]>;
+  expectTypeOf<Result4>().toEqualTypeOf<readonly [2, 5]>();
+
+  // Composite patterns
+  type Result5 = ValidReducePattern<'(h h2) w -> h w', readonly [4, 6], false, { h: 2 }>;
+  expectTypeOf<Result5>().toEqualTypeOf<readonly [2, 6]>();
+
+  // KeepDims
+  type Result6 = ValidReducePattern<'h w c -> c', readonly [2, 3, 4], true>;
+  expectTypeOf<Result6>().toEqualTypeOf<readonly [1, 1, 4]>();
 }
