@@ -121,7 +121,8 @@ export type AllOperationTypes =
   | 'squeeze' // Remove size-1 dimensions
   | 'unsqueeze' // Add size-1 dimensions
   | 'expand' // Expand singleton dimensions
-  | 'tile'; // Repeat tensor along dimensions
+  | 'tile' // Repeat tensor along dimensions
+  | 'repeat'; // Repeat tensor along dimensions
 
 /**
  * Base interface for all storage transformations

@@ -17,6 +17,7 @@ import type {
 import type { ValidEinopsPattern } from '../einops/type-validation';
 import type { ResolveReduceShape } from '../einops/type-shape-resolver-reduce';
 import type { ReductionOp } from '../einops/reduce';
+import type { ValidRepeatPattern } from '../einops/type-shape-resolver-repeat';
 
 // =============================================================================
 // Layout Types
@@ -165,4 +166,76 @@ export type ReduceEinopsOp<
     ? InputInfo extends { shape: Shape; dtype: AnyDType }
       ? ResolveReduceOp<InputInfo, Pattern, Operation, KeepDims, Axes, Input>
       : never
+    : never;
+
+// =============================================================================
+// Repeat Operation
+// =============================================================================
+
+/**
+ * Compute output layout for repeat operations
+ * Repeat operations create new data (like reduce, not views like rearrange)
+ */
+interface RepeatLayout extends LayoutFlags {
+  // Repeat operations typically produce contiguous output
+  readonly c_contiguous: true;
+  readonly f_contiguous: false;
+  // Repeat operations create new data, not views
+  readonly is_view: false;
+  // New data is always writeable
+  readonly writeable: true;
+  // New data is aligned
+  readonly aligned: true;
+}
+
+/**
+ * Repeat operation with einops pattern-based element repetition
+ *
+ * Repeats tensor elements according to an einops pattern, allowing both
+ * new axis creation and element repetition along existing axes.
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 3]>;
+ * type B = RepeatOp<A, 'h w -> h w c', {c: 4}>; // Shape: [2, 3, 4]
+ * type C = RepeatOp<A, 'h w -> (h h2) w', {h2: 2}>; // Shape: [4, 3] 
+ * type D = RepeatOp<A, 'h w -> (h h2) (w w2)', {h2: 2, w2: 3}>; // Shape: [4, 9]
+ */
+export type RepeatOp<
+  Input extends AnyTensorStorage,
+  Pattern extends string,
+  Axes extends Record<string, number> | undefined = undefined,
+> =
+  ExtractInputInfo<Input> extends infer InputInfo
+    ? InputInfo extends { shape: Shape; dtype: AnyDType }
+      ? ResolveRepeatOp<InputInfo, Pattern, Axes, Input>
+      : never
+    : never;
+
+/**
+ * Helper type to resolve repeat operation
+ */
+export type ResolveRepeatOp<
+  InputInfo extends { shape: Shape; dtype: AnyDType },
+  Pattern extends string,
+  Axes extends Record<string, number> | undefined,
+  Input extends AnyTensorStorage,
+> =
+  ValidRepeatPattern<Pattern, InputInfo['shape'], Axes> extends infer OutputShape
+    ? OutputShape extends Shape
+      ? StorageTransformation<
+          'repeat',
+          TensorStorage<InputInfo['dtype'], OutputShape, ComputeStrides<OutputShape>, RepeatLayout>,
+          readonly [Input]
+        >
+      : OutputShape extends string
+        ? never & {
+            __error: OutputShape; // Return the specific error message
+            __pattern: Pattern;
+            __inputShape: ShapeToString<InputInfo['shape']>;
+          }
+        : never & {
+            __error: 'Failed to resolve repeat pattern';
+            __pattern: Pattern;
+            __inputShape: ShapeToString<InputInfo['shape']>;
+          }
     : never;

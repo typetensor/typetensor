@@ -25,6 +25,8 @@ import type {
   TypeAxisPattern,
   TypeSimpleAxis,
   TypeCompositeAxis,
+  TypeEllipsisAxis,
+  TypeSingletonAxis,
 } from './type-parser';
 import type {
   HasDuplicateAxisNames,
@@ -118,7 +120,9 @@ export type FindUnknownAxes<
       ? Tail extends readonly string[]
         ? FindUnknownAxes<InputAxes, Tail> // Known axis, continue
         : readonly []
-      : readonly [Head] // Unknown axis found
+      : Tail extends readonly string[]
+        ? readonly [Head, ...FindUnknownAxes<InputAxes, Tail>] // Unknown axis found, continue searching
+        : readonly [Head]
     : Tail extends readonly string[]
       ? FindUnknownAxes<InputAxes, Tail>
       : readonly []
@@ -236,46 +240,31 @@ export type CollectAxisNamesIntersectionSafe<
   Result extends readonly string[] = readonly [],
 > = Patterns extends readonly []
   ? Result
-  : Patterns extends readonly [infer Head]
+  : Patterns extends readonly [infer Head, ...infer Tail]
     ? Head extends TypeSimpleAxis
-      ? readonly [...Result, Head['name']]
+      ? Tail extends readonly TypeAxisPattern[]
+        ? CollectAxisNamesIntersectionSafe<Tail, readonly [...Result, Head['name']]>
+        : readonly [...Result, Head['name']]
       : Head extends TypeCompositeAxis
         ? CollectAxisNamesIntersectionSafe<Head['axes']> extends infer CompositeNames
           ? CompositeNames extends readonly string[]
-            ? readonly [...Result, ...CompositeNames]
+            ? Tail extends readonly TypeAxisPattern[]
+              ? CollectAxisNamesIntersectionSafe<Tail, readonly [...Result, ...CompositeNames]>
+              : readonly [...Result, ...CompositeNames]
+            : Tail extends readonly TypeAxisPattern[]
+              ? CollectAxisNamesIntersectionSafe<Tail, Result>
+              : Result
+          : Tail extends readonly TypeAxisPattern[]
+            ? CollectAxisNamesIntersectionSafe<Tail, Result>
             : Result
-          : Result
-        : Result
-    : Patterns extends readonly [infer First, infer Second]
-      ? First extends TypeSimpleAxis
-        ? CollectAxisNamesIntersectionSafe<readonly [Second], readonly [...Result, First['name']]>
-        : First extends TypeCompositeAxis
-          ? CollectAxisNamesIntersectionSafe<First['axes']> extends infer CompositeNames
-            ? CompositeNames extends readonly string[]
-              ? CollectAxisNamesIntersectionSafe<
-                  readonly [Second],
-                  readonly [...Result, ...CompositeNames]
-                >
-              : CollectAxisNamesIntersectionSafe<readonly [Second], Result>
-            : CollectAxisNamesIntersectionSafe<readonly [Second], Result>
-          : CollectAxisNamesIntersectionSafe<readonly [Second], Result>
-      : Patterns extends readonly [infer First, infer Second, infer Third]
-        ? First extends TypeSimpleAxis
-          ? CollectAxisNamesIntersectionSafe<
-              readonly [Second, Third],
-              readonly [...Result, First['name']]
-            >
-          : First extends TypeCompositeAxis
-            ? CollectAxisNamesIntersectionSafe<First['axes']> extends infer CompositeNames
-              ? CompositeNames extends readonly string[]
-                ? CollectAxisNamesIntersectionSafe<
-                    readonly [Second, Third],
-                    readonly [...Result, ...CompositeNames]
-                  >
-                : CollectAxisNamesIntersectionSafe<readonly [Second, Third], Result>
-              : CollectAxisNamesIntersectionSafe<readonly [Second, Third], Result>
-            : CollectAxisNamesIntersectionSafe<readonly [Second, Third], Result>
-        : Result;
+        : Head extends TypeEllipsisAxis | TypeSingletonAxis
+          ? Tail extends readonly TypeAxisPattern[]
+            ? CollectAxisNamesIntersectionSafe<Tail, Result>
+            : Result
+          : Tail extends readonly TypeAxisPattern[]
+            ? CollectAxisNamesIntersectionSafe<Tail, Result>
+            : Result
+    : Result;
 
 // =============================================================================
 // Specific Error Detection Functions

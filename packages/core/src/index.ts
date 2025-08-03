@@ -12,3 +12,5 @@ export { rearrange } from './einops/rearrange';
 export type { RearrangeOptions } from './einops/rearrange';
 export { reduce } from './einops/reduce';
 export type { ReduceOptions, ReductionOp } from './einops/reduce';
+export { repeat } from './einops/repeat';
+export type { RepeatOptions } from './einops/repeat';

@@ -252,3 +252,114 @@ export type ReduceProductMismatchError<
 export type ReduceFractionalDimensionError<
   Pattern extends string,
 > = ReduceShapeError<`Reduce pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: reduce(tensor, pattern, operation, keepDims, {axis: integer})`>;
+
+// =============================================================================
+// Repeat-Specific Error Types
+// =============================================================================
+
+/**
+ * Repeat parse error - issues with repeat pattern syntax
+ *
+ * @example
+ * type Error = RepeatParseError<"Missing arrow operator '->'">;
+ * // Result: "[Repeat ❌] Parse Error: Missing arrow operator '->'"
+ */
+export type RepeatParseError<Message extends string> = `[Repeat ❌] Parse Error: ${Message}`;
+
+/**
+ * Repeat axis error - issues with repeat axis names and usage
+ *
+ * @example
+ * type Error = RepeatAxisError<"New axis 'c' requires explicit size">;
+ * // Result: "[Repeat ❌] Axis Error: New axis 'c' requires explicit size"
+ */
+export type RepeatAxisError<Message extends string> = `[Repeat ❌] Axis Error: ${Message}`;
+
+/**
+ * Repeat shape error - issues with repeat dimension compatibility
+ *
+ * @example
+ * type Error = RepeatShapeError<"Cannot resolve '(h w)' in repeat pattern">;
+ * // Result: "[Repeat ❌] Shape Error: Cannot resolve '(h w)' in repeat pattern"
+ */
+export type RepeatShapeError<Message extends string> = `[Repeat ❌] Shape Error: ${Message}`;
+
+// =============================================================================
+// Repeat-Specific Error Factory Functions
+// =============================================================================
+
+/**
+ * Create specific error for missing axis dimensions in repeat operations
+ * Repeat operations allow new axes but they must have explicit sizes
+ */
+export type RepeatMissingAxisError<
+  AxisName extends string,
+> = RepeatAxisError<`New axis '${AxisName}' requires explicit size. Specify: repeat(tensor, pattern, {${AxisName}: number})`>;
+
+/**
+ * Create specific error for multiple missing axes in repeat operations
+ */
+export type RepeatMissingAxesError<
+  AxesNames extends readonly string[],
+> = RepeatAxisError<`New axes [${FormatAxesList<AxesNames>}] require explicit sizes. Specify: repeat(tensor, pattern, {${FormatAxisSpecs<AxesNames>}})`>;
+
+/**
+ * Format axis specifications for error messages
+ * @example FormatAxisSpecs<['w', 'c']> → "w: number, c: number"
+ */
+type FormatAxisSpecs<T extends readonly string[]> = T extends readonly [
+  infer First extends string,
+  ...infer Rest extends readonly string[],
+]
+  ? Rest['length'] extends 0
+    ? `${First}: number`
+    : `${First}: number, ${FormatAxisSpecs<Rest>}`
+  : never;
+
+/**
+ * Create specific error for invalid axis sizes in repeat operations
+ */
+export type RepeatInvalidSizeError<
+  AxisName extends string,
+  Size extends number,
+> = RepeatAxisError<`Invalid size ${Size} for axis '${AxisName}'. Repeat sizes must be positive integers`>;
+
+/**
+ * Create specific duplicate axis error for repeat operations
+ */
+export type RepeatDuplicateAxisError<
+  AxisName extends string,
+  Side extends 'input' | 'output',
+> = RepeatAxisError<`Duplicate axis '${AxisName}' in ${Side}. Each axis can appear at most once per side`>;
+
+/**
+ * Create specific rank mismatch error for repeat operations
+ */
+export type RepeatRankMismatchError<
+  Expected extends number,
+  Actual extends number,
+> = RepeatShapeError<`Repeat pattern expects ${Expected} dimensions but tensor has ${Actual}`>;
+
+/**
+ * Create specific composite resolution error for repeat operations
+ */
+export type RepeatCompositeResolutionError<
+  CompositePattern extends string,
+  Dimension extends number,
+> = RepeatShapeError<`Cannot resolve '${CompositePattern}' from dimension ${Dimension}. Specify axis values: repeat(tensor, pattern, {axis: number})`>;
+
+/**
+ * Create specific dimension product mismatch error for repeat operations
+ */
+export type RepeatProductMismatchError<
+  CompositePattern extends string,
+  Expected extends number,
+  Actual extends number,
+> = RepeatShapeError<`Composite '${CompositePattern}' expects product ${Expected} but axes give ${Actual}. Check axis values`>;
+
+/**
+ * Create specific fractional dimension error for repeat operations
+ */
+export type RepeatFractionalDimensionError<
+  Pattern extends string,
+> = RepeatShapeError<`Repeat pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: repeat(tensor, pattern, {axis: integer})`>;
