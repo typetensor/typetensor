@@ -228,6 +228,56 @@ export async function executeMinOp(
 }
 
 /**
+ * Execute product reduction operation
+ *
+ * @param device - CPU device instance
+ * @param op - Product operation descriptor with metadata
+ * @param input - Input tensor data
+ * @param output - Optional pre-allocated output buffer
+ * @returns Result tensor data containing product values
+ */
+export async function executeProdOp(
+  device: Device,
+  op: AnyStorageTransformation & {
+    __prodAxes: readonly number[] | undefined;
+    __keepDims: boolean;
+  },
+  input: DeviceData,
+  output?: DeviceData,
+): Promise<DeviceData> {
+  const inputStorage = op.__inputs[0];
+  if (!inputStorage) {
+    throw new Error('Product operation requires input storage');
+  }
+  const inputShape = inputStorage.__shape;
+  const outputShape = op.__output.__shape;
+  const axes = op.__prodAxes;
+
+  // Create output buffer if not provided
+  const result = output || device.createData(op.__output.__size * op.__output.__dtype.__byteSize);
+  const resultData = result as CPUDeviceData;
+  const inputData = input as CPUDeviceData;
+
+  // Get typed array views
+  const inputView = createTypedArray(inputData.buffer, inputStorage.__dtype);
+  const outputView = createTypedArray(resultData.buffer, op.__output.__dtype);
+
+  // Handle different reduction cases
+  if (axes === undefined) {
+    // Global product - product of all elements
+    performGlobalProd(inputView, outputView);
+  } else if (axes.length === 0) {
+    // Empty axes - copy input to output
+    performCopy(inputView, outputView);
+  } else {
+    // Reduction along specific axes
+    performAxisProd(inputView, outputView, inputShape, outputShape, axes);
+  }
+
+  return result;
+}
+
+/**
  * Perform global sum reduction
  */
 function performGlobalSum(
@@ -339,6 +389,32 @@ function performGlobalMin(
     }
   }
   outputView[0] = min;
+}
+
+/**
+ * Perform global product reduction
+ */
+function performGlobalProd(
+  inputView: ArrayLike<number | bigint>,
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
+): void {
+  // Product of empty tensor is multiplicative identity (1)
+  if (inputView.length === 0) {
+    outputView[0] = 1;
+    return;
+  }
+
+  let prod: number | bigint = 1;
+  for (let i = 0; i < inputView.length; i++) {
+    const val = inputView[i];
+    if (val !== undefined) {
+      prod =
+        typeof prod === 'bigint' || typeof val === 'bigint'
+          ? BigInt(prod) * BigInt(val)
+          : Number(prod) * Number(val);
+    }
+  }
+  outputView[0] = prod;
 }
 
 /**
@@ -584,4 +660,85 @@ function coordsToFlatIndex(coords: number[], strides: number[]): number {
     }
   }
   return flatIdx;
+}
+
+/**
+ * Perform product reduction along specific axes
+ *
+ * @param inputView - Input typed array view
+ * @param outputView - Output typed array view
+ * @param inputShape - Input tensor shape
+ * @param outputShape - Output tensor shape
+ * @param axes - Axes to reduce along
+ */
+function performAxisProd(
+  inputView: ArrayLike<number | bigint>,
+  outputView: ArrayLike<number | bigint> & Record<number, number | bigint>,
+  inputShape: readonly number[],
+  outputShape: readonly number[],
+  axes: readonly number[],
+): void {
+  // Normalize negative axes
+  const normalizedAxes = axes.map((axis) => (axis < 0 ? inputShape.length + axis : axis));
+  const axisSet = new Set(normalizedAxes);
+
+  // Initialize output to multiplicative identity (1)
+  for (let i = 0; i < outputView.length; i++) {
+    outputView[i] = 1;
+  }
+
+  // Compute input and output strides for efficient indexing
+  const inputStrides = computeStrides(inputShape);
+  const outputStrides = computeStrides(outputShape);
+
+  // Iterate through all input elements
+  const inputSize = inputView.length;
+  for (let flatIdx = 0; flatIdx < inputSize; flatIdx++) {
+    // Convert flat index to multi-dimensional coordinates
+    const inputCoords = flatIndexToCoords(flatIdx, inputStrides);
+
+    // Map to output coordinates based on the actual output shape
+    // If keepDims=true, outputShape retains all dimensions (with reduced dims as size 1)
+    // If keepDims=false, outputShape has reduced dimensions removed
+    const outputCoords: number[] = [];
+
+    if (inputCoords.length === outputShape.length) {
+      // keepDims=true case: output shape matches input rank
+      // Set reduced dimensions to 0, keep others as-is
+      for (let dim = 0; dim < inputCoords.length; dim++) {
+        if (axisSet.has(dim)) {
+          outputCoords.push(0); // Reduced dimension maps to index 0
+        } else {
+          const coord = inputCoords[dim];
+          if (coord !== undefined) {
+            outputCoords.push(coord);
+          }
+        }
+      }
+    } else {
+      // keepDims=false case: output shape has reduced dimensions removed
+      // Only include non-reduced dimensions
+      for (let dim = 0; dim < inputCoords.length; dim++) {
+        if (!axisSet.has(dim)) {
+          const coord = inputCoords[dim];
+          if (coord !== undefined) {
+            outputCoords.push(coord);
+          }
+        }
+      }
+    }
+
+    // Convert output coordinates to flat index
+    const outputIdx = coordsToFlatIndex(outputCoords, outputStrides);
+
+    // Multiply the value
+    const inputVal = inputView[flatIdx];
+    const currentOutput = outputView[outputIdx];
+    if (inputVal !== undefined && currentOutput !== undefined) {
+      outputView[outputIdx] =
+        typeof currentOutput === 'bigint' || typeof inputVal === 'bigint'
+          ? BigInt(currentOutput) * BigInt(inputVal)
+          : Number(currentOutput) * Number(inputVal);
+    }
+  }
 }

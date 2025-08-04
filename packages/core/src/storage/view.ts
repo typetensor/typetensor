@@ -14,8 +14,16 @@ import type {
   SliceSpec,
   SliceIndex,
   Permute,
+  Squeeze,
+  Unsqueeze,
+  ExpandShape,
+  CanExpand,
+  TileShape,
+  Length,
+  Drop,
 } from '../shape/types';
-import type { Divide, Mod, Multiply, Compare } from 'ts-arithmetic';
+import type { Divide, Mod, Multiply, Compare, Subtract } from 'ts-arithmetic';
+import type { Decrement } from '../arithmetic';
 import type {
   TensorStorage,
   StorageTransformation,
@@ -512,3 +520,390 @@ type IsInRange<X extends number, N extends number> = X extends number
       ? true
       : false
   : false;
+
+// =============================================================================
+// Squeeze and Unsqueeze Operations
+// =============================================================================
+
+/**
+ * Squeeze operation storage transformation
+ *
+ * Removes dimensions of size 1 from the tensor shape.
+ * If no axes are specified, removes all size-1 dimensions.
+ * If axes are specified, removes only those dimensions (which must have size 1).
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 1, 3, 1]>;
+ * type B = SqueezeOp<A, undefined>; // Global squeeze: Shape [2, 3]
+ * type C = SqueezeOp<A, [1]>; // Axis-specific: Shape [2, 3, 1]
+ * type D = SqueezeOp<A, [0]>; // Error: dimension 0 has size 2, not 1
+ */
+export type SqueezeOp<
+  Input extends AnyTensorStorage,
+  Axes extends readonly number[] | undefined = undefined,
+> = StorageTransformation<
+  'squeeze',
+  TensorStorage<
+    Input['__dtype'],
+    Axes extends undefined
+      ? Squeeze<Input['__shape'], -1> // Global squeeze
+      : Axes extends readonly number[]
+        ? SqueezeAxes<Input['__shape'], Axes> // Axis-specific squeeze
+        : never,
+    ComputeSqueezedStrides<Input['__strides'], Input['__shape'], Axes>,
+    ViewLayout<Input['__layout']>
+  > & {
+    // Store the squeeze axes as metadata for device implementation
+    readonly __squeezeAxes: Axes;
+  },
+  readonly [Input]
+>;
+
+/**
+ * Helper: Squeeze specific axes from shape
+ */
+type SqueezeAxes<S extends Shape, Axes extends readonly number[]> = SqueezeAxesHelper<
+  S,
+  NormalizeAxes<Axes, S['length']>,
+  0,
+  readonly []
+>;
+
+type SqueezeAxesHelper<
+  S extends Shape,
+  NormalizedAxes extends readonly number[],
+  CurrentIndex extends number,
+  Acc extends Shape,
+> = S extends readonly [infer Head, ...infer Tail]
+  ? Head extends number
+    ? Tail extends Shape
+      ? Contains<NormalizedAxes, CurrentIndex> extends true
+        ? SqueezeAxesHelper<Tail, NormalizedAxes, Inc<CurrentIndex>, Acc> // Skip this dimension
+        : SqueezeAxesHelper<Tail, NormalizedAxes, Inc<CurrentIndex>, readonly [...Acc, Head]> // Keep this dimension
+      : Acc
+    : Acc
+  : Acc;
+
+/**
+ * Helper: Normalize negative axes
+ */
+type NormalizeAxes<Axes extends readonly number[], Rank extends number> = {
+  readonly [K in keyof Axes]: Axes[K] extends number
+    ? Axes[K] extends -1
+      ? Subtract<Rank, 1>
+      : Axes[K] extends -2
+        ? Subtract<Rank, 2>
+        : Axes[K]
+    : never;
+};
+
+/**
+ * Helper: Compute strides after squeeze operation
+ */
+type ComputeSqueezedStrides<
+  InputStrides extends Shape,
+  InputShape extends Shape,
+  Axes extends readonly number[] | undefined,
+> = Axes extends undefined
+  ? ComputeGlobalSqueezedStrides<InputStrides, InputShape, 0, readonly []>
+  : Axes extends readonly number[]
+    ? ComputeAxisSqueezedStrides<
+        InputStrides,
+        NormalizeAxes<Axes, InputShape['length']>,
+        0,
+        readonly []
+      >
+    : never;
+
+type ComputeGlobalSqueezedStrides<
+  InputStrides extends Shape,
+  InputShape extends Shape,
+  CurrentIndex extends number,
+  Acc extends Shape,
+> = InputShape extends readonly [infer HeadDim, ...infer TailShape]
+  ? InputStrides extends readonly [infer HeadStride, ...infer TailStrides]
+    ? HeadDim extends 1
+      ? TailShape extends Shape
+        ? TailStrides extends Shape
+          ? ComputeGlobalSqueezedStrides<TailStrides, TailShape, Inc<CurrentIndex>, Acc> // Skip size-1 dimension
+          : Acc
+        : Acc
+      : TailShape extends Shape
+        ? TailStrides extends Shape
+          ? HeadStride extends number
+            ? ComputeGlobalSqueezedStrides<
+                TailStrides,
+                TailShape,
+                Inc<CurrentIndex>,
+                readonly [...Acc, HeadStride]
+              >
+            : Acc
+          : Acc
+        : Acc
+    : Acc
+  : Acc;
+
+type ComputeAxisSqueezedStrides<
+  InputStrides extends Shape,
+  NormalizedAxes extends readonly number[],
+  CurrentIndex extends number,
+  Acc extends Shape,
+> = InputStrides extends readonly [infer HeadStride, ...infer TailStrides]
+  ? Contains<NormalizedAxes, CurrentIndex> extends true
+    ? TailStrides extends Shape
+      ? ComputeAxisSqueezedStrides<TailStrides, NormalizedAxes, Inc<CurrentIndex>, Acc> // Skip this stride
+      : Acc
+    : TailStrides extends Shape
+      ? HeadStride extends number
+        ? ComputeAxisSqueezedStrides<
+            TailStrides,
+            NormalizedAxes,
+            Inc<CurrentIndex>,
+            readonly [...Acc, HeadStride]
+          >
+        : Acc
+      : Acc
+  : Acc;
+
+/**
+ * Unsqueeze operation storage transformation
+ *
+ * Adds a dimension of size 1 at the specified axis position.
+ * The axis can be negative to indicate position from the end.
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 3]>;
+ * type B = UnsqueezeOp<A, 0>; // Shape: [1, 2, 3]
+ * type C = UnsqueezeOp<A, 1>; // Shape: [2, 1, 3]
+ * type D = UnsqueezeOp<A, -1>; // Shape: [2, 3, 1]
+ */
+export type UnsqueezeOp<
+  Input extends AnyTensorStorage,
+  Axis extends number,
+> = StorageTransformation<
+  'unsqueeze',
+  TensorStorage<
+    Input['__dtype'],
+    Unsqueeze<Input['__shape'], Axis>,
+    ComputeUnsqueezedStrides<Input['__strides'], Input['__shape'], Axis>,
+    ViewLayout<Input['__layout']>
+  > & {
+    // Store the unsqueeze axis as metadata for device implementation
+    readonly __unsqueezeAxis: Axis;
+  },
+  readonly [Input]
+>;
+
+/**
+ * Helper: Compute strides after unsqueeze operation
+ */
+type ComputeUnsqueezedStrides<
+  InputStrides extends Shape,
+  InputShape extends Shape,
+  Axis extends number,
+> = ComputeUnsqueezedStridesHelper<
+  InputStrides,
+  NormalizeUnsqueezeAxis<Axis, InputShape['length']>,
+  0,
+  readonly []
+>;
+
+type ComputeUnsqueezedStridesHelper<
+  InputStrides extends Shape,
+  NormalizedAxis extends number,
+  CurrentIndex extends number,
+  Acc extends Shape,
+> = CurrentIndex extends NormalizedAxis
+  ? readonly [...Acc, 1, ...InputStrides] // Insert stride of 1 at the target position
+  : InputStrides extends readonly [infer HeadStride, ...infer TailStrides]
+    ? HeadStride extends number
+      ? TailStrides extends Shape
+        ? ComputeUnsqueezedStridesHelper<
+            TailStrides,
+            NormalizedAxis,
+            Inc<CurrentIndex>,
+            readonly [...Acc, HeadStride]
+          >
+        : readonly [...Acc, HeadStride]
+      : Acc
+    : CurrentIndex extends NormalizedAxis
+      ? readonly [...Acc, 1] // Insert at end if we've processed all input strides
+      : Acc;
+
+/**
+ * Helper: Normalize unsqueeze axis (handle negative indices)
+ */
+type NormalizeUnsqueezeAxis<Axis extends number, Rank extends number> = Axis extends number
+  ? Axis extends -1
+    ? Rank
+    : Axis extends -2
+      ? Subtract<Rank, 1>
+      : Axis
+  : never;
+
+// =============================================================================
+// Expand and Tile Operations
+// =============================================================================
+
+/**
+ * Expand operation storage transformation
+ *
+ * Broadcasts tensor to new shape by expanding singleton dimensions.
+ * This is a view operation - no data is copied.
+ *
+ * Rules:
+ * - Can only expand dimensions of size 1
+ * - Use -1 to keep existing dimension size
+ * - Can add new dimensions on the left
+ *
+ * @example
+ * type A = TensorStorage<Float32, [3, 1, 5]>;
+ * type B = ExpandOp<A, [3, 4, 5]>; // Expands middle dim from 1 to 4
+ * type C = ExpandOp<A, [-1, 4, -1]>; // Same, using -1 to keep dims
+ * type D = ExpandOp<A, [2, 3, 4, 5]>; // Adds new dimension
+ */
+export type ExpandOp<Input extends AnyTensorStorage, TargetShape extends readonly (number | -1)[]> =
+  CanExpand<Input['__shape'], TargetShape> extends true
+    ? StorageTransformation<
+        'expand',
+        TensorStorage<
+          Input['__dtype'],
+          ExpandShape<Input['__shape'], TargetShape>,
+          ComputeExpandedStrides<Input['__strides'], Input['__shape'], TargetShape>,
+          ViewLayout<Input['__layout']>
+        > & {
+          readonly __expandTargetShape: TargetShape;
+        },
+        readonly [Input]
+      >
+    : never & {
+        __error: 'Cannot expand: incompatible shapes';
+        __hint: 'Can only expand singleton dimensions (size 1)';
+        __inputShape: Input['__shape'];
+        __targetShape: TargetShape;
+      };
+
+/**
+ * Compute strides for expanded tensor
+ * Expanded dimensions get stride 0 (broadcasting)
+ */
+type ComputeExpandedStrides<
+  InputStrides extends Shape,
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+> =
+  Length<TargetShape> extends infer TargetLen
+    ? TargetLen extends number
+      ? Length<InputShape> extends infer InputLen
+        ? InputLen extends number
+          ? Compare<TargetLen, InputLen> extends 1 // More target dims
+            ? ComputeExpandedStridesWithNewDims<
+                InputStrides,
+                InputShape,
+                TargetShape,
+                Subtract<TargetLen, InputLen>
+              >
+            : ComputeExpandedStridesSameDims<InputStrides, InputShape, TargetShape>
+          : never
+        : never
+      : never
+    : never;
+
+/**
+ * Compute strides when adding new dimensions (prepend 0s)
+ */
+type ComputeExpandedStridesWithNewDims<
+  InputStrides extends Shape,
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+  NewDimsCount extends number,
+> = NewDimsCount extends 0
+  ? ComputeExpandedStridesSameDims<InputStrides, InputShape, TargetShape>
+  : readonly [
+      0,
+      ...ComputeExpandedStridesWithNewDims<
+        InputStrides,
+        InputShape,
+        Drop<TargetShape, 1>,
+        Decrement<NewDimsCount>
+      >,
+    ];
+
+/**
+ * Compute strides for same number of dimensions
+ * Expanded dims (from 1 to N) get stride 0
+ */
+type ComputeExpandedStridesSameDims<
+  InputStrides extends Shape,
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+> = InputStrides extends readonly []
+  ? readonly []
+  : InputStrides extends readonly [infer FirstStride, ...infer RestStrides]
+    ? InputShape extends readonly [infer FirstShape, ...infer RestShape]
+      ? TargetShape extends readonly [infer FirstTarget, ...infer RestTarget]
+        ? FirstStride extends number
+          ? RestStrides extends Shape
+            ? FirstShape extends number
+              ? RestShape extends Shape
+                ? RestTarget extends readonly (number | -1)[]
+                  ? FirstShape extends 1
+                    ? FirstTarget extends -1
+                      ? readonly [
+                          FirstStride,
+                          ...ComputeExpandedStridesSameDims<RestStrides, RestShape, RestTarget>,
+                        ]
+                      : readonly [
+                          0,
+                          ...ComputeExpandedStridesSameDims<RestStrides, RestShape, RestTarget>,
+                        ] // Expanded: stride 0
+                    : readonly [
+                        FirstStride,
+                        ...ComputeExpandedStridesSameDims<RestStrides, RestShape, RestTarget>,
+                      ] // Not expanded
+                  : never
+                : never
+              : never
+            : never
+          : never
+        : never
+      : never
+    : never;
+
+/**
+ * Layout for copy operations (not a view)
+ */
+interface CopyLayout extends LayoutFlags {
+  readonly c_contiguous: true; // New tensors are C-contiguous
+  readonly f_contiguous: false;
+  readonly is_view: false; // Not a view
+  readonly writeable: true;
+  readonly aligned: true;
+}
+
+/**
+ * Tile operation storage transformation
+ *
+ * Repeats tensor along specified dimensions.
+ * This creates a new tensor - data is copied.
+ *
+ * @example
+ * type A = TensorStorage<Float32, [2, 3]>;
+ * type B = TileOp<A, [2, 3]>; // Shape: [4, 9]
+ * type C = TileOp<A, [2, 1, 3]>; // Shape: [2, 2, 9] (adds dim)
+ */
+export type TileOp<
+  Input extends AnyTensorStorage,
+  Reps extends readonly number[],
+> = StorageTransformation<
+  'tile',
+  TensorStorage<
+    Input['__dtype'],
+    TileShape<Input['__shape'], Reps>,
+    ComputeStrides<TileShape<Input['__shape'], Reps>>,
+    CopyLayout
+  > & {
+    readonly __tileReps: Reps;
+  },
+  readonly [Input]
+>;

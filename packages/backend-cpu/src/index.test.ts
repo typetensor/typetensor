@@ -17,6 +17,9 @@ import {
   generateSoftmaxOperationTests,
   generateMatmulOperationTests,
   generateEinopsOperationTests,
+  generateDeviceOperationTests,
+  generateUtilityOperationTests,
+  generateDataAccessOperationTests,
 } from '@typetensor/test-utils';
 import { cpu } from './index';
 
@@ -48,6 +51,8 @@ const testFramework = {
     },
     not: {
       toThrow: () => expect(() => actual).not.toThrow(),
+      toBe: (expected: unknown) => expect(actual).not.toBe(expected),
+      toContain: (substring: string) => expect(actual).not.toContain(substring),
     },
   }),
 };
@@ -72,4 +77,9 @@ describe('CPU Backend Integration Tests', () => {
   generateSoftmaxOperationTests(cpu, testFramework);
   generateMatmulOperationTests(cpu, testFramework);
   generateEinopsOperationTests(cpu, testFramework);
+  
+  // New test suites for missing operations
+  generateDeviceOperationTests(cpu, testFramework);
+  generateUtilityOperationTests(cpu, testFramework);
+  generateDataAccessOperationTests(cpu, testFramework);
 });

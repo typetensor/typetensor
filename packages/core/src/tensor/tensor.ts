@@ -22,10 +22,21 @@ import type {
 } from '../shape/types';
 import type { Neg, Abs, Sin, Cos, Exp, Log, Sqrt, Square } from '../storage/unary';
 import type { Add, Sub, Mul, Div } from '../storage/binary';
-import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from '../storage/view';
+import type {
+  ReshapeOp,
+  Flatten,
+  View,
+  SliceOp,
+  TransposeOp,
+  PermuteOp,
+  SqueezeOp,
+  UnsqueezeOp,
+  ExpandOp,
+  TileOp,
+} from '../storage/view';
 import type { MatmulOp } from '../storage/matmul';
 import type { SoftmaxOp, LogSoftmaxOp } from '../storage/softmax';
-import type { SumOp, MeanOp, MaxOp, MinOp } from '../storage/reduction';
+import type { SumOp, MeanOp, MaxOp, MinOp, ProdOp } from '../storage/reduction';
 import type { DTypeValue } from '../dtype/types';
 import type { NestedArray } from './types';
 import { bufferToNestedArray } from './types';
@@ -286,6 +297,42 @@ export class ChainablePromise<S extends AnyStorageTransformation> extends Promis
     });
   }
 
+  squeeze<Axes extends readonly number[] | undefined = undefined>(
+    axes?: Axes,
+  ): ChainablePromise<SqueezeOp<S['__output'], Axes>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.squeeze(axes))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  unsqueeze<Axis extends number>(axis: Axis): ChainablePromise<UnsqueezeOp<S['__output'], Axis>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.unsqueeze(axis))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  expand<TargetShape extends readonly (number | -1)[]>(
+    shape: TargetShape,
+  ): ChainablePromise<ExpandOp<S['__output'], TargetShape>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.expand(shape))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  tile<Reps extends readonly number[]>(reps: Reps): ChainablePromise<TileOp<S['__output'], Reps>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.tile(reps))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
   // =============================================================================
   // Matrix Operations (Chainable)
   // =============================================================================
@@ -385,6 +432,19 @@ export class ChainablePromise<S extends AnyStorageTransformation> extends Promis
   ): ChainablePromise<MinOp<S['__output'], Axes, KeepDims>> {
     return new ChainablePromise((resolve, reject) => {
       this.then((tensor) => tensor.min(axes, keepdims))
+        .then(resolve)
+        .catch(reject);
+    });
+  }
+
+  prod<Axes extends readonly number[] | undefined = undefined, KeepDims extends boolean = false>(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for prod reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): ChainablePromise<ProdOp<S['__output'], Axes, KeepDims>> {
+    return new ChainablePromise((resolve, reject) => {
+      this.then((tensor) => tensor.prod(axes, keepdims))
         .then(resolve)
         .catch(reject);
     });
@@ -573,8 +633,8 @@ type ModuloCheck<A extends number, B extends number> = Mod<A, B>;
  */
 export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformation> {
   constructor(
-    private readonly transform: S,
-    private readonly data: DeviceData,
+    readonly transform: S,
+    readonly data: DeviceData,
   ) {}
 
   // =============================================================================
@@ -1245,9 +1305,19 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             __inputs: [tensor.storage] as const,
           } as ReshapeOp<S['__output'], NewShape>;
 
-          // Reshape typically returns a view (same data, new metadata)
+          // Reshape returns a view if the device supports it, otherwise same data
+          const viewData = tensor.data.device.createView
+            ? tensor.data.device.createView(
+                tensor.data,
+                validShape,
+                computeStrides(validShape),
+                tensor.storage.__offset,
+                tensor.storage.__dtype,
+              )
+            : tensor.data;
+
           resolve(
-            new Tensor(reshapeOp, tensor.data) as CanReshape<
+            new Tensor(reshapeOp, viewData) as CanReshape<
               S['__output']['__shape'],
               NewShape
             > extends true
@@ -1292,7 +1362,18 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       __inputs: [this.storage] as const,
     } as ReshapeOp<S['__output'], NewShape>;
 
-    return new Tensor(reshapeOp, this.data);
+    // Create a view if the device supports it
+    const viewData = this.data.device.createView
+      ? this.data.device.createView(
+          this.data,
+          shape,
+          computeStrides(shape),
+          this.storage.__offset,
+          this.storage.__dtype,
+        )
+      : this.data;
+
+    return new Tensor(reshapeOp, viewData);
   }
 
   /**
@@ -1483,6 +1564,13 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
     }
 
     if (inferIndex === -1) {
+      // No -1 dimension, validate that the total size matches
+      const newSize = shape.reduce((a, b) => a * (b as number), 1);
+      if (newSize !== totalSize) {
+        throw new Error(
+          `Cannot reshape tensor of size ${totalSize} into shape [${shape.join(', ')}] (size ${newSize})`,
+        );
+      }
       return shape as readonly number[];
     }
 
@@ -1640,7 +1728,18 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             __inputs: [contiguousTensor.storage] as const,
           } as TransposeOp<S['__output']>;
 
-          resolve(new Tensor(transposeOp, contiguousTensor.data));
+          // Create a view with transposed strides if the device supports it
+          const viewData = contiguousTensor.data.device.createView
+            ? contiguousTensor.data.device.createView(
+                contiguousTensor.data,
+                transposedShape,
+                transposedStrides,
+                contiguousTensor.storage.__offset,
+                contiguousTensor.storage.__dtype,
+              )
+            : contiguousTensor.data;
+
+          resolve(new Tensor(transposeOp, viewData));
         } catch (error) {
           reject(error);
         }
@@ -1722,6 +1821,388 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
           resolve(
             new Tensor(permuteOp, contiguousTensor.data) as Tensor<PermuteOp<S['__output'], Axes>>,
           );
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
+  }
+
+  /**
+   * Remove dimensions of size 1 from tensor shape
+   *
+   * If no axes are specified, removes all size-1 dimensions.
+   * If axes are specified, removes only those dimensions (which must have size 1).
+   *
+   * @param axes - Optional axes to squeeze (must use 'as const')
+   * @returns View with squeezed dimensions
+   *
+   * @example
+   * const a = await tensor([[[1], [2]], [[3], [4]]]); // Shape: [2, 2, 1]
+   * const b = a.squeeze(); // Shape: [2, 2] (removes all size-1 dims)
+   * const c = a.squeeze([2] as const); // Shape: [2, 2] (removes specific dim)
+   */
+  squeeze<Axes extends readonly number[] | undefined = undefined>(
+    axes?: Axes,
+  ): ChainablePromise<SqueezeOp<S['__output'], Axes>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Runtime validation for axes
+          if (axes !== undefined) {
+            for (const axis of axes) {
+              const normalizedAxis = axis < 0 ? this.ndim + axis : axis;
+              if (normalizedAxis < 0 || normalizedAxis >= this.ndim) {
+                throw new Error(`Squeeze axis ${axis} out of bounds for rank ${this.ndim} tensor`);
+              }
+              if (this.shape[normalizedAxis] !== 1) {
+                throw new Error(
+                  `Cannot squeeze dimension ${axis} with size ${this.shape[normalizedAxis]} (must be 1)`,
+                );
+              }
+            }
+          }
+
+          // Compute new shape by squeezing
+          let newShape: number[];
+          if (axes === undefined) {
+            // Global squeeze - remove all size-1 dimensions
+            newShape = this.shape.filter((dim) => dim !== 1);
+          } else {
+            // Axis-specific squeeze - remove only specified dimensions
+            const normalizedAxes = axes.map((axis) => (axis < 0 ? this.ndim + axis : axis));
+            newShape = this.shape.filter((_, index) => !normalizedAxes.includes(index));
+          }
+
+          // Compute new strides by removing corresponding strides
+          let newStrides: number[];
+          if (axes === undefined) {
+            // Global squeeze - remove strides for size-1 dimensions
+            newStrides = this.strides.filter((_, index) => this.shape[index] !== 1);
+          } else {
+            // Axis-specific squeeze - remove strides for specified dimensions
+            const normalizedAxes = axes.map((axis) => (axis < 0 ? this.ndim + axis : axis));
+            newStrides = this.strides.filter((_, index) => !normalizedAxes.includes(index));
+          }
+
+          const squeezeOp = {
+            __op: 'squeeze' as const,
+            __output: {
+              __dtype: this.storage.__dtype,
+              __shape: newShape as unknown as SqueezeOp<S['__output'], Axes>['__output']['__shape'],
+              __strides: newStrides as unknown as SqueezeOp<
+                S['__output'],
+                Axes
+              >['__output']['__strides'],
+              __size: this.storage.__size,
+              __layout: {
+                c_contiguous: this.storage.__layout.c_contiguous,
+                f_contiguous: this.storage.__layout.f_contiguous,
+                is_view: true,
+                writeable: this.storage.__layout.writeable,
+                aligned: this.storage.__layout.aligned,
+              },
+              __offset: this.storage.__offset,
+            } as SqueezeOp<S['__output'], Axes>['__output'],
+            __squeezeAxes: axes,
+            __inputs: [this.storage] as const,
+          } as SqueezeOp<S['__output'], Axes>;
+
+          resolve(new Tensor(squeezeOp, this.data) as Tensor<SqueezeOp<S['__output'], Axes>>);
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
+  }
+
+  /**
+   * Add a dimension of size 1 at the specified axis
+   *
+   * The axis can be negative to indicate position from the end.
+   *
+   * @param axis - Position to insert new dimension
+   * @returns View with unsqueezed dimension
+   *
+   * @example
+   * const a = await tensor([1, 2, 3, 4]); // Shape: [4]
+   * const b = a.unsqueeze(0); // Shape: [1, 4]
+   * const c = a.unsqueeze(1); // Shape: [4, 1]
+   * const d = a.unsqueeze(-1); // Shape: [4, 1] (same as axis=1)
+   */
+  unsqueeze<Axis extends number>(axis: Axis): ChainablePromise<UnsqueezeOp<S['__output'], Axis>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Validate axis bounds
+          const normalizedAxis = axis < 0 ? this.ndim + axis + 1 : axis;
+          if (normalizedAxis < 0 || normalizedAxis > this.ndim) {
+            throw new Error(`Unsqueeze axis ${axis} out of bounds for rank ${this.ndim} tensor`);
+          }
+
+          // Compute new shape by inserting size-1 dimension
+          const newShape = [
+            ...this.shape.slice(0, normalizedAxis),
+            1,
+            ...this.shape.slice(normalizedAxis),
+          ];
+
+          // Compute new strides by inserting stride of 1
+          const newStrides = [
+            ...this.strides.slice(0, normalizedAxis),
+            1,
+            ...this.strides.slice(normalizedAxis),
+          ];
+
+          const unsqueezeOp = {
+            __op: 'unsqueeze' as const,
+            __output: {
+              __dtype: this.storage.__dtype,
+              __shape: newShape as unknown as UnsqueezeOp<
+                S['__output'],
+                Axis
+              >['__output']['__shape'],
+              __strides: newStrides as unknown as UnsqueezeOp<
+                S['__output'],
+                Axis
+              >['__output']['__strides'],
+              __size: this.storage.__size,
+              __layout: {
+                c_contiguous: this.storage.__layout.c_contiguous,
+                f_contiguous: this.storage.__layout.f_contiguous,
+                is_view: true,
+                writeable: this.storage.__layout.writeable,
+                aligned: this.storage.__layout.aligned,
+              },
+              __offset: this.storage.__offset,
+            } as UnsqueezeOp<S['__output'], Axis>['__output'],
+            __unsqueezeAxis: axis,
+            __inputs: [this.storage] as const,
+          } as UnsqueezeOp<S['__output'], Axis>;
+
+          resolve(new Tensor(unsqueezeOp, this.data) as Tensor<UnsqueezeOp<S['__output'], Axis>>);
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
+  }
+
+  /**
+   * Expand tensor to a new shape by broadcasting singleton dimensions
+   *
+   * This is a view operation that expands dimensions of size 1 to larger sizes.
+   * The total number of elements remains the same - data is broadcasted.
+   *
+   * @param shape - Target shape. Use -1 to keep existing dimension size
+   * @returns Expanded tensor view (no data copy)
+   *
+   * @example
+   * const t = await tensor([[1], [2]], { dtype: float32 }); // Shape: [2, 1]
+   * const expanded = t.expand([2, 3] as const); // Shape: [2, 3]
+   * // Result: [[1, 1, 1], [2, 2, 2]]
+   *
+   * @example
+   * const t = await tensor([[[1]], [[2]]], { dtype: float32 }); // Shape: [2, 1, 1]
+   * const expanded = t.expand([-1, 3, 4] as const); // Shape: [2, 3, 4]
+   * // -1 keeps dimension 0 unchanged
+   */
+  expand<TargetShape extends readonly (number | -1)[]>(
+    shape: TargetShape,
+  ): ChainablePromise<ExpandOp<S['__output'], TargetShape>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Validate expansion at runtime
+          const targetShape = shape as readonly number[];
+          const inputShape = this.shape;
+
+          // Check if shapes are compatible for expansion
+          const targetRank = targetShape.length;
+          const inputRank = inputShape.length;
+
+          if (targetRank < inputRank) {
+            throw new Error(
+              `Cannot expand to fewer dimensions. Input has ${inputRank} dimensions but target has ${targetRank}`,
+            );
+          }
+
+          // Align shapes from the right
+          const paddedInputShape = new Array(targetRank - inputRank)
+            .fill(1)
+            .concat(Array.from(inputShape));
+
+          // Compute actual target shape and validate
+          const resolvedShape: number[] = [];
+          const newStrides: number[] = new Array(targetRank);
+
+          for (let i = 0; i < targetRank; i++) {
+            const targetDim = targetShape[i];
+            const inputDim = paddedInputShape[i] ?? 1;
+
+            if (targetDim === -1) {
+              // Keep existing dimension
+              resolvedShape[i] = inputDim;
+            } else if (targetDim === undefined || targetDim < 0) {
+              throw new Error(`Invalid target dimension at index ${i}: ${targetDim}`);
+            } else {
+              // Validate expansion is allowed
+              if (inputDim !== 1 && inputDim !== targetDim) {
+                throw new Error(
+                  `Cannot expand dimension ${i} from size ${inputDim} to ${targetDim}. ` +
+                    `Can only expand dimensions of size 1`,
+                );
+              }
+              resolvedShape[i] = targetDim;
+            }
+          }
+
+          // Compute strides for expanded tensor
+          // Expanded dimensions (from 1 to N) get stride 0
+          const inputStrides = this.strides;
+          const stridePadding = targetRank - inputRank;
+
+          for (let i = 0; i < targetRank; i++) {
+            const inputIdx = i - stridePadding;
+            if (inputIdx < 0) {
+              // New dimension added on the left
+              newStrides[i] = 0;
+            } else {
+              const inputDim = inputShape[inputIdx] ?? 1;
+              const targetDim = resolvedShape[i] ?? 1;
+              if (inputDim === 1 && targetDim > 1) {
+                // Expanded dimension: stride 0
+                newStrides[i] = 0;
+              } else {
+                // Preserved dimension: keep stride
+                newStrides[i] = inputStrides[inputIdx] ?? 0;
+              }
+            }
+          }
+
+          const expandOp = {
+            __op: 'expand' as const,
+            __output: {
+              __dtype: this.storage.__dtype,
+              __shape: resolvedShape as unknown as ExpandOp<
+                S['__output'],
+                TargetShape
+              >['__output']['__shape'],
+              __strides: newStrides as unknown as ExpandOp<
+                S['__output'],
+                TargetShape
+              >['__output']['__strides'],
+              __size: computeSize(resolvedShape),
+              __layout: {
+                c_contiguous: false, // Expanded tensors are not contiguous
+                f_contiguous: false,
+                is_view: true,
+                writeable: this.storage.__layout.writeable,
+                aligned: this.storage.__layout.aligned,
+              },
+              __offset: this.storage.__offset,
+              __expandTargetShape: shape,
+            } as ExpandOp<S['__output'], TargetShape>['__output'] & {
+              __expandTargetShape: TargetShape;
+            },
+            __inputs: [this.storage] as const,
+          } as ExpandOp<S['__output'], TargetShape>;
+
+          resolve(new Tensor(expandOp, this.data) as Tensor<ExpandOp<S['__output'], TargetShape>>);
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
+  }
+
+  /**
+   * Tile tensor by repeating it along each dimension
+   *
+   * Creates a new tensor with repeated data. Unlike expand, this copies data.
+   *
+   * @param reps - Number of repetitions for each dimension
+   * @returns New tensor with repeated data
+   *
+   * @example
+   * const t = await tensor([1, 2, 3], { dtype: float32 });
+   * const tiled = t.tile([2] as const); // [1, 2, 3, 1, 2, 3]
+   *
+   * @example
+   * const t = await tensor([[1, 2]], { dtype: float32 }); // Shape: [1, 2]
+   * const tiled = t.tile([3, 2] as const); // Shape: [3, 4]
+   * // Result: [[1, 2, 1, 2], [1, 2, 1, 2], [1, 2, 1, 2]]
+   */
+  tile<Reps extends readonly number[]>(reps: Reps): ChainablePromise<TileOp<S['__output'], Reps>> {
+    return new ChainablePromise((resolve, reject) => {
+      void (async () => {
+        try {
+          // Ensure tensor is contiguous if device requires it
+          const tensor = await this._ensureContiguousIfNeeded('tile');
+
+          // Compute output shape
+          const inputShape = tensor.shape;
+          const inputRank = inputShape.length;
+          const repsArray = Array.from(reps);
+          const repsRank = repsArray.length;
+
+          let outputShape: number[];
+
+          if (repsRank === 0) {
+            // Empty reps - return original shape
+            outputShape = Array.from(inputShape);
+          } else if (repsRank < inputRank) {
+            // Fewer reps than dimensions - tile rightmost dimensions
+            outputShape = Array.from(inputShape);
+            const offset = inputRank - repsRank;
+            for (let i = 0; i < repsRank; i++) {
+              outputShape[offset + i] = (outputShape[offset + i] ?? 1) * (repsArray[i] ?? 1);
+            }
+          } else {
+            // More reps than dimensions - add new dimensions
+            const dimOffset = repsRank - inputRank;
+            outputShape = new Array(repsRank);
+
+            // New dimensions get the rep count directly
+            for (let i = 0; i < dimOffset; i++) {
+              outputShape[i] = repsArray[i] ?? 1;
+            }
+
+            // Existing dimensions get multiplied by rep count
+            for (let i = 0; i < inputRank; i++) {
+              outputShape[dimOffset + i] = (inputShape[i] ?? 1) * (repsArray[dimOffset + i] ?? 1);
+            }
+          }
+
+          const outputStrides = computeStrides(outputShape);
+          const outputSize = computeSize(outputShape);
+
+          const tileOp = {
+            __op: 'tile' as const,
+            __output: {
+              __dtype: tensor.storage.__dtype,
+              __shape: outputShape as unknown as TileOp<S['__output'], Reps>['__output']['__shape'],
+              __strides: outputStrides as unknown as TileOp<
+                S['__output'],
+                Reps
+              >['__output']['__strides'],
+              __size: outputSize,
+              __layout: {
+                c_contiguous: true, // Tile creates contiguous output
+                f_contiguous: false,
+                is_view: false, // Tile is NOT a view
+                writeable: true,
+                aligned: true,
+              },
+              __offset: 0,
+              __tileReps: reps,
+            } as TileOp<S['__output'], Reps>['__output'] & { __tileReps: Reps },
+            __inputs: [tensor.storage] as const,
+          } as TileOp<S['__output'], Reps>;
+
+          // Execute on device - tile needs device support for proper data copying
+          const resultData = await tensor.data.device.execute(tileOp, [tensor.data]);
+          resolve(new Tensor(tileOp, resultData));
         } catch (error) {
           reject(error);
         }
@@ -2017,7 +2498,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       void (async () => {
         try {
           const buffer = await this.data.device.readData(this.data);
-          const newData = this.data.device.createData(buffer.byteLength);
+          // Use dtype-aware allocation if the device supports it
+          const dtype = this.transform.__output.__dtype;
+          const shape = this.transform.__output.__shape;
+          const newData =
+            (this.data.device as any).createDataWithBufferAndShape?.(buffer, dtype, shape) ??
+            this.data.device.createData(buffer.byteLength);
           await this.data.device.writeData(newData, buffer);
           resolve(new Tensor(this.transform, newData));
         } catch (error) {
@@ -2569,6 +3055,79 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
 
     const resultData = await tensor.data.device.execute(minOp as any, [tensor.data]);
     return new Tensor(minOp, resultData) as Tensor<MinOp<S['__output'], Axes, KeepDims>>;
+  }
+
+  /**
+   * Product of tensor elements along specified axes
+   *
+   * Computes the product of tensor elements along the given axes.
+   * If no axes are specified, computes the product of all elements to produce
+   * a scalar result. The output preserves the input data type.
+   *
+   * @param axes - Axes along which to compute product (supports negative indexing)
+   * @param keepdims - Whether to keep reduced dimensions as size 1
+   * @returns New tensor with product values
+   *
+   * @example
+   * // Product along specific axis
+   * const x = await tensor([[1, 2, 3], [4, 5, 6]]);  // shape: [2, 3]
+   * const rowProds = await x.prod([1]);              // shape: [2] - product of each row
+   * const colProds = await x.prod([0]);              // shape: [3] - product of each column
+   *
+   * @example
+   * // Global product (all elements)
+   * const totalProd = await x.prod();                // shape: [] - scalar result
+   *
+   * @example
+   * // Neural network weight regularization pattern
+   * const weights = await tensor([[[0.1, 0.9], [0.8, 0.2]]]); // shape: [1, 2, 2]
+   * const layerProd = await weights.prod([-1], true);          // shape: [1, 2, 1]
+   */
+  async prod<
+    Axes extends readonly number[] | undefined = undefined,
+    KeepDims extends boolean = false,
+  >(
+    axes?: ValidateReduction<S['__output']['__shape'], Axes> extends true
+      ? Axes
+      : `[TypeTensor ❌] Invalid axes for prod reduction on tensor with shape [${ShapeToString<S['__output']['__shape']>}]`,
+    keepdims?: KeepDims,
+  ): Promise<Tensor<ProdOp<S['__output'], Axes, KeepDims>>> {
+    // Normalize and validate axes at runtime
+    const normalizedAxes = this.normalizeReductionAxes(axes as readonly number[] | undefined);
+    const keepDimsFlag = keepdims ?? false;
+
+    // Ensure tensor is contiguous if device requires it
+    const tensor = await this._ensureContiguousIfNeeded('prod');
+
+    // Compute output shape based on reduction
+    const outputShape = this.computeReductionShape(normalizedAxes, keepDimsFlag);
+    const outputStrides = computeStrides(outputShape);
+    const outputSize = computeSize(outputShape);
+
+    // Build the prod operation with proper output metadata
+    const prodOp = {
+      __op: 'prod' as const,
+      __output: {
+        __dtype: tensor.storage.__dtype,
+        __shape: outputShape as any, // Runtime shape
+        __strides: outputStrides as any, // Runtime strides
+        __size: outputSize,
+        __layout: {
+          c_contiguous: true,
+          f_contiguous: false,
+          is_view: false,
+          writeable: true,
+          aligned: true,
+        },
+        __offset: 0,
+      },
+      __inputs: [tensor.storage] as const,
+      __prodAxes: axes,
+      __keepDims: keepDimsFlag,
+    } as unknown as ProdOp<S['__output'], Axes, KeepDims>;
+
+    const resultData = await tensor.data.device.execute(prodOp as any, [tensor.data]);
+    return new Tensor(prodOp, resultData) as Tensor<ProdOp<S['__output'], Axes, KeepDims>>;
   }
 
   // =============================================================================

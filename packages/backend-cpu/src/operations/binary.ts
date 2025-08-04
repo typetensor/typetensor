@@ -8,22 +8,7 @@ import type { Device, DeviceData, AnyStorageTransformation } from '@typetensor/c
 import type { CPUDeviceData } from '../data';
 import { createTypedArray, broadcastIndices, computeFlatIndex, computeStrides } from '../utils';
 
-const getBigIntValue = (arr: ArrayLike<number | bigint>, index: number): bigint | undefined => {
-  const val = arr[index];
-  if (val === undefined) {
-    return undefined;
-  }
-  return typeof val === 'bigint' ? val : BigInt(Math.trunc(val));
-};
-
-// Helper function to get numeric value (handles BigInt conversion)
-const getNumberValue = (arr: ArrayLike<number | bigint>, index: number): number => {
-  const val = arr[index];
-  if (val === undefined) {
-    return NaN;
-  }
-  return typeof val === 'bigint' ? Number(val) : val;
-};
+// OPTIMIZED: Inline helper functions removed - using direct array access instead
 
 /**
  * Execute a binary operation on CPU with broadcasting
@@ -106,7 +91,7 @@ export async function executeBinaryOp(
 }
 
 /**
- * Fast path for binary operations when no broadcasting is needed
+ * Fast path for binary operations when no broadcasting is needed (OPTIMIZED)
  */
 function executeBinaryOpFast(
   opType: string,
@@ -146,12 +131,13 @@ function executeBinaryOpFast(
 ): void {
   const length = arrayA.length;
 
-  // Handle bigint arrays separately (only if BOTH input AND output arrays are bigint)
+  // OPTIMIZED: Branch once for type checking, then tight loops without redundant checks
   if (
     (arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array) &&
     (arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array) &&
     (arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array)
   ) {
+    // Pure BigInt path - all arrays are BigInt types
     const bigA = arrayA as BigInt64Array | BigUint64Array;
     const bigB = arrayB as BigInt64Array | BigUint64Array;
     const bigOut = arrayOut as BigInt64Array | BigUint64Array;
@@ -159,42 +145,27 @@ function executeBinaryOpFast(
     switch (opType) {
       case 'add':
         for (let i = 0; i < length; i++) {
-          const a = bigA[i];
-          const b = bigB[i];
-          if (a !== undefined && b !== undefined) {
-            bigOut[i] = a + b;
-          }
+          bigOut[i] = bigA[i]! + bigB[i]!;
         }
         break;
       case 'sub':
         for (let i = 0; i < length; i++) {
-          const a = bigA[i];
-          const b = bigB[i];
-          if (a !== undefined && b !== undefined) {
-            bigOut[i] = a - b;
-          }
+          bigOut[i] = bigA[i]! - bigB[i]!;
         }
         break;
       case 'mul':
         for (let i = 0; i < length; i++) {
-          const a = bigA[i];
-          const b = bigB[i];
-          if (a !== undefined && b !== undefined) {
-            bigOut[i] = a * b;
-          }
+          bigOut[i] = bigA[i]! * bigB[i]!;
         }
         break;
       case 'div':
         for (let i = 0; i < length; i++) {
-          const a = bigA[i];
-          const b = bigB[i];
-          if (a !== undefined && b !== undefined) {
-            if (b === 0n) {
-              // Handle division by zero for BigInt (similar to regular float behavior)
-              bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n; // Max/min BigInt values
-            } else {
-              bigOut[i] = a / b;
-            }
+          const a = bigA[i]!;
+          const b = bigB[i]!;
+          if (b === 0n) {
+            bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n;
+          } else {
+            bigOut[i] = a / b;
           }
         }
         break;
@@ -202,56 +173,90 @@ function executeBinaryOpFast(
         throw new Error(`Unsupported binary operation: ${opType}`);
     }
   } else if (arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array) {
-    // Handle cases where output is BigInt but inputs might not be BigInt
+    // Mixed types with BigInt output - convert inputs to BigInt
     const bigOut = arrayOut as BigInt64Array | BigUint64Array;
 
-    switch (opType) {
-      case 'add':
-        for (let i = 0; i < length; i++) {
-          const a = getBigIntValue(arrayA, i);
-          const b = getBigIntValue(arrayB, i);
-          if (a !== undefined && b !== undefined) {
-            bigOut[i] = a + b;
+    if (arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array) {
+      // arrayA is BigInt, convert arrayB
+      const bigA = arrayA as BigInt64Array | BigUint64Array;
+      switch (opType) {
+        case 'add':
+          for (let i = 0; i < length; i++) {
+            const b = arrayB[i];
+            bigOut[i] = bigA[i]! + (typeof b === 'bigint' ? b : BigInt(Math.trunc(b!)));
           }
-        }
-        break;
-      case 'sub':
-        for (let i = 0; i < length; i++) {
-          const a = getBigIntValue(arrayA, i);
-          const b = getBigIntValue(arrayB, i);
-          if (a !== undefined && b !== undefined) {
-            bigOut[i] = a - b;
+          break;
+        case 'sub':
+          for (let i = 0; i < length; i++) {
+            const b = arrayB[i];
+            bigOut[i] = bigA[i]! - (typeof b === 'bigint' ? b : BigInt(Math.trunc(b!)));
           }
-        }
-        break;
-      case 'mul':
-        for (let i = 0; i < length; i++) {
-          const a = getBigIntValue(arrayA, i);
-          const b = getBigIntValue(arrayB, i);
-          if (a !== undefined && b !== undefined) {
-            bigOut[i] = a * b;
+          break;
+        case 'mul':
+          for (let i = 0; i < length; i++) {
+            const b = arrayB[i];
+            bigOut[i] = bigA[i]! * (typeof b === 'bigint' ? b : BigInt(Math.trunc(b!)));
           }
-        }
-        break;
-      case 'div':
-        for (let i = 0; i < length; i++) {
-          const a = getBigIntValue(arrayA, i);
-          const b = getBigIntValue(arrayB, i);
-          if (a !== undefined && b !== undefined) {
+          break;
+        case 'div':
+          for (let i = 0; i < length; i++) {
+            const a = bigA[i]!;
+            const b =
+              typeof arrayB[i] === 'bigint'
+                ? (arrayB[i] as bigint)
+                : BigInt(Math.trunc(arrayB[i] as number));
             if (b === 0n) {
-              // Handle division by zero for BigInt (similar to regular float behavior)
-              bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n; // Max/min BigInt values
+              bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n;
             } else {
               bigOut[i] = a / b;
             }
           }
-        }
-        break;
-      default:
-        throw new Error(`Unsupported binary operation: ${opType}`);
+          break;
+        default:
+          throw new Error(`Unsupported binary operation: ${opType}`);
+      }
+    } else {
+      // arrayB is BigInt, convert arrayA
+      const bigB = arrayB as BigInt64Array | BigUint64Array;
+      switch (opType) {
+        case 'add':
+          for (let i = 0; i < length; i++) {
+            const a = arrayA[i];
+            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a!))) + bigB[i]!;
+          }
+          break;
+        case 'sub':
+          for (let i = 0; i < length; i++) {
+            const a = arrayA[i];
+            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a!))) - bigB[i]!;
+          }
+          break;
+        case 'mul':
+          for (let i = 0; i < length; i++) {
+            const a = arrayA[i];
+            bigOut[i] = (typeof a === 'bigint' ? a : BigInt(Math.trunc(a!))) * bigB[i]!;
+          }
+          break;
+        case 'div':
+          for (let i = 0; i < length; i++) {
+            const a =
+              typeof arrayA[i] === 'bigint'
+                ? (arrayA[i] as unknown as bigint)
+                : BigInt(Math.trunc(arrayA[i]!));
+            const b = bigB[i]!;
+            if (b === 0n) {
+              bigOut[i] = a > 0n ? 9223372036854775807n : -9223372036854775808n;
+            } else {
+              bigOut[i] = a / b;
+            }
+          }
+          break;
+        default:
+          throw new Error(`Unsupported binary operation: ${opType}`);
+      }
     }
   } else {
-    // Handle numeric arrays (regular number types)
+    // Pure numeric path - all operations on numbers
     const numOut = arrayOut as
       | Int8Array
       | Uint8Array
@@ -262,43 +267,159 @@ function executeBinaryOpFast(
       | Float32Array
       | Float64Array;
 
-    switch (opType) {
-      case 'add':
-        for (let i = 0; i < length; i++) {
-          const a = getNumberValue(arrayA, i);
-          const b = getNumberValue(arrayB, i);
-          numOut[i] = a + b;
+    // OPTIMIZED: Handle BigInt inputs by converting them once per array
+    if (arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array) {
+      if (arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array) {
+        // Both inputs are BigInt, convert to numbers
+        const bigA = arrayA as BigInt64Array | BigUint64Array;
+        const bigB = arrayB as BigInt64Array | BigUint64Array;
+        switch (opType) {
+          case 'add':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) + Number(bigB[i]!);
+            }
+            break;
+          case 'sub':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) - Number(bigB[i]!);
+            }
+            break;
+          case 'mul':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) * Number(bigB[i]!);
+            }
+            break;
+          case 'div':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) / Number(bigB[i]!);
+            }
+            break;
+          default:
+            throw new Error(`Unsupported binary operation: ${opType}`);
         }
-        break;
-      case 'sub':
-        for (let i = 0; i < length; i++) {
-          const a = getNumberValue(arrayA, i);
-          const b = getNumberValue(arrayB, i);
-          numOut[i] = a - b;
+      } else {
+        // arrayA is BigInt, arrayB is numeric
+        const bigA = arrayA as BigInt64Array | BigUint64Array;
+        const numB = arrayB as
+          | Float32Array
+          | Float64Array
+          | Int8Array
+          | Uint8Array
+          | Int16Array
+          | Uint16Array
+          | Int32Array
+          | Uint32Array;
+        switch (opType) {
+          case 'add':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) + numB[i]!;
+            }
+            break;
+          case 'sub':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) - numB[i]!;
+            }
+            break;
+          case 'mul':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) * numB[i]!;
+            }
+            break;
+          case 'div':
+            for (let i = 0; i < length; i++) {
+              numOut[i] = Number(bigA[i]!) / numB[i]!;
+            }
+            break;
+          default:
+            throw new Error(`Unsupported binary operation: ${opType}`);
         }
-        break;
-      case 'mul':
-        for (let i = 0; i < length; i++) {
-          const a = getNumberValue(arrayA, i);
-          const b = getNumberValue(arrayB, i);
-          numOut[i] = a * b;
-        }
-        break;
-      case 'div':
-        for (let i = 0; i < length; i++) {
-          const a = getNumberValue(arrayA, i);
-          const b = getNumberValue(arrayB, i);
-          numOut[i] = a / b;
-        }
-        break;
-      default:
-        throw new Error(`Unsupported binary operation: ${opType}`);
+      }
+    } else if (arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array) {
+      // arrayA is numeric, arrayB is BigInt
+      const numA = arrayA as
+        | Float32Array
+        | Float64Array
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array;
+      const bigB = arrayB as BigInt64Array | BigUint64Array;
+      switch (opType) {
+        case 'add':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! + Number(bigB[i]!);
+          }
+          break;
+        case 'sub':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! - Number(bigB[i]!);
+          }
+          break;
+        case 'mul':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! * Number(bigB[i]!);
+          }
+          break;
+        case 'div':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! / Number(bigB[i]!);
+          }
+          break;
+        default:
+          throw new Error(`Unsupported binary operation: ${opType}`);
+      }
+    } else {
+      // Both inputs are numeric - fastest path
+      const numA = arrayA as
+        | Float32Array
+        | Float64Array
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array;
+      const numB = arrayB as
+        | Float32Array
+        | Float64Array
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array;
+      switch (opType) {
+        case 'add':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! + numB[i]!;
+          }
+          break;
+        case 'sub':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! - numB[i]!;
+          }
+          break;
+        case 'mul':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! * numB[i]!;
+          }
+          break;
+        case 'div':
+          for (let i = 0; i < length; i++) {
+            numOut[i] = numA[i]! / numB[i]!;
+          }
+          break;
+        default:
+          throw new Error(`Unsupported binary operation: ${opType}`);
+      }
     }
   }
 }
 
 /**
- * Slow path for binary operations with broadcasting
+ * Slow path for binary operations with broadcasting (OPTIMIZED)
  */
 function executeBinaryOpBroadcast(
   opType: string,
@@ -342,7 +463,11 @@ function executeBinaryOpBroadcast(
   stridesB: number[],
   _stridesOut: number[],
 ): void {
-  // Use broadcasting iterator
+  // OPTIMIZED: Branch once for type checking, avoid repeated instanceof checks
+  const isBigIntA = arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array;
+  const isBigIntB = arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array;
+  const isBigIntOut = arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array;
+
   let outIdx = 0;
   for (const { inputIndices } of broadcastIndices(shapeOut, [shapeA, shapeB])) {
     const indicesA = inputIndices[0];
@@ -353,20 +478,13 @@ function executeBinaryOpBroadcast(
     const idxA = computeFlatIndex(indicesA, stridesA);
     const idxB = computeFlatIndex(indicesB, stridesB);
 
-    // Handle bigint arrays separately (all BigInt inputs and output)
-    if (
-      (arrayA instanceof BigInt64Array || arrayA instanceof BigUint64Array) &&
-      (arrayB instanceof BigInt64Array || arrayB instanceof BigUint64Array) &&
-      (arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array)
-    ) {
+    if (isBigIntA && isBigIntB && isBigIntOut) {
+      // Pure BigInt path
       const bigA = arrayA as BigInt64Array | BigUint64Array;
       const bigB = arrayB as BigInt64Array | BigUint64Array;
       const bigOut = arrayOut as BigInt64Array | BigUint64Array;
-      const valA = bigA[idxA];
-      const valB = bigB[idxB];
-      if (valA === undefined || valB === undefined) {
-        continue;
-      }
+      const valA = bigA[idxA]!;
+      const valB = bigB[idxB]!;
 
       switch (opType) {
         case 'add':
@@ -380,8 +498,7 @@ function executeBinaryOpBroadcast(
           break;
         case 'div':
           if (valB === 0n) {
-            // Handle division by zero for BigInt (similar to regular float behavior)
-            bigOut[outIdx] = valA > 0n ? 9223372036854775807n : -9223372036854775808n; // Max/min BigInt values
+            bigOut[outIdx] = valA > 0n ? 9223372036854775807n : -9223372036854775808n;
           } else {
             bigOut[outIdx] = valA / valB;
           }
@@ -389,27 +506,17 @@ function executeBinaryOpBroadcast(
         default:
           throw new Error(`Unsupported binary operation: ${opType}`);
       }
-    } else if (arrayOut instanceof BigInt64Array || arrayOut instanceof BigUint64Array) {
-      // Handle cases where output is BigInt but inputs might not be BigInt
+    } else if (isBigIntOut) {
+      // Mixed types with BigInt output
       const bigOut = arrayOut as BigInt64Array | BigUint64Array;
 
-      // Helper function to get BigInt value (handles Number -> BigInt conversion)
-      const getBigIntValue = (
-        arr: ArrayLike<number | bigint>,
-        index: number,
-      ): bigint | undefined => {
-        const val = arr[index];
-        if (val === undefined) {
-          return undefined;
-        }
-        return typeof val === 'bigint' ? val : BigInt(Math.trunc(val));
-      };
-
-      const valA = getBigIntValue(arrayA, idxA);
-      const valB = getBigIntValue(arrayB, idxB);
-      if (valA === undefined || valB === undefined) {
-        continue;
-      }
+      // OPTIMIZED: Direct type conversion without helper functions
+      const valA = isBigIntA
+        ? (arrayA as BigInt64Array | BigUint64Array)[idxA]!
+        : BigInt(Math.trunc((arrayA as any)[idxA]!));
+      const valB = isBigIntB
+        ? (arrayB as BigInt64Array | BigUint64Array)[idxB]!
+        : BigInt(Math.trunc((arrayB as any)[idxB]!));
 
       switch (opType) {
         case 'add':
@@ -423,8 +530,7 @@ function executeBinaryOpBroadcast(
           break;
         case 'div':
           if (valB === 0n) {
-            // Handle division by zero for BigInt (similar to regular float behavior)
-            bigOut[outIdx] = valA > 0n ? 9223372036854775807n : -9223372036854775808n; // Max/min BigInt values
+            bigOut[outIdx] = valA > 0n ? 9223372036854775807n : -9223372036854775808n;
           } else {
             bigOut[outIdx] = valA / valB;
           }
@@ -433,7 +539,7 @@ function executeBinaryOpBroadcast(
           throw new Error(`Unsupported binary operation: ${opType}`);
       }
     } else {
-      // Handle numeric arrays (regular number types)
+      // Numeric output path
       const numOut = arrayOut as
         | Int8Array
         | Uint8Array
@@ -444,17 +550,13 @@ function executeBinaryOpBroadcast(
         | Float32Array
         | Float64Array;
 
-      // Helper function to get numeric value (handles BigInt conversion)
-      const getValue = (arr: ArrayLike<number | bigint>, index: number): number => {
-        const val = arr[index];
-        if (val === undefined) {
-          return NaN;
-        }
-        return typeof val === 'bigint' ? Number(val) : val;
-      };
-
-      const valA = getValue(arrayA, idxA);
-      const valB = getValue(arrayB, idxB);
+      // OPTIMIZED: Direct type conversion without helper functions
+      const valA = isBigIntA
+        ? Number((arrayA as BigInt64Array | BigUint64Array)[idxA]!)
+        : (arrayA as any)[idxA]!;
+      const valB = isBigIntB
+        ? Number((arrayB as BigInt64Array | BigUint64Array)[idxB]!)
+        : (arrayB as any)[idxB]!;
 
       switch (opType) {
         case 'add':

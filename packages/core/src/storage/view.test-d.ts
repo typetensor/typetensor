@@ -11,7 +11,16 @@ import type {
   OutputOf,
   LayoutOf,
 } from './layout';
-import type { ReshapeOp, Flatten, View, SliceOp, TransposeOp, PermuteOp } from './view';
+import type {
+  ReshapeOp,
+  Flatten,
+  View,
+  SliceOp,
+  TransposeOp,
+  PermuteOp,
+  ExpandOp,
+  TileOp,
+} from './view';
 import type { Float32, Int32, Float64 } from '../dtype/types';
 import { expectTypeOf } from 'expect-type';
 
@@ -799,11 +808,11 @@ type ReadOnlyTensor = TensorStorage<Float32, readonly [3, 4], readonly [4, 1], R
 // Test 5: 4D permutation variations
 {
   type Tensor4D = TensorStorage<Float32, readonly [2, 3, 4, 5]>;
-  
+
   // Reverse all dimensions
   type PermuteReverse = PermuteOp<Tensor4D, readonly [3, 2, 1, 0]>;
   expectTypeOf<ShapeOf<OutputOf<PermuteReverse>>>().toEqualTypeOf<readonly [5, 4, 3, 2]>();
-  
+
   // Rotate dimensions
   type PermuteRotate = PermuteOp<Tensor4D, readonly [1, 2, 3, 0]>;
   expectTypeOf<ShapeOf<OutputOf<PermuteRotate>>>().toEqualTypeOf<readonly [3, 4, 5, 2]>();
@@ -828,13 +837,131 @@ type ReadOnlyTensor = TensorStorage<Float32, readonly [3, 4], readonly [4, 1], R
 {
   // @ts-expect-error - duplicate axis
   type InvalidPerm1 = PermuteOp<Float32Tensor3D, readonly [0, 0, 1]>;
-  
+
   // @ts-expect-error - wrong length
   type InvalidPerm2 = PermuteOp<Float32Tensor3D, readonly [0, 1]>;
-  
+
   // @ts-expect-error - out of range
   type InvalidPerm3 = PermuteOp<Float32Tensor3D, readonly [0, 1, 3]>;
-  
+
   // @ts-expect-error - negative indices not allowed in type system
   type InvalidPerm4 = PermuteOp<Float32Tensor3D, readonly [-1, 0, 1]>;
+}
+
+// =============================================================================
+// ExpandOp Tests
+// =============================================================================
+
+{
+  // Basic expand operations
+  type T1 = TensorStorage<Float32, [3, 1, 5]>;
+
+  type E1 = ExpandOp<T1, [3, 4, 5]>;
+  expectTypeOf<E1['__output']['__shape']>().toEqualTypeOf<readonly [3, 4, 5]>();
+  expectTypeOf<E1['__output']['__dtype']>().toEqualTypeOf<Float32>();
+  expectTypeOf<E1['__output']['__layout']['is_view']>().toEqualTypeOf<true>();
+
+  type E2 = ExpandOp<T1, [-1, 4, -1]>;
+  expectTypeOf<E2['__output']['__shape']>().toEqualTypeOf<readonly [3, 4, 5]>();
+
+  type E3 = ExpandOp<T1, [2, 3, 4, 5]>;
+  expectTypeOf<E3['__output']['__shape']>().toEqualTypeOf<readonly [2, 3, 4, 5]>();
+}
+
+{
+  // Expand with different dtypes
+  type T1 = TensorStorage<Int32, [1, 3]>;
+  type T2 = TensorStorage<Float64, [1, 1, 1]>;
+
+  type E1 = ExpandOp<T1, [5, 3]>;
+  expectTypeOf<E1['__output']['__dtype']>().toEqualTypeOf<Int32>();
+
+  type E2 = ExpandOp<T2, [2, 3, 4]>;
+  expectTypeOf<E2['__output']['__dtype']>().toEqualTypeOf<Float64>();
+}
+
+{
+  // Expanded strides should be 0
+  type T1 = TensorStorage<Float32, [2, 1, 3], [3, 3, 1]>;
+  type E1 = ExpandOp<T1, [2, 4, 3]>;
+
+  // The expanded dimension (middle) should have stride 0
+  expectTypeOf<E1['__output']['__strides']>().toEqualTypeOf<readonly [3, 0, 1]>();
+}
+
+{
+  // Invalid expansions should fail
+  type T1 = TensorStorage<Float32, [2, 3]>;
+
+  // @ts-expect-error - Can't expand non-singleton dimension
+  type E1 = ExpandOp<T1, [2, 5]>;
+
+  // @ts-expect-error - Size mismatch
+  type E2 = ExpandOp<T1, [3, 3]>;
+}
+
+// =============================================================================
+// TileOp Tests
+// =============================================================================
+
+{
+  // Basic tile operations
+  type T1 = TensorStorage<Float32, [2, 3]>;
+
+  type Ti1 = TileOp<T1, [2, 3]>;
+  expectTypeOf<Ti1['__output']['__shape']>().toEqualTypeOf<readonly [4, 9]>();
+  expectTypeOf<Ti1['__output']['__dtype']>().toEqualTypeOf<Float32>();
+  expectTypeOf<Ti1['__output']['__layout']['is_view']>().toEqualTypeOf<false>();
+  expectTypeOf<Ti1['__output']['__layout']['c_contiguous']>().toEqualTypeOf<true>();
+
+  type Ti2 = TileOp<T1, [3]>;
+  expectTypeOf<Ti2['__output']['__shape']>().toEqualTypeOf<readonly [2, 9]>();
+
+  type Ti3 = TileOp<T1, [2, 3, 4]>;
+  expectTypeOf<Ti3['__output']['__shape']>().toEqualTypeOf<readonly [2, 6, 12]>();
+}
+
+{
+  // Tile with different dtypes
+  type T1 = TensorStorage<Int32, [3]>;
+  type T2 = TensorStorage<Float64, [2, 2]>;
+
+  type Ti1 = TileOp<T1, [5]>;
+  expectTypeOf<Ti1['__output']['__dtype']>().toEqualTypeOf<Int32>();
+
+  type Ti2 = TileOp<T2, [3, 3]>;
+  expectTypeOf<Ti2['__output']['__dtype']>().toEqualTypeOf<Float64>();
+}
+
+{
+  // Tile creates new tensor (not a view)
+  type T1 = TensorStorage<
+    Float32,
+    [3],
+    [1],
+    {
+      c_contiguous: false;
+      f_contiguous: true;
+      is_view: true;
+      writeable: false;
+      aligned: true;
+    }
+  >;
+
+  type Ti1 = TileOp<T1, [2]>;
+  // Should create a new C-contiguous tensor
+  expectTypeOf<Ti1['__output']['__layout']['is_view']>().toEqualTypeOf<false>();
+  expectTypeOf<Ti1['__output']['__layout']['c_contiguous']>().toEqualTypeOf<true>();
+  expectTypeOf<Ti1['__output']['__layout']['writeable']>().toEqualTypeOf<true>();
+}
+
+{
+  // Edge cases
+  type T1 = TensorStorage<Float32, []>; // scalar
+  type Ti1 = TileOp<T1, [3, 4]>;
+  expectTypeOf<Ti1['__output']['__shape']>().toEqualTypeOf<readonly [3, 4]>();
+
+  type T2 = TensorStorage<Float32, [5]>;
+  type Ti2 = TileOp<T2, []>; // empty reps
+  expectTypeOf<Ti2['__output']['__shape']>().toEqualTypeOf<readonly [5]>();
 }

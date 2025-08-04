@@ -1051,7 +1051,7 @@ export function generateEinopsOperationTests(
         // PyTorch einops: rearrange(tensor, '(a b) ... c -> a b c ...', a=2)
         // This was our previously failing test case
         const data = Array.from({ length: 6 * 7 * 8 * 9 }, (_, i) => i + 1);
-        const t = await tensor(data, { device, dtype: float32 });
+        const t = await tensor(data, { shape: [6, 7, 8, 9], device, dtype: float32 });
         const reshaped = await t.reshape([6, 7, 8, 9] as const);
 
         const result = await rearrange(reshaped, '(a b) ... c -> a b c ...', { a: 2 });
@@ -1063,7 +1063,7 @@ export function generateEinopsOperationTests(
         // PyTorch einops: rearrange(tensor, 'a ... d -> a d ...')
         // Ellipsis consumes middle dimensions [3, 4]
         const data = Array.from({ length: 2 * 3 * 4 * 5 }, (_, i) => i);
-        const t = await tensor(data, { device, dtype: float32 });
+        const t = await tensor(data, { shape: [2, 3, 4, 5], device, dtype: float32 });
         const reshaped = await t.reshape([2, 3, 4, 5] as const);
 
         const result = await rearrange(reshaped, 'a ... d -> a d ...');
@@ -1099,7 +1099,7 @@ export function generateEinopsOperationTests(
       it('should handle merging with known dimensions', async () => {
         // PyTorch einops: rearrange(tensor, 'a b c -> a (b c)')
         const data = Array.from({ length: 24 }, (_, i) => i);
-        const t = await tensor(data, { device, dtype: float32 });
+        const t = await tensor(data, { shape: [2, 3, 4], device, dtype: float32 });
         const reshaped = await t.reshape([2, 3, 4] as const);
 
         const result = await rearrange(reshaped, 'a b c -> a (b c)');

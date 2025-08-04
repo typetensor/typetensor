@@ -154,35 +154,26 @@ export class DynamicState extends DynamicStateWithRoot {
 
 ## Einops-Specific Implementation Strategy
 
-### Phase 1: Scanner Implementation
+### Phase 1: Scanner Implementation ✅ COMPLETED
 
 Create an `EinopsScanner` that can tokenize our specific syntax:
 
 ```typescript
 type EinopsToken =
-  | { type: 'axis'; name: string; position: Position }      // ✅ IMPLEMENTED
-  | { type: 'arrow'; position: Position }                   // ✅ IMPLEMENTED
-  | { type: 'lparen'; position: Position }                  // ✅ IMPLEMENTED
-  | { type: 'rparen'; position: Position }                  // ✅ IMPLEMENTED
-  | { type: 'ellipsis'; position: Position }                // ✅ IMPLEMENTED
-  | { type: 'singleton'; position: Position }               // ✅ IMPLEMENTED
-  | { type: 'whitespace'; position: Position };             // ✅ IMPLEMENTED
+  | { type: 'axis'; name: string; position: Position }
+  | { type: 'arrow'; position: Position }
+  | { type: 'lparen'; position: Position }
+  | { type: 'rparen'; position: Position }
+  | { type: 'ellipsis'; position: Position }
+  | { type: 'singleton'; position: Position }
+  | { type: 'whitespace'; position: Position };
 ```
 
-#### ✅ Progress: FULL COMPLETION
-**Files**: [`scanner.ts`](./scanner.ts) | [`types.ts`](./types.ts) | [`scanner.test.ts`](./scanner.test.ts) | [`scanner.test-d.ts`](./scanner.test-d.ts)
+**Implementation**: [`scanner.ts`](./scanner.ts) - Complete scanner with position tracking and error handling
+**Token Types**: [`types.ts`](./types.ts) - All 7 token types with discriminated unions
+**Testing**: 48 runtime tests ([`scanner.test.ts`](./scanner.test.ts)) + type tests ([`scanner.test-d.ts`](./scanner.test-d.ts))
 
-**✅ Completed:**
-- ✅ **Basic Scanner**: Character-by-character parsing with position tracking
-- ✅ **Core Token Types**: `AxisToken`, `ArrowToken`, `WhitespaceToken` with position info
-- ✅ **Composite Tokens**: `LparenToken`, `RparenToken` for patterns like `"(h w) c -> h w c"`
-- ✅ **Ellipsis Tokens**: `EllipsisToken` for patterns like `"batch ... -> ..."`
-- ✅ **Singleton Tokens**: `SingletonToken` for patterns like `"h w 1 -> h w"`
-- ✅ **Error Handling**: Comprehensive error classes with helpful messages and position highlighting
-- ✅ **Comprehensive Testing**: 48 runtime tests + type tests covering all implemented functionality
-- ✅ **Complex Patterns**: Handles all einops syntax including `"(batch seq) embed"`, `"((a b) c) d"`, `"batch ... -> ..."`, `"h w 1 -> h w"`
-
-### Phase 2: Parser State Machine
+### Phase 2: Parser State Machine ✅ COMPLETED
 
 Track einops-specific state:
 
@@ -197,7 +188,11 @@ type EinopsParseState = {
 };
 ```
 
-### Phase 3: Type-Level Validation
+**AST Implementation**: [`ast.ts`](./ast.ts) - Complete AST structure with 4 pattern types
+**Runtime Parser**: [`parser.ts`](./parser.ts) - Tokens → AST conversion with validation
+**Testing**: 77 tests (42 AST + 35 parser) with full pattern coverage
+
+### Phase 3: Type-Level Validation ✅ COMPLETED
 
 Following ArkType's pattern of compile-time validation:
 
@@ -210,7 +205,11 @@ type ValidateEinopsPattern<Pattern extends string> =
     : ErrorMessage<'Invalid pattern syntax'>;
 ```
 
-### Phase 4: Runtime Integration
+**Type Parser**: [`type-parser.ts`](./type-parser.ts) - Template literal parsing at compile time
+**Validation**: [`validation.ts`](./validation.ts) - Axis validation with error messages
+**Testing**: 120+ type tests across parser, validation, and integration
+
+### Phase 4: Runtime Integration ✅ COMPLETED
 
 Bridge compile-time parsing with runtime execution:
 
@@ -222,63 +221,73 @@ function rearrange<Pattern extends string>(
 ): RearrangeResult<typeof tensor, Pattern>;
 ```
 
+**Axis Resolution**: [`axis-resolver.ts`](./axis-resolver.ts) - Dimension mapping and shape computation
+**Rearrange API**: [`rearrange.ts`](./rearrange.ts) - User-facing einops function
+**Testing**: 107 tests (60 axis resolution + 47 rearrange integration)
+
 ## Implementation Status
 
-### ✅ Phase 1: Scanner & Tokenizer (FULLY COMPLETED)
-   - ✅ **Scanner Implementation**: [`scanner.ts`](./scanner.ts) - Complete scanner with all token types
-   - ✅ **Token Types**: [`types.ts`](./types.ts) - Complete token definitions including all einops syntax
-   - ✅ **Runtime Tests**: [`scanner.test.ts`](./scanner.test.ts) - 48 comprehensive tests covering all functionality
-   - ✅ **Type Tests**: [`scanner.test-d.ts`](./scanner.test-d.ts) - Full compile-time type safety validation
+### ✅ Phase 1: Scanner & Tokenizer (COMPLETED)
+   - **Scanner**: [`scanner.ts`](./scanner.ts) - Character-by-character parsing with position tracking
+   - **Token Types**: [`types.ts`](./types.ts) - All 7 einops token types with discriminated unions
+   - **Testing**: 48 runtime tests + comprehensive type tests
+   - **Pattern Support**: Simple, composite, ellipsis, and singleton patterns
 
-   **Supports**: 
-   - ✅ Simple patterns: `"a"`, `"h w -> w h"`, `"batch height width channels -> batch channels height width"`
-   - ✅ Composite patterns: `"(h w) c -> h w c"`, `"(batch seq) embed"`, `"((a b) c) d"`
-   - ✅ Ellipsis patterns: `"batch ... -> ..."`, `"... channels -> channels ..."`
-   - ✅ Singleton patterns: `"h w 1 -> h w"`, `"batch 1 height -> batch height 1"`
+### ✅ Phase 2: AST & Runtime Parser (COMPLETED)
+   - **AST Structure**: [`ast.ts`](./ast.ts) - 4 pattern types (simple, composite, ellipsis, singleton)
+   - **Runtime Parser**: [`parser.ts`](./parser.ts) - Tokens → AST conversion with validation
+   - **Testing**: 77 tests (42 AST + 35 parser) with full coverage
+   - **Error Handling**: 5 specialized error classes with position tracking
 
-### ✅ Phase 2: AST & Runtime Parser (FULLY COMPLETED)
-   - ✅ **AST Types**: [`ast.ts`](./ast.ts) - Complete AST pattern definitions with metadata
-   - ✅ **Type Guards**: Full pattern discrimination and utility functions  
-   - ✅ **AST Tests**: [`ast.test.ts`](./ast.test.ts) - 42 comprehensive tests covering all functionality
-   - ✅ **AST Type Tests**: [`ast.test-d.ts`](./ast.test-d.ts) - Complete compile-time validation
-   - ✅ **Runtime Parser**: [`parser.ts`](./parser.ts) - Complete tokens → AST conversion with validation
-   - ✅ **Parser Tests**: [`parser.test.ts`](./parser.test.ts) - 35 comprehensive tests covering all functionality
-   - ✅ **Parser Type Tests**: [`parser.test-d.ts`](./parser.test-d.ts) - Complete compile-time validation
-   - ✅ **Error Handling**: 5 specialized error classes with position tracking and helpful messages
+### ✅ Phase 3: Type-Level Parser (COMPLETED)
+   - **Type Parser**: [`type-parser.ts`](./type-parser.ts) - Template literal parsing at compile time
+   - **Validation**: [`validation.ts`](./validation.ts) - Type-level axis validation
+   - **Testing**: 120+ type tests across parser, validation, and integration
+   - **Features**: Nested parentheses, ellipsis support, descriptive errors
 
-### ✅ Phase 3: Type-Level Parser (FULLY COMPLETED)
-   - ✅ **Type-Level Parser**: [`type-parser.ts`](./type-parser.ts) - Complete template literal parsing with ArkType-inspired approach
-   - ✅ **String Utilities**: Template literal helpers (FirstChar, RestChars, SkipWhitespace, etc.)
-   - ✅ **Type-Level AST**: Complete AST types matching runtime structure
-   - ✅ **Composite Support**: Nested parentheses parsing with depth tracking using ts-arithmetic
-   - ✅ **Error Messages**: Descriptive compile-time errors with context
-   - ✅ **Type Tests**: [`type-parser.test-d.ts`](./type-parser.test-d.ts) - 60+ comprehensive type tests
-   - ✅ **Validation Layer**: [`validation.ts`](./validation.ts) - Complete type-level axis validation
-   - ✅ **Validation Tests**: [`validation.test-d.ts`](./validation.test-d.ts) - Comprehensive validation tests
-   - ✅ **Integration Tests**: [`integration.test-d.ts`](./integration.test-d.ts) - Parser + validation integration
+### ✅ Phase 4: Axis Resolution (COMPLETED)
+   - **Axis Resolver**: [`axis-resolver.ts`](./axis-resolver.ts) - Dimension mapping and shape computation
+   - **Features**: Composite resolution, ellipsis handling, singleton support
+   - **Testing**: 60 comprehensive tests covering all scenarios
+   - **Algorithm**: Matches PyTorch einops behavior for provided axes
 
-### ✅ Phase 4: Axis Resolution (FULLY COMPLETED)
-   - ✅ **Axis Resolver**: [`axis-resolver.ts`](./axis-resolver.ts) - Complete axis dimension mapping and output shape computation
-   - ✅ **Composite Resolution**: Full support for composite patterns like `(h w) c -> h w c` with axis inference
-   - ✅ **Ellipsis Handling**: Complete ellipsis support for patterns like `batch ... -> ...`
-   - ✅ **Singleton Support**: Full singleton dimension handling for patterns like `h w 1 -> h w`
-   - ✅ **Error Handling**: Comprehensive error messages with pattern context and position information
-   - ✅ **Axis Resolution Tests**: [`axis-resolver.test.ts`](./axis-resolver.test.ts) - 60 comprehensive tests covering all scenarios
-   - ✅ **Algorithm Correctness**: Fixed provided axes semantics to match PyTorch einops behavior
-
-### ✅ Phase 5: Basic Rearrange Implementation (FULLY COMPLETED)
-   - ✅ **Rearrange Function**: [`rearrange.ts`](./rearrange.ts) - First user-facing einops API with basic operation planning
-   - ✅ **Pattern Support**: Handles all basic einops patterns through tensor reshape operations
-   - ✅ **API Design**: Clean, type-safe interface: `rearrange(tensor, "h w -> w h", {axes: {h: 32}})`
-   - ✅ **Error Handling**: Comprehensive error handling with helpful context messages
-   - ✅ **Integration Tests**: [`rearrange.test.ts`](./rearrange.test.ts) - 47 comprehensive tests demonstrating real-world usage
-   - ✅ **Export Integration**: Updated main index.ts to export rearrange function and types
+### ✅ Phase 5: Basic Rearrange Implementation (COMPLETED)
+   - **Rearrange API**: [`rearrange.ts`](./rearrange.ts) - User-facing einops function
+   - **Operation Planning**: Basic reshape and transpose operations
+   - **Testing**: 47 integration tests demonstrating real-world usage
+   - **Export**: Integrated into main TypeTensor exports
 
 ### ⏳ Phase 6: Advanced Operations (PLANNED)
-   - ⏳ Implement `reduce` function for reduction operations
-   - ⏳ Add `repeat` function for dimension expansion
-   - ⏳ Optimize operation planning for complex transformations
-   - ⏳ Add integration with real TypeTensor operations
+
+#### Phase 6A: `reduce` Operation
+   - **Parser Extensions**: Handle reduction patterns with axis removal
+   - **AST Support**: Add reduction operation type (sum/mean/max/min/prod)
+   - **Type-Level**: `ReduceShape<Input, Pattern, Op>` for compile-time validation
+   - **Axis Resolution**: Support split-then-reduce patterns like `'(h 2) (w 2) c -> h w c'`
+   - **Integration**: Map to TypeTensor's reduction operations
+   - **Test Cases**: Simple, partial, and split-reduce patterns
+
+#### Phase 6B: `repeat` Operation
+   - **Parser Extensions**: Distinguish new axes from repeated existing axes
+   - **AST Support**: Add repeat count validation to pattern types
+   - **Type-Level**: `RepeatShape<Input, Pattern, Counts>` for shape computation
+   - **Memory Strategy**: Determine view vs copy for different repeat patterns
+   - **Integration**: Use TypeTensor's expand and broadcast operations
+   - **Test Cases**: New axis creation, axis repetition, multiple expansions
+
+#### Phase 6C: `einsum` Operation
+   - **New Parser**: Multi-tensor pattern syntax `'i j, j k -> i k'`
+   - **AST Extensions**: `EinsumAST` with contraction index tracking
+   - **Type-Level**: Index validation and output shape inference
+   - **Optimization**: Contraction path planning for efficiency
+   - **Integration**: Map to TypeTensor's matmul and tensor contraction ops
+   - **Test Cases**: Matrix multiply, batch operations, trace, outer product
+
+#### Phase 6D: Operation Planning Optimization
+   - **Fusion**: Detect and merge consecutive reshape/permute operations
+   - **View Guarantees**: Document when operations return views vs copies
+   - **Backend Optimization**: Allow backends to optimize operation sequences
+   - **Performance**: Minimize memory allocations and data movement
 
 ## Key Files to Reference in ArkType
 
@@ -296,97 +305,203 @@ function rearrange<Pattern extends string>(
 3. **Composable Architecture**: Each component should be independently testable
 4. **Performance**: Compile-time parsing eliminates runtime overhead where possible
 
-## Example Implementation Goals
+## Working Examples
 
+### Currently Working ✅
 ```typescript
-// Type-safe at compile time
+// Rearrange operations
 const reshaped = rearrange(tensor, 'batch (h w) c -> batch h w c');
-//                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//                                   Pattern validated at compile time
-
-// Clear error messages
-const invalid = rearrange(tensor, 'batch h w -> batch h w unknown');
-//                                 Error: Axis 'unknown' not found in input pattern
-
-// Complex transformations
-const reduced = reduce(tensor, 'batch ... h w c -> batch ... c', 'mean');
-//                              Ellipsis handling for variable dimensions
+const transposed = rearrange(tensor, 'h w c -> c h w');
+const flattened = rearrange(tensor, 'batch h w c -> batch (h w c)');
 ```
 
-## Phase 3 Key Accomplishments
+### Planned Operations 🔄
+```typescript
+// Reduce (Phase 6A)
+const averaged = reduce(tensor, 'batch h w c -> batch c', 'mean');
+const pooled = reduce(tensor, 'batch (h 2) (w 2) c -> batch h w c', 'max');
 
-### 🎯 Type-Level Parser Implementation
-We successfully implemented a complete type-level parser for einops patterns using TypeScript's template literal types:
+// Repeat (Phase 6B)
+const expanded = repeat(tensor, 'h w -> h w c', { c: 3 });
+const duplicated = repeat(tensor, 'h w c -> h (repeat w) c', { repeat: 2 });
 
-1. **Character-by-Character Parsing**: Following ArkType's approach, we parse patterns one character at a time at the type level
-2. **Nested Parentheses Support**: Using `ts-arithmetic` for depth tracking, we handle arbitrary nesting like `((h w) c) d`
-3. **Complete Pattern Support**: All einops patterns work at compile time:
-   - Simple: `h w -> w h`
-   - Composite: `(h w) c -> h w c`
-   - Ellipsis: `batch ... -> ...`
-   - Singleton: `h w 1 -> h w`
-   - Mixed: `(batch seq) embed ... 1 -> batch seq embed ... 1`
+// Einsum (Phase 6C)
+const matmul = einsum([a, b], 'batch i j, batch j k -> batch i k');
+const trace = einsum([matrix], 'i i ->');
+```
 
-4. **Error Messages**: Invalid patterns produce clear compile-time errors:
-   ```typescript
-   type Invalid = ParsePattern<'(h w -> h w'>;
-   // TypeParseError<"[Einops] Input parsing failed: Unbalanced parentheses: missing closing ')'">
-   ```
+## Key Implementation Achievements
 
-5. **Type-Level AST**: The parser produces the same AST structure at type level as our runtime parser, ensuring consistency
+### 🎯 Type-Level Parser
+Successfully implemented complete type-level parsing using TypeScript's template literal types:
+
+1. **Character-by-Character Parsing**: Following ArkType's approach
+2. **Nested Parentheses Support**: Using `ts-arithmetic` for depth tracking
+3. **Complete Pattern Support**: All einops patterns work at compile time
+4. **Clear Error Messages**: Invalid patterns produce descriptive compile-time errors
+5. **Consistent AST**: Type-level and runtime parsers produce identical structures
+
+### 🔧 Modular Architecture
+Each component is independently testable and follows single responsibility:
+- Scanner handles tokenization
+- Parser builds AST from tokens
+- Axis Resolver maps dimensions
+- Rearrange orchestrates operations
 
 ## Next Steps
 
-1. ✅ **Complete scanner implementation** → **FULLY COMPLETE** with all 7 token types (axis, arrow, whitespace, lparen, rparen, ellipsis, singleton)
-2. ✅ **Define AST types for einops patterns** → **FULLY COMPLETE** with comprehensive AST structure and utilities 
-3. ✅ **Implement runtime parser** → **FULLY COMPLETE** (tokens → AST conversion with validation and error handling)
-4. ✅ **Implement type-level parser** → **FULLY COMPLETE** (template literal parsing + axis validation + integration tests)
-5. ⏳ Build runtime validator and operation planner
-6. ⏳ Connect to tensor operations with full einops API
+1. ✅ **Scanner implementation** - Complete with all 7 token types
+2. ✅ **AST types and runtime parser** - Full tokens → AST pipeline
+3. ✅ **Type-level parser** - Compile-time pattern validation
+4. ✅ **Axis resolution** - Dimension mapping and shape computation
+5. ✅ **Basic rearrange** - Working API with operation planning
+6. ⏳ **Advanced operations**:
+   - 6A: `reduce` - Aggregation operations with type safety
+   - 6B: `repeat` - Dimension expansion and broadcasting
+   - 6C: `einsum` - Einstein summation notation
+   - 6D: Optimization - Operation fusion and performance
 
-This implementation will bring the elegance of einops to TypeScript with the type safety inspired by ArkType's groundbreaking approach to string template parsing.
+This implementation brings the elegance of einops to TypeScript with complete type safety, inspired by ArkType's groundbreaking approach to string template parsing.
 
-## Current Implementation Progress
+## Operation-Specific Implementation Plans
 
-### ✅ **Phase 1: Scanner & Tokenizer (FULLY COMPLETE)**
-- **Files**: `scanner.ts`, `types.ts`, `scanner.test.ts`, `scanner.test-d.ts`
-- **Tests**: 48 runtime tests + comprehensive type tests
-- **Token Coverage**: All 7 einops token types implemented
-- **Pattern Support**: Simple, composite, ellipsis, and singleton patterns
+### `reduce` Operation Specification
 
-### ✅ **Phase 2: AST Foundation (FULLY COMPLETE)** 
-- **Files**: `ast.ts`, `ast.test.ts`, `ast.test-d.ts`
-- **Tests**: 42 runtime tests + comprehensive type tests  
-- **AST Coverage**: All 4 pattern types with discriminated unions
-- **Utilities**: 7 helper functions for AST analysis and validation
+**Pattern Syntax**:
+- Basic: `'b h w c -> b c'` (reduce h,w dimensions)
+- Partial: `'b h w c -> b h c'` (reduce only w)
+- Split-reduce: `'b (h h2) (w w2) c -> b h w c'` (spatial pooling)
+- With ellipsis: `'batch ... h w -> batch ...'` (reduce last 2 dims)
 
-### ✅ **Phase 2: Runtime Parser (FULLY COMPLETE)** 
-- **Files**: `parser.ts`, `parser.test.ts`, `parser.test-d.ts`
-- **Tests**: 35 runtime tests + comprehensive type tests covering all functionality
-- **Parser Coverage**: Complete tokens → AST conversion with validation and error handling
-- **Error Handling**: 5 specialized error classes with position tracking and helpful messages
-- **Integration**: Seamless pipeline from pattern string → tokens → AST structure
+**Implementation Requirements**:
+1. **Parser Changes**:
+   - Detect axes present in input but missing in output
+   - Validate split patterns have all parts specified
+   - Handle reduction with singletons: `'h w 1 -> h w'`
 
-### ✅ **Phase 3: Type-Level Parser (FULLY COMPLETE)**
-- **Files**: `type-parser.ts`, `type-parser.test-d.ts`, `validation.ts`, `validation.test-d.ts`, `integration.test-d.ts`
-- **Tests**: 120+ comprehensive type tests (60+ parser tests + 60+ validation tests)
-- **Type-Level Features**: 
-  - Template literal parsing with character-by-character processing
-  - Nested parentheses support with depth tracking using ts-arithmetic
-  - Complete AST generation at type level matching runtime structure
-  - Descriptive error messages for invalid patterns
-  - Complete axis validation system with compile-time checking
-  - Integration tests proving parser and validation work together
+2. **Type System**:
+   ```typescript
+   type ReductionOp = 'sum' | 'mean' | 'max' | 'min' | 'prod';
+   
+   type ReduceShape<
+     InputShape extends Shape,
+     Pattern extends string,
+     Op extends ReductionOp
+   > = ComputeReducedShape<ParsePattern<Pattern>, InputShape>;
+   ```
 
-### 📊 **Current Implementation Summary**
+3. **Runtime Mapping**:
+   - `sum` → `tensor.sum(axes, keepDims)`
+   - `mean` → `tensor.mean(axes, keepDims)`
+   - `max` → `tensor.max(axes, keepDims)`
+   - `min` → `tensor.min(axes, keepDims)`
+   - `prod` → `tensor.prod(axes, keepDims)`
+
+### `repeat` Operation Specification
+
+**Pattern Syntax**:
+- New axis: `'h w -> h w c'` (requires c value)
+- Expand existing: `'h w c -> h (w repeat) c'` (requires repeat value)
+- Multiple new: `'h w -> h w c1 c2'` (requires c1, c2 values)
+- With composites: `'h w -> (h h2) (w w2)'` (requires h2, w2)
+
+**Implementation Requirements**:
+1. **Parser Changes**:
+   - Track new axes not in input pattern
+   - Detect repeat multipliers in composite patterns
+   - Validate all new axes have provided sizes
+
+2. **Type System**:
+   ```typescript
+   type RepeatCounts<Pattern extends string> = 
+     ExtractNewAxes<Pattern> extends infer NewAxes
+       ? { [K in NewAxes]: number }
+       : never;
+   
+   type RepeatShape<
+     InputShape extends Shape,
+     Pattern extends string,
+     Counts extends RepeatCounts<Pattern>
+   > = ComputeExpandedShape<ParsePattern<Pattern>, InputShape, Counts>;
+   ```
+
+3. **Operation Strategy**:
+   - New axis at end: Use `unsqueeze` then `expand`
+   - New axis in middle: `unsqueeze` at position then `expand`
+   - Existing axis repeat: `repeat_interleave` or manual expansion
+
+### `einsum` Operation Specification
+
+**Pattern Syntax**:
+- Basic: `'i j, j k -> i k'` (matrix multiply)
+- Batch: `'bij, bjk -> bik'` (batched matmul)
+- Trace: `'ii ->'` (diagonal sum)
+- Outer: `'i, j -> ij'` (outer product)
+- Complex: `'pqrs, tuqvr -> pstuv'` (tensor contraction)
+
+**Implementation Requirements**:
+1. **New Parser**:
+   ```typescript
+   class EinsumParser {
+     parseMultiPattern(pattern: string): EinsumAST {
+       // Split by comma for inputs, arrow for output
+       // Track index usage across patterns
+       // Identify contraction vs free indices
+     }
+   }
+   ```
+
+2. **Contraction Analysis**:
+   - Free indices: Appear in output
+   - Contraction indices: In input but not output
+   - Batch indices: Same position in all tensors
+   - Invalid: Index in output but not input
+
+3. **Operation Planning**:
+   - Optimize contraction path (minimize intermediate sizes)
+   - Map to TypeTensor operations:
+     - 2D: `matmul`
+     - Batch: `batchMatmul`
+     - General: Sequence of `transpose`, `reshape`, `matmul`, `sum`
+
+### Testing Strategy for New Operations
+
+1. **Type Tests** (`*.test-d.ts`):
+   - Valid patterns compile
+   - Invalid patterns show errors
+   - Shape inference correctness
+   - Required parameters validation
+
+2. **Runtime Tests** (`*.test.ts`):
+   - Correctness against NumPy einops
+   - Edge cases (empty, scalar, singleton)
+   - Performance benchmarks
+   - Memory usage (view vs copy)
+
+3. **Integration Tests**:
+   - Chain operations: `rearrange` → `reduce`
+   - Complex real-world patterns
+   - Backend compatibility
+
+## Current Implementation Summary
+
+### 📊 **Project Statistics**
 - **Total Tests**: 232+ tests (172 runtime + 60+ type tests)
-- **Files**: 13 implementation and test files with full TypeScript compilation
-- **Coverage**: Complete einops pattern support at both runtime and type level + working rearrange API
-- **Pipeline**: 
-  - Runtime: String → Tokens → AST → Axis Resolution → Tensor Operations
-  - Type-level: Template literal → Type AST with compile-time validation
-- **User API**: Working `rearrange()` function with comprehensive pattern support
-- **Architecture**: Modular design following ArkType patterns for extensibility
+- **Implementation Files**: 13 core modules + comprehensive test suite
+- **Pattern Support**: Complete einops syntax (simple, composite, ellipsis, singleton)
+- **Type Safety**: Full compile-time validation with descriptive error messages
+- **User API**: Working `rearrange()` function ready for use
+
+### 🔗 **Implementation Pipeline**
+- **Runtime**: String → Scanner → Tokens → Parser → AST → Axis Resolution → Tensor Operations
+- **Type-level**: Template literal → Type Parser → Type AST → Validation → Compile-time errors
+
+### ✅ **Completed Components**
+1. **Scanner** - Tokenizes pattern strings with position tracking
+2. **Parser** - Converts tokens to AST with error handling
+3. **Type Parser** - Compile-time pattern validation
+4. **Axis Resolver** - Maps axes to dimensions and computes shapes
+5. **Rearrange** - User-facing API with operation planning
 
 ## TypeTensor Integration Deep Dive
 
@@ -495,84 +610,102 @@ We'll follow this pattern for einops errors.
 
 ### Einops Implementation Architecture
 
-#### Phase 1: Type-Level Parser
+#### Core Components (Implemented)
 
 ```typescript
-// Parser state following ArkType's pattern
-type EinopsParseState<
-  Input extends AxisPattern[] = [],
-  Output extends AxisPattern[] = [],
-  SeenAxes extends Record<string, number> = {},
-  CurrentSide extends 'input' | 'output' = 'input',
-  CompositeStack extends CompositeGroup[] = []
-> = {
-  input: Input;
-  output: Output;
-  seenAxes: SeenAxes;
-  currentSide: CurrentSide;
-  compositeStack: CompositeStack;
-};
-
-// Axis pattern types
-type AxisPattern = 
-  | SimpleAxis<string>
-  | CompositeAxis<AxisPattern[]>
-  | EllipsisAxis
-  | SingletonAxis;
-
-interface SimpleAxis<Name extends string> {
-  type: 'simple';
-  name: Name;
+// Scanner: Tokenizes pattern strings
+class EinopsScanner extends Scanner<string> {
+  scanTokens(): Token[]
 }
 
-interface CompositeAxis<Axes extends AxisPattern[]> {
-  type: 'composite';
-  axes: Axes;
+// Parser: Converts tokens to AST
+class EinopsParser {
+  parse(tokens: Token[]): EinopsAST
 }
+
+// Type Parser: Compile-time validation
+type ParsePattern<Pattern extends string> = ...
+
+// Axis Resolver: Maps dimensions
+class AxisResolver {
+  resolvePattern(ast: EinopsAST, shape: number[]): ResolvedPattern
+}
+
+// Rearrange: User-facing API
+function rearrange<Pattern extends string>(
+  tensor: Tensor,
+  pattern: Pattern,
+  axes?: AxisSizes
+): Promise<Tensor>
 ```
 
-#### Phase 2: Pattern Validation
+#### Extended Architecture (Planned)
 
 ```typescript
-// Validate pattern against tensor shape
-type ValidatePattern<
-  Pattern extends string,
-  InputShape extends Shape
-> = ParseEinopsPattern<Pattern> extends [infer Input, infer Output] ?
-  Input extends AxisPattern[] ?
-    Output extends AxisPattern[] ?
-      ValidateInputAxes<Input, InputShape> extends true ?
-        ValidateOutputAxes<Output, Input> extends true ?
-          Pattern
-        : EinopsError<"Output contains unknown axes", {output: Output, input: Input}>
-      : EinopsError<"Input pattern doesn't match tensor shape", {pattern: Input, shape: InputShape}>
-    : never
-  : never
-: EinopsError<"Invalid pattern syntax", {pattern: Pattern}>;
+// Reduce-specific components
+interface ReduceAST extends EinopsAST {
+  operation: 'sum' | 'mean' | 'max' | 'min' | 'prod';
+  keepDims?: boolean;
+}
+
+type ValidateReducePattern<Pattern, Shape> = ...
+type ComputeReduceShape<Input, Pattern, Op> = ...
+
+// Repeat-specific components
+interface RepeatAST extends EinopsAST {
+  newAxes: Set<string>;
+  repeatCounts: Map<string, number>;
+}
+
+type ValidateRepeatPattern<Pattern, Shape> = ...
+type ComputeRepeatShape<Input, Pattern, Counts> = ...
+
+// Einsum-specific components
+interface EinsumAST {
+  inputs: EinsumPattern[];
+  output: EinsumPattern;
+  contractionIndices: Set<string>;
+}
+
+type ValidateEinsumPattern<Pattern, Shapes> = ...
+type ComputeEinsumShape<Pattern, InputShapes> = ...
 ```
 
-#### Phase 3: Operation Planning
+#### Operation-Specific Planning
 
 ```typescript
-// Plan the sequence of tensor operations
-interface EinopsOperation {
-  type: 'reshape' | 'permute' | 'expand' | 'reduce';
-  params: unknown;
+// Extended operation types
+type EinopsOperation = 
+  | ReshapeOp 
+  | PermuteOp 
+  | ReduceOp    // New
+  | RepeatOp    // New
+  | EinsumOp;   // New
+
+interface ReduceOp {
+  type: 'reduce';
+  axes: number[];
+  operation: 'sum' | 'mean' | 'max' | 'min' | 'prod';
+  keepDims: boolean;
 }
 
-class EinopsPlanner {
-  planOperations(
-    parsed: ParsedPattern,
-    inputShape: Shape,
-    axisValues?: Record<string, number>
-  ): EinopsOperation[] {
-    // 1. Resolve composite axes to simple axes
-    // 2. Determine reshape operations for merging/splitting
-    // 3. Calculate permutation for axis reordering
-    // 4. Handle expansions and reductions
-    return operations;
-  }
+interface RepeatOp {
+  type: 'repeat';
+  axis: number;
+  count: number;
+  mode: 'new' | 'expand';
 }
+
+interface EinsumOp {
+  type: 'einsum';
+  contractionAxes: number[][];
+  outputOrder: number[];
+}
+
+// Extended planner for each operation type
+class ReducePlanner extends OperationPlanner { ... }
+class RepeatPlanner extends OperationPlanner { ... }
+class EinsumPlanner extends OperationPlanner { ... }
 ```
 
 #### Phase 4: Integration API
@@ -830,12 +963,10 @@ digit           ::= "0".."9"
 whitespace      ::= " " | "\t" | "\n"
 ```
 
-### 4. Complete AST Structure ✅ IMPLEMENTED
-
-**Files**: [`ast.ts`](./ast.ts) | [`ast.test.ts`](./ast.test.ts) | [`ast.test-d.ts`](./ast.test-d.ts)
+### 4. Complete AST Structure
 
 ```typescript
-// Full AST with metadata for error reporting - IMPLEMENTED
+// Full AST with metadata for error reporting
 interface EinopsAST {
   readonly input: readonly AxisPattern[];
   readonly output: readonly AxisPattern[];
@@ -850,21 +981,15 @@ interface ASTMetadata {
 }
 
 type AxisPattern = 
-  | SimpleAxis      // ✅ IMPLEMENTED
-  | CompositeAxis   // ✅ IMPLEMENTED  
-  | EllipsisAxis    // ✅ IMPLEMENTED
-  | SingletonAxis;  // ✅ IMPLEMENTED
-
-// Comprehensive utility functions - IMPLEMENTED
-function getAxisNames(patterns: readonly AxisPattern[]): string[];
-function hasEllipsis(patterns: readonly AxisPattern[]): boolean;
-function getCompositeDepth(pattern: CompositeAxis): number;
-// + 4 more utility functions with full test coverage
+  | SimpleAxis
+  | CompositeAxis
+  | EllipsisAxis
+  | SingletonAxis;
 
 interface SimpleAxis {
   type: "simple";
   name: string;
-  position: TokenPosition; // For error reporting
+  position: TokenPosition;
 }
 
 interface CompositeAxis {
@@ -882,12 +1007,9 @@ interface SingletonAxis {
   type: "singleton";
   position: TokenPosition;
 }
-
-interface TokenPosition {
-  start: number;
-  end: number;
-}
 ```
+
+**Implementation**: [`ast.ts`](./ast.ts) - Complete AST with 7 utility functions and full test coverage
 
 ### 5. Axis Resolution Algorithm
 
@@ -916,81 +1038,16 @@ class AxisResolver {
 
     return { axisDimensions, outputShape };
   }
-
-  private mapAxesToDimensions(
-    patterns: AxisPattern[],
-    shape: number[],
-    provided?: Record<string, number>
-  ): Map<string, number> {
-    const dimensions = new Map<string, number>();
-    let shapeIndex = 0;
-
-    for (const pattern of patterns) {
-      switch (pattern.type) {
-        case "simple":
-          if (provided?.[pattern.name]) {
-            dimensions.set(pattern.name, provided[pattern.name]);
-          } else {
-            dimensions.set(pattern.name, shape[shapeIndex++]);
-          }
-          break;
-        
-        case "composite":
-          // Composite dimension is product of inner axes
-          const compositeDim = shape[shapeIndex++];
-          this.resolveComposite(pattern, compositeDim, dimensions, provided);
-          break;
-        
-        case "ellipsis":
-          // Consume remaining dimensions
-          // Implementation depends on output pattern
-          break;
-      }
-    }
-
-    return dimensions;
-  }
-
-  private resolveComposite(
-    composite: CompositeAxis,
-    totalDim: number,
-    dimensions: Map<string, number>,
-    provided?: Record<string, number>
-  ): void {
-    const knownAxes = composite.axes.filter(
-      a => a.type === "simple" && provided?.[a.name]
-    );
-    
-    if (knownAxes.length === composite.axes.length - 1) {
-      // Can infer the unknown dimension
-      const knownProduct = knownAxes.reduce(
-        (prod, axis) => prod * provided![axis.name], 
-        1
-      );
-      const unknownDim = totalDim / knownProduct;
-      
-      if (!Number.isInteger(unknownDim)) {
-        throw new Error(`Cannot evenly split dimension ${totalDim}`);
-      }
-      
-      // Set the inferred dimension
-      for (const axis of composite.axes) {
-        if (axis.type === "simple" && !dimensions.has(axis.name)) {
-          dimensions.set(axis.name, unknownDim);
-        }
-      }
-    } else {
-      throw new Error("Cannot infer multiple unknown dimensions in composite");
-    }
-  }
 }
 ```
+
+**Implementation**: [`axis-resolver.ts`](./axis-resolver.ts) - Complete with composite resolution, ellipsis handling, and 60 tests
 
 ### 6. Operation Planning Algorithm
 
 ```typescript
 interface PlannedOperation {
-  type: "reshape" | "permute" | "expand" | "squeeze";
+  type: "reshape" | "permute" | "expand" | "squeeze" | "reduce" | "repeat";
   params: any;
   resultShape: number[];
 }
@@ -1001,48 +1058,20 @@ class OperationPlanner {
     outputShape: number[],
     inputPattern: AxisPattern[],
     outputPattern: AxisPattern[],
-    axisDims: Map<string, number>
+    axisDims: Map<string, number>,
+    operation?: 'rearrange' | 'reduce' | 'repeat' | 'einsum'
   ): PlannedOperation[] {
-    const operations: PlannedOperation[] = [];
-    
-    // Step 1: Flatten composites in input
-    const flatInput = this.flattenComposites(inputPattern, inputShape);
-    if (!this.shapeEquals(flatInput.shape, inputShape)) {
-      operations.push({
-        type: "reshape",
-        params: { shape: flatInput.shape },
-        resultShape: flatInput.shape
-      });
-    }
-    
-    // Step 2: Compute permutation
-    const permutation = this.computePermutation(
-      flatInput.axes,
-      outputPattern
-    );
-    
-    if (!this.isIdentityPermutation(permutation)) {
-      const permutedShape = permutation.map(i => flatInput.shape[i]);
-      operations.push({
-        type: "permute",
-        params: { axes: permutation },
-        resultShape: permutedShape
-      });
-    }
-    
-    // Step 3: Final reshape if needed
-    if (!this.shapeEquals(permutedShape || flatInput.shape, outputShape)) {
-      operations.push({
-        type: "reshape",
-        params: { shape: outputShape },
-        resultShape: outputShape
-      });
-    }
-    
-    return operations;
+    // Current: Basic reshape and permute for rearrange
+    // Planned: Extended for reduce, repeat, and einsum operations
   }
 }
 ```
+
+**Current**: Basic operation planning in [`rearrange.ts`](./rearrange.ts)
+**Planned Extensions**:
+- **Reduce**: Plan aggregation axes and operation type
+- **Repeat**: Plan expansion strategy (view vs copy)
+- **Einsum**: Plan contraction path optimization
 
 ### 7. Edge Cases Handling
 

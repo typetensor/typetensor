@@ -8,3 +8,6 @@ export { generateReductionOperationTests } from './generators/reduction-operatio
 export { generateSoftmaxOperationTests } from './generators/softmax-operations';
 export { generateMatmulOperationTests } from './generators/matmul-operations';
 export { generateEinopsOperationTests } from './generators/einops-operations';
+export { generateDeviceOperationTests } from './generators/device-operations';
+export { generateUtilityOperationTests } from './generators/utility-operations';
+export { generateDataAccessOperationTests } from './generators/data-access-operations';

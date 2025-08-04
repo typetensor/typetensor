@@ -71,7 +71,7 @@ describe('Axis Reordering Operations', () => {
 
 describe('Composite Pattern Operations', () => {
   it('should handle basic composite splitting', async () => {
-    const testTensor = await ones([2048, 3] as const, { device: cpu, dtype: float32 }); // [h*w, channels]
+    const testTensor = await ones([2048, 3] as const, { device: cpu, dtype: float32 }); // [h*w, channels]'
     const result = await rearrange(testTensor, '(h w) c -> h w c', { h: 32 }); // Need to provide h dimension
 
     expect(result.shape).toEqual([32, 64, 3]);
@@ -278,7 +278,7 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
     const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
 
     await expect(rearrange(testTensor, 'a b c -> a c')).rejects.toThrow(
-      /Identifiers only on one side of expression.*\{b\}/
+      /Identifiers only on one side of expression.*\{b\}/,
     );
   });
 
@@ -286,7 +286,7 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
     const testTensor = await ones([2, 3] as const, { device: cpu, dtype: float32 });
 
     await expect(rearrange(testTensor, 'a b -> a b a')).rejects.toThrow(
-      /Indexing expression contains duplicate dimension "a"/
+      /Indexing expression contains duplicate dimension "a"/,
     );
   });
 
@@ -294,8 +294,22 @@ describe('Invalid Patterns - PyTorch Compatibility', () => {
     const testTensor = await ones([2, 3, 4, 5] as const, { device: cpu, dtype: float32 });
 
     await expect(rearrange(testTensor, 'batch ... -> ...')).rejects.toThrow(
-      /Identifiers only on one side of expression.*\{batch\}/
+      /Identifiers only on one side of expression.*\{batch\}/,
     );
+  });
+
+  it('should error on multiple ellipsis in input', async () => {
+    const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+
+    // @ts-expect-error - Type error is expected here!
+    await expect(rearrange(testTensor, '... a ... -> a')).rejects.toThrow(RearrangeError);
+  });
+
+  it('should error on multiple ellipsis in output', async () => {
+    const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+
+    // @ts-expect-error - Type error is expected here!
+    await expect(rearrange(testTensor, 'a -> ... a ...')).rejects.toThrow(RearrangeError);
   });
 });
 
@@ -307,12 +321,14 @@ describe('Error Handling', () => {
   it('should error on unknown output axis', async () => {
     const testTensor = await ones([32, 64] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, 'h w -> h w c')).rejects.toThrow(RearrangeError);
   });
 
   it('should error on dimension mismatch', async () => {
     const testTensor = await ones([10, 20] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, 'a b c -> a b')).rejects.toThrow(RearrangeError);
   });
 
@@ -335,6 +351,7 @@ describe('Error Handling', () => {
   it('should error on multiple unknowns in composite', async () => {
     const testTensor = await ones([60, 5] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, '(a b c) d -> a b c d')).rejects.toThrow(RearrangeError); // Cannot infer a, b, c
   });
 
@@ -347,6 +364,7 @@ describe('Error Handling', () => {
   it('should error on malformed pattern', async () => {
     const testTensor = await ones([10, 20] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, 'a b -> a b)')).rejects.toThrow(RearrangeError); // Unbalanced parentheses
   });
 
@@ -354,6 +372,7 @@ describe('Error Handling', () => {
     const testTensor = await ones([10, 20] as const, { device: cpu, dtype: float32 });
 
     try {
+      // @ts-expect-error - Type error is expected here!
       await rearrange(testTensor, 'a b -> a b c');
       expect(true).toBe(false); // Should not reach here
     } catch (error) {

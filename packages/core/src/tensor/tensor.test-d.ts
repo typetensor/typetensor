@@ -627,3 +627,104 @@ const invalidPerm2 = permute3DTensor.permute([0, 0, 1] as const);
 
 // @ts-expect-error - out of bounds axis
 const invalidPerm3 = permute3DTensor.permute([0, 1, 3] as const);
+
+// =============================================================================
+// Product Reduction Operation Tests
+// =============================================================================
+
+import type { ProdOp } from '../storage/reduction';
+
+// Test tensors for prod operations
+declare const prodFloat32Tensor: Tensor<CreateOp<TensorStorage<Float32, readonly [2, 3, 4]>>>;
+declare const prodInt32Tensor: Tensor<CreateOp<TensorStorage<Int32, readonly [5, 6]>>>;
+
+// Test 1: Product along specific axis (axis=1, remove dimension)
+declare const prodAxis1Result: Awaited<
+  ReturnType<typeof prodFloat32Tensor.prod<readonly [1], false>>
+>;
+expectTypeOf(prodAxis1Result).toMatchTypeOf<
+  Tensor<ProdOp<TensorStorage<Float32, readonly [2, 3, 4]>, readonly [1], false>>
+>();
+expectTypeOf(prodAxis1Result.shape).toEqualTypeOf<readonly [2, 4]>();
+expectTypeOf(prodAxis1Result.dtype).toEqualTypeOf<Float32>(); // Dtype preserved
+
+// Test 2: Global product (all elements to scalar)
+declare const prodGlobalResult: Awaited<
+  ReturnType<typeof prodFloat32Tensor.prod<undefined, false>>
+>;
+expectTypeOf(prodGlobalResult).toMatchTypeOf<
+  Tensor<ProdOp<TensorStorage<Float32, readonly [2, 3, 4]>, undefined, false>>
+>();
+expectTypeOf(prodGlobalResult.shape).toEqualTypeOf<readonly []>(); // Scalar result
+expectTypeOf(prodGlobalResult.dtype).toEqualTypeOf<Float32>();
+
+// Test 3: Product with keepdims=true
+declare const prodKeepDimsResult: Awaited<
+  ReturnType<typeof prodFloat32Tensor.prod<readonly [2], true>>
+>;
+expectTypeOf(prodKeepDimsResult).toMatchTypeOf<
+  Tensor<ProdOp<TensorStorage<Float32, readonly [2, 3, 4]>, readonly [2], true>>
+>();
+expectTypeOf(prodKeepDimsResult.shape).toEqualTypeOf<readonly [2, 3, 1]>(); // Keep as size 1
+expectTypeOf(prodKeepDimsResult.dtype).toEqualTypeOf<Float32>();
+
+// Test 4: Product along multiple axes
+declare const prodMultiAxesResult: Awaited<
+  ReturnType<typeof prodFloat32Tensor.prod<readonly [0, 2], false>>
+>;
+expectTypeOf(prodMultiAxesResult).toMatchTypeOf<
+  Tensor<ProdOp<TensorStorage<Float32, readonly [2, 3, 4]>, readonly [0, 2], false>>
+>();
+expectTypeOf(prodMultiAxesResult.shape).toEqualTypeOf<readonly [3]>(); // Only middle dimension remains
+
+// Test 5: Integer dtype preservation (unlike mean which converts to float)
+declare const prodIntResult: Awaited<ReturnType<typeof prodInt32Tensor.prod<readonly [1], false>>>;
+expectTypeOf(prodIntResult).toMatchTypeOf<
+  Tensor<ProdOp<TensorStorage<Int32, readonly [5, 6]>, readonly [1], false>>
+>();
+expectTypeOf(prodIntResult.shape).toEqualTypeOf<readonly [5]>();
+expectTypeOf(prodIntResult.dtype).toEqualTypeOf<Int32>(); // Integer dtype preserved
+
+// Test 6: Product with negative axis indexing
+const prodNegativeAxis = await prodFloat32Tensor.prod<readonly [-1], false>();
+expectTypeOf(prodNegativeAxis).toMatchTypeOf<
+  Tensor<ProdOp<TensorStorage<Float32, readonly [2, 3, 4]>, readonly [-1], false>>
+>();
+expectTypeOf(prodNegativeAxis.shape).toEqualTypeOf<readonly [2, 3]>(); // Last dim removed
+
+// Test 7: Chainable promise prod operation
+const chainableProdResult = await prodFloat32Tensor.prod(undefined, false);
+expectTypeOf(chainableProdResult.shape).toEqualTypeOf<readonly []>();
+expectTypeOf(chainableProdResult.dtype).toEqualTypeOf<Float32>();
+
+// Test 8: All axes reduction with keepdims
+declare const prodAllKeepResult: Awaited<
+  ReturnType<typeof prodFloat32Tensor.prod<readonly [0, 1, 2], true>>
+>;
+expectTypeOf(prodAllKeepResult.shape).toEqualTypeOf<readonly [1, 1, 1]>(); // All dims kept as 1
+
+// Test 9: Type validation should prevent invalid axes
+// The following should fail at compile time if uncommented:
+// @ts-expect-error - axis out of bounds
+const invalidProdAxis = prodFloat32Tensor.prod([5] as const);
+
+// @ts-expect-error - invalid axis type
+const invalidProdType = prodFloat32Tensor.prod(['invalid'] as any);
+
+// Test 10: Comparison with other reduction operations
+declare const sumResult: Awaited<ReturnType<typeof prodFloat32Tensor.sum<readonly [1], false>>>;
+declare const meanResult: Awaited<ReturnType<typeof prodFloat32Tensor.mean<readonly [1], false>>>;
+declare const maxResult: Awaited<ReturnType<typeof prodFloat32Tensor.max<readonly [1], false>>>;
+declare const minResult: Awaited<ReturnType<typeof prodFloat32Tensor.min<readonly [1], false>>>;
+
+// All should have same shape after reduction
+expectTypeOf(prodAxis1Result.shape).toEqualTypeOf<typeof sumResult.shape>();
+expectTypeOf(prodAxis1Result.shape).toEqualTypeOf<typeof meanResult.shape>();
+expectTypeOf(prodAxis1Result.shape).toEqualTypeOf<typeof maxResult.shape>();
+expectTypeOf(prodAxis1Result.shape).toEqualTypeOf<typeof minResult.shape>();
+
+// Prod should preserve dtype like sum/max/min, unlike mean which promotes to float
+expectTypeOf(prodAxis1Result.dtype).toEqualTypeOf<typeof sumResult.dtype>();
+expectTypeOf(prodAxis1Result.dtype).toEqualTypeOf<typeof maxResult.dtype>();
+expectTypeOf(prodAxis1Result.dtype).toEqualTypeOf<typeof minResult.dtype>();
+// Note: mean converts to float, so it would be different

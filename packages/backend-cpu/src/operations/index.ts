@@ -8,10 +8,16 @@ import type { Device, DeviceData, AnyStorageTransformation } from '@typetensor/c
 import { assertExhaustiveSwitch } from '@typetensor/core';
 import { executeUnaryOp } from './unary';
 import { executeBinaryOp } from './binary';
-import { executeViewOp, executeSliceOp } from './view';
+import { executeViewOp, executeSliceOp, executeExpandOp, executeTileOp } from './view';
 import { executeMatmulOp } from './matmul';
 import { executeSoftmaxOp, executeLogSoftmaxOp } from './softmax';
-import { executeSumOp, executeMeanOp, executeMaxOp, executeMinOp } from './reduction';
+import {
+  executeSumOp,
+  executeMeanOp,
+  executeMaxOp,
+  executeMinOp,
+  executeProdOp,
+} from './reduction';
 
 /**
  * Execute a tensor operation on the CPU device
@@ -108,7 +114,13 @@ export async function executeOperation(
     case 'transpose':
     // Permute operation - view operation that rearranges dimensions
     // fallthrough
-    case 'permute': {
+    case 'permute':
+    // Squeeze operation - view operation that removes size-1 dimensions
+    // fallthrough
+    case 'squeeze':
+    // Unsqueeze operation - view operation that adds size-1 dimensions
+    // fallthrough
+    case 'unsqueeze': {
       if (inputs.length !== 1) {
         throw new Error(`${op.__op} operation requires exactly 1 input, got ${inputs.length}`);
       }
@@ -116,9 +128,33 @@ export async function executeOperation(
       if (!input) {
         throw new Error('Input is undefined');
       }
-      // Like reshape, transpose and permute are view operations
+      // Like reshape, transpose, permute, squeeze, and unsqueeze are view operations
       // Return the same data buffer with different metadata
       return input;
+    }
+
+    // Expand operation - view operation that broadcasts singleton dimensions
+    case 'expand': {
+      if (inputs.length !== 1) {
+        throw new Error(`Expand operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeExpandOp(device, op as AnyStorageTransformation & { __op: 'expand' }, input);
+    }
+
+    // Tile operation - creates new tensor with repeated data
+    case 'tile': {
+      if (inputs.length !== 1) {
+        throw new Error(`Tile operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeTileOp(device, op as AnyStorageTransformation & { __op: 'tile' }, input);
     }
 
     // Matrix multiplication
@@ -237,6 +273,25 @@ export async function executeOperation(
         device,
         op as AnyStorageTransformation & {
           __minAxes: readonly number[] | undefined;
+          __keepDims: boolean;
+        },
+        input,
+        output,
+      );
+    }
+
+    case 'prod': {
+      if (inputs.length !== 1) {
+        throw new Error(`Product operation requires exactly 1 input, got ${inputs.length}`);
+      }
+      const input = inputs[0];
+      if (!input) {
+        throw new Error('Input is undefined');
+      }
+      return executeProdOp(
+        device,
+        op as AnyStorageTransformation & {
+          __prodAxes: readonly number[] | undefined;
           __keepDims: boolean;
         },
         input,

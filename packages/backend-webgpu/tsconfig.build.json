@@ -5,7 +5,9 @@
     "outDir": "./dist",
     "composite": false,
     "noEmit": false,
-    "paths": {}
+    "paths": {},
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["src/**/*"],
   "exclude": ["**/*.test.ts", "**/*.test-d.ts", "**/*.spec.ts", "src/**/*.test.ts", "src/**/*.test-d.ts"]

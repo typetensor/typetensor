@@ -681,6 +681,285 @@ export function generateReductionOperationTests(
       });
     });
 
+    describe('prod operations', () => {
+      it('should compute product of all elements in a scalar', async () => {
+        // PyTorch: torch.tensor(5.0).prod()
+        // Output: tensor(5.0)
+        const scalar = await tensor(5, { device, dtype: float32 });
+        const result = await scalar.prod();
+
+        expect(result.shape).toEqual([]);
+        expect(result.dtype).toBe(float32);
+        expect(result.device).toBe(device);
+        expect(await result.item()).toBeCloseTo(5, 5);
+      });
+
+      it('should compute product of all elements in a vector', async () => {
+        // PyTorch: torch.tensor([2, 3, 4], dtype=torch.float32).prod()
+        // Output: tensor(24.0)
+        const vector = await tensor([2, 3, 4] as const, { device, dtype: float32 });
+        const result = await vector.prod();
+
+        expect(result.shape).toEqual([]);
+        expect(await result.item()).toBeCloseTo(24, 5); // 2*3*4 = 24
+      });
+
+      it('should compute product of all elements in a matrix', async () => {
+        // PyTorch: torch.tensor([[1, 2], [3, 4]], dtype=torch.float32).prod()
+        // Output: tensor(24.0)
+        const matrix = await tensor(
+          [
+            [1, 2],
+            [3, 4],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const result = await matrix.prod();
+
+        expect(result.shape).toEqual([]);
+        expect(await result.item()).toBeCloseTo(24, 5); // 1*2*3*4 = 24
+      });
+
+      it('should compute product along axis 0', async () => {
+        // PyTorch: torch.tensor([[2, 3], [4, 5]], dtype=torch.float32).prod(dim=0)
+        // Output: tensor([8., 15.])
+        const matrix = await tensor(
+          [
+            [2, 3],
+            [4, 5],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const result = await matrix.prod([0]);
+
+        expect(result.shape).toEqual([2]);
+        const data = await result.toArray();
+        expect(data[0]).toBeCloseTo(8, 5); // 2*4 = 8
+        expect(data[1]).toBeCloseTo(15, 5); // 3*5 = 15
+      });
+
+      it('should compute product along axis 1', async () => {
+        // PyTorch: torch.tensor([[2, 3, 4], [5, 6, 7]], dtype=torch.float32).prod(dim=1)
+        // Output: tensor([24., 210.])
+        const matrix = await tensor(
+          [
+            [2, 3, 4],
+            [5, 6, 7],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const result = await matrix.prod([1]);
+
+        expect(result.shape).toEqual([2]);
+        const data = await result.toArray();
+        expect(data[0]).toBeCloseTo(24, 5); // 2*3*4 = 24
+        expect(data[1]).toBeCloseTo(210, 5); // 5*6*7 = 210
+      });
+
+      it('should compute product with keepDims=true', async () => {
+        // PyTorch: torch.tensor([[2, 3], [4, 5]], dtype=torch.float32).prod(dim=1, keepdim=True)
+        // Output: tensor([[6.], [20.]])
+        const matrix = await tensor(
+          [
+            [2, 3],
+            [4, 5],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const result = await matrix.prod([1], true);
+
+        expect(result.shape).toEqual([2, 1]);
+        const data = await result.toArray();
+        expect(data[0][0]).toBeCloseTo(6, 5); // 2*3 = 6
+        expect(data[1][0]).toBeCloseTo(20, 5); // 4*5 = 20
+      });
+
+      it('should handle negative numbers', async () => {
+        // PyTorch: torch.tensor([-2, 3, -4], dtype=torch.float32).prod()
+        // Output: tensor(24.0)
+        const vector = await tensor([-2, 3, -4] as const, { device, dtype: float32 });
+        const result = await vector.prod();
+
+        expect(await result.item()).toBeCloseTo(24, 5); // (-2)*3*(-4) = 24
+      });
+
+      it('should handle mixed signs', async () => {
+        // PyTorch: torch.tensor([[-2, 3], [4, -5]], dtype=torch.float32).prod(dim=0)
+        // Output: tensor([-8, -15])
+        const matrix = await tensor(
+          [
+            [-2, 3],
+            [4, -5],
+          ] as const,
+          { device, dtype: float32 },
+        );
+        const result = await matrix.prod([0]);
+
+        const data = await result.toArray();
+        expect(data[0]).toBeCloseTo(-8, 5); // (-2)*4 = -8
+        expect(data[1]).toBeCloseTo(-15, 5); // 3*(-5) = -15
+      });
+
+      it('should handle zeros in product', async () => {
+        // PyTorch: torch.tensor([2, 0, 3, 4], dtype=torch.float32).prod()
+        // Output: tensor(0.)
+        const vector = await tensor([2, 0, 3, 4] as const, { device, dtype: float32 });
+        const result = await vector.prod();
+
+        expect(await result.item()).toBeCloseTo(0, 5);
+      });
+
+      it('should handle empty tensors', async () => {
+        // PyTorch: torch.tensor([], dtype=torch.float32).prod()
+        // Output: tensor(1.)
+        // Note: Empty product is 1 (multiplicative identity)
+        const empty = await tensor([] as const, { device, dtype: float32 });
+        const result = await empty.prod();
+
+        expect(result.shape).toEqual([]);
+        expect(await result.item()).toBeCloseTo(1, 5);
+      });
+
+      it('should handle integer products', async () => {
+        // PyTorch: torch.tensor([2, 3, 4], dtype=torch.int32).prod()
+        // Output: tensor(24, dtype=torch.int64)
+        // Note: PyTorch promotes int32 products to int64
+        const vector = await tensor([2, 3, 4] as const, { device, dtype: int32 });
+        const result = await vector.prod();
+
+        expect(result.dtype).toBe(int32);
+        expect(await result.item()).toBe(24);
+      });
+
+      it('should handle 3D tensor products', async () => {
+        // PyTorch: tensor3d = torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=torch.float32)
+        // Shape: torch.Size([2, 2, 2])
+        // Prod all: 40320
+        // Prod axis 0: tensor([[5, 12], [21, 32]])
+        // Prod axis 1: tensor([[3, 8], [35, 48]])
+        // Prod axis 2: tensor([[2, 12], [30, 56]])
+        const tensor3d = await tensor(
+          [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+            [
+              [5, 6],
+              [7, 8],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Product of all elements: 1*2*3*4*5*6*7*8 = 40320
+        const prodAll = await tensor3d.prod();
+        expect(await prodAll.item()).toBeCloseTo(40320, 5);
+
+        // Product along axis 0: [[1*5, 2*6], [3*7, 4*8]] = [[5, 12], [21, 32]]
+        const prodAxis0 = await tensor3d.prod([0]);
+        expect(prodAxis0.shape).toEqual([2, 2]);
+        const data0 = await prodAxis0.toArray();
+        expect(data0).toEqual([
+          [5, 12],
+          [21, 32],
+        ]);
+
+        // Product along axis 1: [[1*3, 2*4], [5*7, 6*8]] = [[3, 8], [35, 48]]
+        const prodAxis1 = await tensor3d.prod([1]);
+        expect(prodAxis1.shape).toEqual([2, 2]);
+        const data1 = await prodAxis1.toArray();
+        expect(data1).toEqual([
+          [3, 8],
+          [35, 48],
+        ]);
+
+        // Product along axis 2: [[1*2, 3*4], [5*6, 7*8]] = [[2, 12], [30, 56]]
+        const prodAxis2 = await tensor3d.prod([2]);
+        expect(prodAxis2.shape).toEqual([2, 2]);
+        const data2 = await prodAxis2.toArray();
+        expect(data2).toEqual([
+          [2, 12],
+          [30, 56],
+        ]);
+      });
+
+      it('should handle multiple axes product', async () => {
+        // PyTorch: torch.tensor([[2, 3, 4], [5, 6, 7]], dtype=torch.float32).prod(dim=[0, 1])
+        // Output: tensor(5040.)
+        const matrix = await tensor(
+          [
+            [2, 3, 4],
+            [5, 6, 7],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        // Product along both axes (equivalent to prod all)
+        const result = await matrix.prod([0, 1]);
+        expect(result.shape).toEqual([]);
+        expect(await result.item()).toBeCloseTo(5040, 5); // 2*3*4*5*6*7 = 5040
+      });
+
+      it('should handle keepDims with multiple axes', async () => {
+        // PyTorch: tensor3d.prod(dim=[0, 2], keepdim=True)
+        // Output shape: torch.Size([1, 2, 1])
+        const tensor3d = await tensor(
+          [
+            [
+              [2, 3],
+              [4, 5],
+            ],
+            [
+              [6, 7],
+              [8, 9],
+            ],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        const result = await tensor3d.prod([0, 2], true);
+        expect(result.shape).toEqual([1, 2, 1]);
+
+        const data = await result.toArray();
+        // Product of [2,3,6,7] = 252, Product of [4,5,8,9] = 1440
+        expect(data[0][0][0]).toBeCloseTo(252, 5);
+        expect(data[0][1][0]).toBeCloseTo(1440, 5);
+      });
+
+      it('should handle ones in product', async () => {
+        // PyTorch: torch.tensor([1, 1, 2, 1, 3], dtype=torch.float32).prod()
+        // Output: tensor(6.)
+        const vector = await tensor([1, 1, 2, 1, 3] as const, { device, dtype: float32 });
+        const result = await vector.prod();
+
+        expect(await result.item()).toBeCloseTo(6, 5); // 1*1*2*1*3 = 6
+      });
+
+      it('should handle very small numbers', async () => {
+        // PyTorch: torch.tensor([0.1, 0.2, 0.3], dtype=torch.float32).prod()
+        // Output: tensor(0.0060)
+        const vector = await tensor([0.1, 0.2, 0.3] as const, { device, dtype: float32 });
+        const result = await vector.prod();
+
+        expect(await result.item()).toBeCloseTo(0.006, 4); // 0.1*0.2*0.3 = 0.006
+      });
+
+      it('should preserve device and dtype', async () => {
+        const matrix = await tensor(
+          [
+            [2, 3],
+            [4, 5],
+          ] as const,
+          { device, dtype: float32 },
+        );
+
+        const prod = await matrix.prod();
+        expect(prod.device).toBe(device);
+        expect(prod.dtype).toBe(float32);
+      });
+    });
+
     describe('chaining with other operations', () => {
       it('should chain reductions with view operations', async () => {
         // PyTorch: torch.tensor([1, 2, 3, 4, 5, 6]).reshape(2, 3).sum(dim=1)
@@ -724,6 +1003,19 @@ export function generateReductionOperationTests(
         const result = await sumA.add(sumB);
 
         expect(await result.item()).toBeCloseTo(21, 5); // (1+2+3) + (4+5+6) = 6 + 15 = 21
+      });
+
+      it('should chain prod with other operations', async () => {
+        // PyTorch: torch.tensor([2, 3, 4]).prod() * torch.tensor([1, 2]).prod()
+        // Output: 24 * 2 = 48
+        const a = await tensor([2, 3, 4] as const, { device, dtype: float32 });
+        const b = await tensor([1, 2] as const, { device, dtype: float32 });
+
+        const prodA = await a.prod();
+        const prodB = await b.prod();
+        const result = await prodA.mul(prodB);
+
+        expect(await result.item()).toBeCloseTo(48, 5); // (2*3*4) * (1*2) = 24 * 2 = 48
       });
     });
   });

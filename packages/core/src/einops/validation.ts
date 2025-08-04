@@ -5,12 +5,8 @@
  * ensuring that patterns are well-formed and semantically valid.
  */
 
-import type {
-  TypeAxisPattern,
-  TypeSimpleAxis,
-  TypeCompositeAxis,
-  TypeEllipsisAxis,
-} from './type-parser';
+import type { TypeAxisPattern, TypeSimpleAxis, TypeCompositeAxis } from './type-parser';
+import type { CountEllipsis } from './type-shape-resolver-utils';
 
 // =============================================================================
 // Axis Collection Utilities
@@ -67,22 +63,6 @@ export type CountAxis<
 /**
  * Count the number of ellipsis patterns
  */
-export type CountEllipsis<
-  Patterns extends readonly TypeAxisPattern[],
-  Count extends number = 0,
-> = Patterns extends readonly [infer Head, ...infer Tail]
-  ? Head extends TypeEllipsisAxis
-    ? Tail extends readonly TypeAxisPattern[]
-      ? CountEllipsis<Tail, Count> // TODO: Increment count
-      : 1
-    : Head extends TypeCompositeAxis
-      ? Tail extends readonly TypeAxisPattern[]
-        ? CountEllipsis<Tail, CountEllipsis<Head['axes'], Count>>
-        : Count
-      : Tail extends readonly TypeAxisPattern[]
-        ? CountEllipsis<Tail, Count>
-        : Count
-  : Count;
 
 /**
  * Validate that at most one ellipsis exists

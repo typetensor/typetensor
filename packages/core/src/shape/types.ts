@@ -7,7 +7,7 @@
  */
 
 import type { Multiply, Subtract, Compare, Add } from 'ts-arithmetic';
-import type { Ceil, Max, Min, Abs } from '../arithmetic';
+import type { Ceil, Max, Min, Abs, Decrement } from '../arithmetic';
 
 // =============================================================================
 // Basic Shape Types
@@ -1185,3 +1185,249 @@ type HasDuplicatesHelper<
     ? true // Found duplicate
     : HasDuplicatesHelper<Rest, readonly [...Seen, First]>
   : false; // No duplicates found
+
+// =============================================================================
+// Expand Operation Types
+// =============================================================================
+
+/**
+ * Compute the resulting shape from an expand operation
+ *
+ * Rules:
+ * - Can only expand dimensions of size 1
+ * - Use -1 to keep existing dimension size
+ * - Can add new dimensions on the left
+ *
+ * @example
+ * type E1 = ExpandShape<[2, 1, 3], [2, 5, 3]> // [2, 5, 3]
+ * type E2 = ExpandShape<[1, 3], [4, 3]> // [4, 3]
+ * type E3 = ExpandShape<[3], [2, 3]> // [2, 3] - adds new dim
+ */
+export type ExpandShape<InputShape extends Shape, TargetShape extends readonly (number | -1)[]> =
+  CanExpand<InputShape, TargetShape> extends true
+    ? ResolveExpandShape<InputShape, TargetShape>
+    : never;
+
+/**
+ * Resolve -1 values and compute final expanded shape
+ */
+type ResolveExpandShape<
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+> = TargetShape extends readonly []
+  ? readonly []
+  : Length<TargetShape> extends infer TargetLen
+    ? TargetLen extends number
+      ? Length<InputShape> extends infer InputLen
+        ? InputLen extends number
+          ? Compare<TargetLen, InputLen> extends 1 // TargetLen > InputLen
+            ? ResolveWithNewDims<InputShape, TargetShape, Subtract<TargetLen, InputLen>>
+            : ResolveWithoutNewDims<InputShape, TargetShape>
+          : never
+        : never
+      : never
+    : never;
+
+/**
+ * Resolve shape when target has more dimensions (adding new dims on left)
+ */
+type ResolveWithNewDims<
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+  NewDimsCount extends number,
+> = NewDimsCount extends 0
+  ? ResolveWithoutNewDims<InputShape, TargetShape>
+  : TargetShape extends readonly [infer First, ...infer Rest]
+    ? First extends number | -1
+      ? Rest extends readonly (number | -1)[]
+        ? First extends -1
+          ? never // Can't use -1 for new dimensions
+          : readonly [First, ...ResolveWithNewDims<InputShape, Rest, Decrement<NewDimsCount>>]
+        : never
+      : never
+    : never;
+
+/**
+ * Resolve shape without adding new dimensions
+ */
+type ResolveWithoutNewDims<
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+> = InputShape extends readonly []
+  ? TargetShape extends readonly []
+    ? readonly []
+    : never
+  : InputShape extends readonly [infer InputFirst, ...infer InputRest]
+    ? TargetShape extends readonly [infer TargetFirst, ...infer TargetRest]
+      ? InputFirst extends number
+        ? InputRest extends Shape
+          ? TargetFirst extends number | -1
+            ? TargetRest extends readonly (number | -1)[]
+              ? TargetFirst extends -1
+                ? readonly [InputFirst, ...ResolveWithoutNewDims<InputRest, TargetRest>]
+                : readonly [TargetFirst, ...ResolveWithoutNewDims<InputRest, TargetRest>]
+              : never
+            : never
+          : never
+        : never
+      : never
+    : never;
+
+/**
+ * Validate if expansion is legal
+ *
+ * @example
+ * type V1 = CanExpand<[2, 1, 3], [2, 5, 3]> // true
+ * type V2 = CanExpand<[2, 3], [2, 5]> // false - can't expand 3 to 5
+ */
+export type CanExpand<InputShape extends Shape, TargetShape extends readonly (number | -1)[]> =
+  Length<TargetShape> extends infer TargetLen
+    ? TargetLen extends number
+      ? Length<InputShape> extends infer InputLen
+        ? InputLen extends number
+          ? Compare<TargetLen, InputLen> extends 1 // TargetLen > InputLen
+            ? CanExpandWithNewDims<InputShape, TargetShape, Subtract<TargetLen, InputLen>>
+            : CanExpandSameDims<InputShape, TargetShape>
+          : false
+        : false
+      : false
+    : false;
+
+/**
+ * Check expansion when adding new dimensions
+ */
+type CanExpandWithNewDims<
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+  NewDimsCount extends number,
+> = NewDimsCount extends 0
+  ? CanExpandSameDims<InputShape, TargetShape>
+  : TargetShape extends readonly [infer First, ...infer Rest]
+    ? First extends -1
+      ? false // Can't use -1 for new dimensions
+      : Rest extends readonly (number | -1)[]
+        ? CanExpandWithNewDims<InputShape, Rest, Decrement<NewDimsCount>>
+        : false
+    : false;
+
+/**
+ * Check expansion with same number of dimensions
+ */
+type CanExpandSameDims<
+  InputShape extends Shape,
+  TargetShape extends readonly (number | -1)[],
+> = InputShape extends readonly []
+  ? TargetShape extends readonly []
+    ? true
+    : false
+  : InputShape extends readonly [infer InputFirst, ...infer InputRest]
+    ? TargetShape extends readonly [infer TargetFirst, ...infer TargetRest]
+      ? InputFirst extends number
+        ? InputRest extends Shape
+          ? TargetFirst extends number | -1
+            ? TargetRest extends readonly (number | -1)[]
+              ? TargetFirst extends -1
+                ? CanExpandSameDims<InputRest, TargetRest> // -1 means keep dimension
+                : InputFirst extends 1
+                  ? CanExpandSameDims<InputRest, TargetRest> // Can expand from 1
+                  : InputFirst extends TargetFirst
+                    ? CanExpandSameDims<InputRest, TargetRest> // Same size is ok
+                    : false // Can't expand non-singleton to different size
+              : false
+            : false
+          : false
+        : false
+      : false
+    : false;
+
+// =============================================================================
+// Tile Operation Types
+// =============================================================================
+
+/**
+ * Compute the resulting shape from a tile operation
+ *
+ * Rules:
+ * - If fewer reps than dims: tiles rightmost dimensions
+ * - If more reps than dims: adds new dimensions on the left
+ * - Each dimension is multiplied by its repetition count
+ *
+ * @example
+ * type T1 = TileShape<[2, 3], [2, 3]> // [4, 9]
+ * type T2 = TileShape<[3], [2, 3]> // [2, 9] - adds dim
+ * type T3 = TileShape<[2, 3, 4], [2]> // [2, 3, 8] - tiles last dim
+ */
+export type TileShape<InputShape extends Shape, Reps extends readonly number[]> =
+  Length<Reps> extends 0
+    ? Readonly<InputShape> // Empty reps returns original shape as readonly
+    : Length<InputShape> extends infer InputLen
+      ? InputLen extends number
+        ? Length<Reps> extends infer RepsLen
+          ? RepsLen extends number
+            ? Compare<RepsLen, InputLen> extends 1 // More reps than dims
+              ? TileWithNewDims<InputShape, Reps, Subtract<RepsLen, InputLen>>
+              : TileWithoutNewDims<InputShape, Reps, Subtract<InputLen, RepsLen>>
+            : never
+          : never
+        : never
+      : never;
+
+/**
+ * Tile with more reps than dimensions (adds new dims on left)
+ */
+type TileWithNewDims<
+  InputShape extends Shape,
+  Reps extends readonly number[],
+  NewDimsCount extends number,
+> = NewDimsCount extends 0
+  ? TileWithoutNewDims<InputShape, Reps, 0>
+  : Reps extends readonly [infer First, ...infer Rest]
+    ? First extends number
+      ? Rest extends readonly number[]
+        ? readonly [First, ...TileWithNewDims<InputShape, Rest, Decrement<NewDimsCount>>]
+        : never
+      : never
+    : never;
+
+/**
+ * Tile without adding new dimensions
+ */
+type TileWithoutNewDims<
+  InputShape extends Shape,
+  Reps extends readonly number[],
+  SkipCount extends number,
+> = SkipCount extends 0
+  ? TileMatchingDims<InputShape, Reps>
+  : InputShape extends readonly [infer First, ...infer Rest]
+    ? First extends number
+      ? Rest extends Shape
+        ? readonly [First, ...TileWithoutNewDims<Rest, Reps, Decrement<SkipCount>>]
+        : never
+      : never
+    : never;
+
+/**
+ * Tile with matching dimensions
+ */
+type TileMatchingDims<
+  InputShape extends Shape,
+  Reps extends readonly number[],
+> = InputShape extends readonly []
+  ? readonly []
+  : InputShape extends readonly [infer InputFirst, ...infer InputRest]
+    ? Reps extends readonly [infer RepFirst, ...infer RepRest]
+      ? InputFirst extends number
+        ? RepFirst extends number
+          ? InputRest extends Shape
+            ? RepRest extends readonly number[]
+              ? readonly [Multiply<InputFirst, RepFirst>, ...TileMatchingDims<InputRest, RepRest>]
+              : never
+            : never
+          : never
+        : never
+      : InputFirst extends number
+        ? InputRest extends Shape
+          ? readonly [InputFirst, ...TileMatchingDims<InputRest, Reps>] // No more reps, keep original
+          : never
+        : never
+    : never;

@@ -98,6 +98,14 @@ export interface Device {
   createData(byteLength: number): DeviceData;
 
   /**
+   * Create data directly with a buffer (optional optimization)
+   *
+   * @param buffer - Pre-existing ArrayBuffer to use
+   * @returns Data handle wrapping the buffer
+   */
+  createDataWithBuffer?(buffer: ArrayBuffer): DeviceData;
+
+  /**
    * Free device memory
    *
    * @param data - Data to dispose
@@ -142,6 +150,28 @@ export interface Device {
    * gpuDevice.supportsNonContiguous('neg'); // true
    */
   supportsNonContiguous(op: AllOperationTypes): boolean;
+
+  /**
+   * Create a view of existing device data with different shape/strides
+   *
+   * This is a zero-copy operation that creates a new DeviceData handle
+   * pointing to the same underlying memory but with different view metadata.
+   * Used by reshape, transpose, slice, and other view operations.
+   *
+   * @param data - Existing device data to create a view of
+   * @param shape - New shape for the view
+   * @param strides - New strides for the view (in elements)
+   * @param offset - Offset from the start (in elements)
+   * @param dtype - Data type for stride calculations
+   * @returns New DeviceData with view metadata
+   */
+  createView?(
+    data: DeviceData,
+    shape: readonly number[],
+    strides: readonly number[],
+    offset: number,
+    dtype: { __byteSize: number },
+  ): DeviceData;
 }
 
 /**
@@ -149,6 +179,9 @@ export interface Device {
  *
  * Represents tensor data residing on a specific device. The actual
  * data representation is device-specific and opaque to the core library.
+ *
+ * Includes view metadata to support zero-copy operations like reshape,
+ * transpose, and slice without materializing new data.
  *
  * @example
  * // CPU device might store ArrayBuffer
@@ -161,4 +194,19 @@ export interface DeviceData {
 
   /** Size of the data in bytes */
   readonly byteLength: number;
+
+  /**
+   * View metadata for stride-based access (optional)
+   * When present, indicates this is a view of underlying data
+   */
+  readonly viewMetadata?: {
+    /** Shape of the view */
+    shape: readonly number[];
+    /** Strides for each dimension (in elements, not bytes) */
+    strides: readonly number[];
+    /** Offset from start of underlying data (in elements) */
+    offset: number;
+    /** Data type for stride calculations */
+    dtype: { __byteSize: number };
+  };
 }

@@ -8,6 +8,22 @@
  * The parser converts string patterns like "h w -> w h" into type-level
  * AST structures that match our runtime AST, enabling compile-time validation
  * and error reporting.
+ *
+ * ARCHITECTURAL DECISION: Template Literal Type Parsing
+ *
+ * We use TypeScript's template literal types to parse einops patterns at compile time.
+ * This allows us to catch shape errors before runtime, which is essential for:
+ * 1. Type-safe tensor operation chaining
+ * 2. IDE autocomplete for valid patterns
+ * 3. Compile-time shape validation
+ *
+ * The recursive nature is REQUIRED because we must:
+ * - Parse nested parentheses: "(a b) c" vs "(a (b c))"
+ * - Track axis names through the pattern
+ * - Validate pattern syntax character by character
+ *
+ * Alternative considered: Runtime-only validation
+ * Rejected because: Loss of compile-time guarantees defeats TypeTensor's purpose
  */
 
 import type { Add, Subtract } from 'ts-arithmetic';
@@ -148,6 +164,12 @@ export type ExtractAxisName<S extends string> = ShiftUntil<
 /**
  * Find matching closing parenthesis for an opening parenthesis
  * Returns [content between parens, remaining after closing paren]
+ *
+ * DESIGN NOTE: Parenthesis Matching at Type Level
+ *
+ * This recursive type finds matching closing parentheses by tracking depth.
+ * Cannot use regex or string methods at type level, must process character by character.
+ * The 'Depth' parameter acts as a counter - increment for '(', decrement for ')'.
  */
 export type FindMatchingParen<
   S extends string,
@@ -249,6 +271,17 @@ export type ParseError<Message extends string> = TypeParseError<`[Einops] ${Mess
 
 /**
  * Parse a single axis pattern from the input string
+ *
+ * DESIGN NOTE: Pattern Discrimination
+ *
+ * We check first character to determine pattern type:
+ * - '(' -> Composite axis
+ * - '.' -> Ellipsis (must check for full '...')
+ * - '1' -> Singleton axis
+ * - letter -> Simple axis
+ *
+ * This order is important - we must check special characters before attempting
+ * to parse as simple axis name.
  */
 export type ParseAxisPattern<S extends string> =
   SkipWhitespace<S> extends infer Trimmed
@@ -295,12 +328,10 @@ export type ParseCompositeAxis<S extends string> = S extends `(${string}`
             remaining: infer InnerRemaining;
           }
           ? InnerRemaining extends ''
-            ? Patterns extends readonly TypeAxisPattern[]
-              ? {
-                  pattern: { type: 'composite'; axes: Patterns };
-                  remaining: Remaining;
-                }
-              : ParseError<'Invalid composite patterns'>
+            ? {
+                pattern: { type: 'composite'; axes: Patterns };
+                remaining: Remaining;
+              }
             : ParseError<'Invalid composite inner patterns - unparsed content'>
           : ParseAxisList<Inner> extends ParseError<infer Message>
             ? ParseError<`Invalid composite inner patterns: ${Message}`>
@@ -337,10 +368,7 @@ export type ParseSingletonAxis<S extends string> = S extends `1${infer Remaining
 /**
  * Parse a list of axis patterns separated by whitespace
  */
-export type ParseAxisList<
-  S extends string,
-  Patterns extends readonly TypeAxisPattern[] = readonly [],
-> =
+export type ParseAxisList<S extends string, Patterns extends readonly any[] = readonly []> =
   SkipWhitespace<S> extends infer Trimmed
     ? Trimmed extends string
       ? IsEmpty<Trimmed> extends true
@@ -385,14 +413,10 @@ export type ParseEinopsPattern<Pattern extends string> =
               patterns: infer OutputPatterns;
               remaining: '';
             }
-            ? InputPatterns extends readonly TypeAxisPattern[]
-              ? OutputPatterns extends readonly TypeAxisPattern[]
-                ? {
-                    input: InputPatterns;
-                    output: OutputPatterns;
-                  }
-                : ParseError<'Invalid output patterns'>
-              : ParseError<'Invalid input patterns'>
+            ? {
+                input: InputPatterns;
+                output: OutputPatterns;
+              }
             : ParseAxisList<OutputStr> extends ParseError<infer Message>
               ? ParseError<`Output parsing failed: ${Message}`>
               : ParseError<'Failed to parse output section'>

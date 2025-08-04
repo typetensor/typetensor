@@ -12,6 +12,8 @@ import { isSimpleAxis, isCompositeAxis, isEllipsisAxis, isSingletonAxis } from '
 import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation } from '../storage/layout';
 import type { RearrangeOp } from '../storage/einops';
+import type { ValidEinopsPattern } from './type-validation';
+import { arraysEqual } from './utils/array';
 
 // =============================================================================
 // Types
@@ -91,7 +93,9 @@ export function rearrange<
   Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
-  pattern: Pattern,
+  pattern: ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> extends string
+    ? ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> // Show the actual error message
+    : Pattern,
   axes?: Axes,
 ): ChainablePromise<RearrangeOp<S['__output'], Pattern, Axes>> {
   return new ChainablePromise((resolve, reject) => {
@@ -147,16 +151,16 @@ export function rearrange<
  */
 function validateRearrangePattern(ast: EinopsAST): void {
   // Check for multiple ellipsis in same side
-  const inputEllipsisCount = ast.input.filter(p => isEllipsisAxis(p)).length;
-  const outputEllipsisCount = ast.output.filter(p => isEllipsisAxis(p)).length;
-  
+  const inputEllipsisCount = ast.input.filter((p) => isEllipsisAxis(p)).length;
+  const outputEllipsisCount = ast.output.filter((p) => isEllipsisAxis(p)).length;
+
   if (inputEllipsisCount > 1) {
     throw new RearrangeError(
       'Multiple ellipsis (...) in input pattern is not allowed',
       ast.metadata.originalPattern,
     );
   }
-  
+
   if (outputEllipsisCount > 1) {
     throw new RearrangeError(
       'Multiple ellipsis (...) in output pattern is not allowed',
@@ -273,7 +277,10 @@ function computeIntermediateShape(
 /**
  * Build a flat list of all axis names in order, expanding composites
  */
-function flattenPatternToAxisNames(patterns: readonly AxisPattern[], ellipsisDimensions?: readonly number[]): string[] {
+function flattenPatternToAxisNames(
+  patterns: readonly AxisPattern[],
+  ellipsisDimensions?: readonly number[],
+): string[] {
   const names: string[] = [];
 
   for (const pattern of patterns) {
@@ -282,10 +289,13 @@ function flattenPatternToAxisNames(patterns: readonly AxisPattern[], ellipsisDim
     } else if (isCompositeAxis(pattern)) {
       names.push(...flattenPatternToAxisNames(pattern.axes, ellipsisDimensions));
     } else if (isSingletonAxis(pattern)) {
-      // Use a consistent name for singletons - they represent the same logical dimension
+      // Singletons use a consistent name __singleton_1 because they all
+      // represent dimension 1 and can be treated as the same logical axis
+      // during permutation computation
       names.push(`__singleton_1`);
     } else if (isEllipsisAxis(pattern)) {
-      // Ellipsis: expand to individual dimension names
+      // Ellipsis expands to numbered dimensions __ellipsis_0, __ellipsis_1, etc.
+      // This allows us to track which ellipsis dimension maps where during permutation
       if (ellipsisDimensions) {
         for (let i = 0; i < ellipsisDimensions.length; i++) {
           names.push(`__ellipsis_${i}`);
@@ -379,10 +389,14 @@ function planOperations(
   }
 
   // Handle ellipsis patterns that need permutation
-  const hasEllipsis = [...ast.input, ...ast.output].some(p => isEllipsisAxis(p));
+  const hasEllipsis = [...ast.input, ...ast.output].some((p) => isEllipsisAxis(p));
   if (hasEllipsis && !needsComplexOperations(ast)) {
     // Simple ellipsis case: compute permutation directly
-    const permutation = computeGeneralPermutation(ast.input, ast.output, resolved.ellipsisDimensions);
+    const permutation = computeGeneralPermutation(
+      ast.input,
+      ast.output,
+      resolved.ellipsisDimensions,
+    );
     if (permutation !== null) {
       operations.push({
         type: 'permute',
@@ -415,7 +429,11 @@ function planOperations(
     }
 
     // Step 3: Compute and apply permutation
-    const permutation = computeGeneralPermutation(ast.input, ast.output, resolved.ellipsisDimensions);
+    const permutation = computeGeneralPermutation(
+      ast.input,
+      ast.output,
+      resolved.ellipsisDimensions,
+    );
     if (permutation !== null) {
       operations.push({
         type: 'permute',
@@ -570,11 +588,4 @@ function computeSimplePermutation(ast: EinopsAST): number[] {
   }
 
   return permutation;
-}
-
-/**
- * Check if two arrays are equal
- */
-function arraysEqual(a: readonly number[], b: readonly number[]): boolean {
-  return a.length === b.length && a.every((val, i) => val === b[i]);
 }

@@ -45,11 +45,15 @@
   ],
   "sideEffects": false,
   "dependencies": {
-    "@typetensor/core": "workspace:*"
+    "@typetensor/core": "workspace:*",
+    "webgpu": "^0.3.0"
   },
   "peerDependencies": {
     "typescript": ">=5.9.0"
   },
+  "trustedDependencies": [
+    "webgpu"
+  ],
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",
@@ -57,8 +61,11 @@
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch --preserveWatchOutput",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "echo 'No tests yet - backend not implemented'",
+    "test": "bun test",
     "test:watch": "bun test --watch --no-clear-screen",
     "prepublishOnly": "bun run clean && bun run build"
+  },
+  "devDependencies": {
+    "@types/dom-webcodecs": "^0.1.15"
   }
 }

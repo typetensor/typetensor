@@ -22,13 +22,18 @@ const mockDevice = {
   id: 'mock',
   type: 'mock',
   execute: async () => {},
-  createData: () => ({
+  createData: (byteLength: number) => ({
     device: mockDevice,
-    byteLength: 0,
+    byteLength,
+  }),
+  createDataWithBuffer: (buffer: ArrayBuffer) => ({
+    device: mockDevice,
+    byteLength: buffer.byteLength,
   }),
   disposeData: () => {},
   readData: async () => new ArrayBuffer(0),
   writeData: async () => {},
+  supportsNonContiguous: () => false,
   __sliceIndices: [],
   __strides: [],
   __shape: [],
