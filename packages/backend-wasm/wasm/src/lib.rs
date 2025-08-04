@@ -8,9 +8,7 @@ mod arena;        // New arena-based memory system
 mod memory;       // Main memory management system
 mod executor;     // Main operation executor (replaces WasmOperationDispatcher)
 mod pattern;      // Operation pattern recognition and caching
-mod checkpoint_assessment;  // Assessment tests for checkpoint system
-mod temp_interface_assessment;  // Assessment tests for temporary interface
-mod bulk_allocation_assessment;  // Assessment tests for bulk allocation shape handling
+// Note: Assessment modules removed during cleanup
 // mod performance_benchmarks;  // Performance validation and benchmarks - removed for now
 
 use wasm_bindgen::prelude::*;

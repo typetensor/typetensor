@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::memory::{WasmMemorySystem, WasmTensor, WasmMemoryStats};
 use crate::arena::CheckpointId;
 use crate::types::{WasmOperation, WasmDType, WasmResult, WasmError};
-use crate::operations::{unary, binary, matmul, view, reduction, softmax};
+use crate::operations::{unary, binary, matmul};
 use crate::pattern::{PatternCache, PatternBuilder, OperationDesc, AllocationRequirement, PatternCacheStats, PatternSignature, PatternId};
 
 /// Result of pattern-based execution
@@ -171,6 +171,52 @@ impl WasmExecutor {
             input_b,
             output,
             self.memory.arena(),
+        ).map_err(|e| self.map_wasm_error(e))
+    }
+    
+    /// Execute slice operation with explicit offset parameters
+    #[wasm_bindgen]
+    pub fn execute_slice(&mut self,
+        input: &WasmTensor,
+        output: &WasmTensor,
+        row_start: usize,
+        col_start: usize
+    ) -> Result<(), JsValue> {
+        use crate::operations::view;
+        
+        
+        view::execute_slice_with_offsets(
+            input,
+            output,
+            row_start,
+            col_start,
+            self.memory.arena(),
+        ).map_err(|e| self.map_wasm_error(e))
+    }
+    
+    /// Execute reduction operation with optional axis parameter
+    #[wasm_bindgen]
+    pub fn execute_reduction(&mut self,
+        operation: WasmOperation,
+        input: &WasmTensor,
+        output: &WasmTensor,
+        axis: Option<Vec<usize>>,
+        keep_dims: bool
+    ) -> Result<(), JsValue> {
+        use crate::operations::reduction;
+        
+        // Record pattern for optimization
+        self.record_operation_pattern(operation, &[input], output);
+        
+        let axes_slice = axis.as_ref().map(|v| v.as_slice());
+        
+        reduction::execute_reduction_op_with_axes(
+            operation,
+            input,
+            output,
+            self.memory.arena(),
+            axes_slice,
+            keep_dims,
         ).map_err(|e| self.map_wasm_error(e))
     }
     

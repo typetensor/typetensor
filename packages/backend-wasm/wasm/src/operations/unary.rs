@@ -2,13 +2,15 @@
  * Unary operations implementation for WebAssembly backend
  * 
  * Provides optimized implementations of element-wise unary operations
- * with SIMD support where available.
+ * with SIMD support where available, as well as dispatching to specialized
+ * operation modules for view, reduction, and softmax operations.
  */
 
 use crate::types::{WasmOperation, WasmTensorMeta, WasmDType, WasmResult, WasmError};
 use crate::memory::WasmTensor;
 use crate::arena::TempArena;
 use crate::simd::{float32, float64};
+use crate::operations::{view, reduction, softmax};
 
 // Use micromath for fast approximations when available
 #[cfg(target_arch = "wasm32")]
@@ -19,6 +21,43 @@ use crate::fast_math::{fast_sin_f32, fast_cos_f32};
 
 /// Execute a unary operation
 pub fn execute_unary_op(
+    operation: WasmOperation,
+    input: &WasmTensor,
+    output: &WasmTensor,
+    arena: &TempArena,
+) -> WasmResult<()> {
+    // Dispatch to specialized operation modules based on operation type
+    match operation {
+        // View operations
+        WasmOperation::Reshape | WasmOperation::View | WasmOperation::Slice | WasmOperation::Flatten |
+        WasmOperation::Permute | WasmOperation::Transpose | WasmOperation::Squeeze | 
+        WasmOperation::Unsqueeze | WasmOperation::Expand | WasmOperation::Tile => {
+            view::execute_view_op(operation, input, output, arena)
+        }
+        
+        // Reduction operations
+        WasmOperation::Sum | WasmOperation::Mean | WasmOperation::Max | WasmOperation::Min | WasmOperation::Prod => {
+            reduction::execute_reduction_op(operation, input, output, arena)
+        }
+        
+        // Softmax operations
+        WasmOperation::Softmax | WasmOperation::LogSoftmax => {
+            // For now, use default axis (last dimension = -1)
+            softmax::execute_softmax_op(operation, input, output, arena, Some(-1))
+        }
+        
+        // Element-wise unary operations (original implementation)
+        WasmOperation::Neg | WasmOperation::Abs | WasmOperation::Sin | WasmOperation::Cos |
+        WasmOperation::Exp | WasmOperation::Log | WasmOperation::Sqrt | WasmOperation::Square => {
+            execute_elementwise_unary_op(operation, input, output, arena)
+        }
+        
+        _ => Err(WasmError::NotImplemented),
+    }
+}
+
+/// Execute element-wise unary operation (original unary implementation)
+fn execute_elementwise_unary_op(
     operation: WasmOperation,
     input: &WasmTensor,
     output: &WasmTensor,

@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 
 /// Data type enumeration matching TypeTensor's core dtype system
 #[wasm_bindgen]
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WasmDType {
     Bool = 0,      // Stored as uint8 but semantically boolean
@@ -58,6 +59,7 @@ impl WasmDType {
 
 /// Tensor operation types matching TypeTensor's core operation system
 #[wasm_bindgen]
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WasmOperation {
     // Creation
