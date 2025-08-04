@@ -1,8 +1,8 @@
-# @typetensor/backend-cpu
+# @typetensor/benchmarks
 
-## 0.1.2
+## 0.2.0
 
-### Patch Changes
+### Minor Changes
 
 - b5c6c1d: # Extended Einops support and enhanced WASM backend
 
@@ -39,13 +39,9 @@
   - Some internal APIs have been restructured for better performance and type safety
   - Memory management patterns may require updates for direct WASM usage
 
-- Updated dependencies [b5c6c1d]
-  - @typetensor/core@0.2.0
-
-## 0.1.1
-
 ### Patch Changes
 
-- b94453e: Initial release
-- Updated dependencies [b94453e]
-  - @typetensor/core@0.1.1
+- Updated dependencies [b5c6c1d]
+  - @typetensor/backend-wasm@0.2.0
+  - @typetensor/backend-cpu@0.1.2
+  - @typetensor/core@0.2.0

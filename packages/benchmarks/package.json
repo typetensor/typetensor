@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/benchmarks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Internal benchmarking utilities for TypedTensor packages (development only)",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",

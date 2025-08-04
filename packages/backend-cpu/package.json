@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/backend-cpu",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CPU backend for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",
