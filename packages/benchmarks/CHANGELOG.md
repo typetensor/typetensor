@@ -1,5 +1,14 @@
 # @typetensor/benchmarks
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies
+  - @typetensor/core@0.2.1
+  - @typetensor/backend-cpu@0.2.1
+  - @typetensor/backend-wasm@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

@@ -41,16 +41,19 @@ npm install @typetensor/core @typetensor/backend-cpu
 - Rich shape manipulation: reshape, transpose, squeeze, unsqueeze
 - Matrix multiplication with automatic shape inference
 
-### 🔀 **Einops Integration**
+### 🔀 **Complete Einops Support**
 
-- Tensor rearrangement using Einstein notation
-- Pattern-based transformations: `"h w c -> c h w"`, `"batch seq -> batch seq 1"`
-- Compile-time validation of einops patterns
+- **Rearrange**: `"h w c -> c h w"`, `"batch seq -> batch seq 1"`
+- **Reduce**: `"h w c -> h w"` (sum, mean, max, min operations)
+- **Repeat**: `"h w -> h w c"`, `"batch -> batch repeat"`
+- Advanced patterns with explicit dimension sizes
+- Compile-time validation of all einops patterns
 
 ### ⚡ **Pluggable Backends**
 
 - Modular backend system for different compute targets
-- CPU, GPU (CUDA, WebGPU, Metal), and WebAssembly support
+- CPU, GPU (CUDA, WebGPU, Metal), and WebAssembly backends
+- SIMD-optimized WebAssembly with arena-based memory management
 - Zero-copy operations where possible
 
 ## What Makes TypeTensor Different
@@ -58,8 +61,8 @@ npm install @typetensor/core @typetensor/backend-cpu
 - **Compile-Time Validation**: Shape mismatches caught by TypeScript before runtime
 - **Zero Runtime Overhead**: Type checking happens entirely at compile time
 - **Familiar API**: NumPy-like interface that JavaScript developers expect
-- **Einstein Notation**: Tensor transformations with einops patterns
-- **Modular Backends**: Use CPU, GPU, or WebAssembly as needed
+- **Complete Einops**: Full rearrange, reduce, and repeat operations
+- **High Performance**: SIMD-optimized WebAssembly and efficient CPU backends
 
 ## Architecture
 
@@ -98,7 +101,7 @@ TypeTensor is designed with a clear separation of concerns:
 | [`@typetensor/backend-webgpu`](./packages/backend-webgpu) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-webgpu.svg)](https://www.npmjs.com/package/@typetensor/backend-webgpu) | 🚧 **TODO** | WebGPU backend for browsers |
 | [`@typetensor/backend-metal`](./packages/backend-metal) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-metal.svg)](https://www.npmjs.com/package/@typetensor/backend-metal) | 🚧 **TODO** | Apple Metal GPU backend |
 | [`@typetensor/backend-vulkan`](./packages/backend-vulkan) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-vulkan.svg)](https://www.npmjs.com/package/@typetensor/backend-vulkan) | 🚧 **TODO** | Vulkan GPU backend |
-| [`@typetensor/backend-wasm`](./packages/backend-wasm) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-wasm.svg)](https://www.npmjs.com/package/@typetensor/backend-wasm) | 🚧 **TODO** | WebAssembly backend |
+| [`@typetensor/backend-wasm`](./packages/backend-wasm) | [![npm](https://img.shields.io/npm/v/@typetensor/backend-wasm.svg)](https://www.npmjs.com/package/@typetensor/backend-wasm) | ✅ **Alpha** | High-performance WebAssembly backend with SIMD |
 
 ## Core Capabilities
 
@@ -119,15 +122,26 @@ TypeTensor is designed with a clear separation of concerns:
 
 ## Einstein Notation (Einops)
 
-TypeTensor supports tensor transformations using Einstein notation patterns:
+TypeTensor provides complete einops support with three core operations:
 
+### **Rearrange Operations**
 - **Format Conversions**: `"h w c -> c h w"` (HWC ↔ CHW)
 - **Dimension Manipulation**: `"h w -> 1 h w"` (add batch dimension)
 - **Flattening**: `"h w c -> (h w) c"` (combine spatial dimensions)
 - **Splitting**: `"(h w) c -> h w c"` with explicit dimension sizes
-- **Multi-head Attention**: `"b s (h d) -> b h s d"` (prepare attention heads)
 
-Current implementation supports basic rearrangement patterns with more advanced features planned.
+### **Reduce Operations**
+- **Spatial Reduction**: `"h w c -> c"` (sum across spatial dimensions)
+- **Channel Reduction**: `"h w c -> h w"` (reduce channels)
+- **Selective Reduction**: `"b h w c -> b c"` (reduce height and width)
+- Supports: `sum`, `mean`, `max`, `min`, `prod` operations
+
+### **Repeat Operations**
+- **Broadcasting**: `"h w -> h w c"` (repeat across new channel dimension)
+- **Batch Expansion**: `"h w c -> b h w c"` (add batch dimension)
+- **Element Repetition**: `"h w -> (h 2) (w 2)"` (repeat elements)
+
+All operations include compile-time pattern validation and comprehensive error handling.
 
 ## Getting Started
 
@@ -141,13 +155,14 @@ TypeTensor is in early development. The core type system and CPU backend are fun
 
 **Current Status:**
 
-- ✅ Core type system and shape validation
-- ✅ Basic tensor operations (arithmetic, views, reshaping)
-- ✅ Einops-style tensor rearrangement
-- ✅ CPU backend with fundamental operations
+- ✅ Complete type system with compile-time validation
+- ✅ Full tensor operations (arithmetic, views, reshaping, reductions)
+- ✅ Complete einops support (rearrange, reduce, repeat)
+- ✅ CPU backend with comprehensive operations
+- ✅ High-performance WASM backend with SIMD optimizations
 - 🚧 Advanced operations (convolution, pooling, etc.)
-- 🚧 Additional backends (GPU, WebAssembly)
-- 🚧 Performance optimizations
+- 🚧 Additional GPU backends (CUDA, WebGPU, Metal)
+- 🚧 Framework integrations and ecosystem
 
 ## Contributing
 

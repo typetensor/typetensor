@@ -1,5 +1,11 @@
 # @typetensor/core
 
+## 0.2.1
+
+### Patch Changes
+
+- Test changeset to verify fixed versioning works correctly
+
 ## 0.2.0
 
 ### Minor Changes

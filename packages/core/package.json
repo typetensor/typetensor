@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Core tensor operations for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",

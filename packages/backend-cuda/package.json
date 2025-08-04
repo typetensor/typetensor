@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/backend-cuda",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "description": "NVIDIA CUDA backend for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",

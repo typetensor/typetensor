@@ -15,15 +15,18 @@ npm install @typetensor/core
 **Key Features:**
 - Compile-time shape validation using TypeScript's type system
 - NumPy-compatible broadcasting and operations  
-- Einstein notation (einops) for tensor transformations
+- Complete Einstein notation (einops) support: rearrange, reduce, repeat
 - Full numeric type system with automatic promotion
 - Zero runtime overhead for type checking
 
 **Core Operations:**
-- Tensor creation, arithmetic, and linear algebra
-- Shape manipulation: reshape, transpose, slice, permute
-- Reductions: sum, mean, max, min along axes
-- Activation functions: softmax, log-softmax
+- **Creation**: Tensor from data, zeros, ones, identity matrices
+- **Arithmetic**: Element-wise operations with automatic broadcasting
+- **Linear Algebra**: Matrix multiplication with shape inference
+- **Shape Operations**: reshape, transpose, slice, permute, squeeze, unsqueeze
+- **Reductions**: sum, mean, max, min, prod along specified axes
+- **Einops**: rearrange, reduce, repeat with pattern validation
+- **Activations**: softmax, log-softmax with numerical stability
 
 **[See examples →](https://github.com/typetensor/typetensor/tree/main/examples)**
 

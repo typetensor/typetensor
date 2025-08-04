@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/test-utils",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "description": "Internal test utilities for TypedTensor backend packages (development only)",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",
