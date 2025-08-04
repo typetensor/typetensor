@@ -201,13 +201,13 @@ describe('Basic Repeat Operations', () => {
     expect(result.shape).toEqual([5, 2]);
 
     const data = await result.toArray();
-    expect(data).toEqual([
-      [0, 0],
-      [1, 1],
-      [-1, -1],
-      [2.5, 2.5],
-      [-3.7, -3.7],
-    ]);
+    // Check with floating point tolerance for float32 precision
+    expect(data[0]).toEqual([0, 0]);
+    expect(data[1]).toEqual([1, 1]);
+    expect(data[2]).toEqual([-1, -1]);
+    expect(data[3]).toEqual([2.5, 2.5]);
+    expect(data[4]![0]).toBeCloseTo(-3.7, 5);
+    expect(data[4]![1]).toBeCloseTo(-3.7, 5);
   });
 });
 
@@ -737,9 +737,12 @@ describe('Edge Cases', () => {
     expect(result.shape).toEqual([3, 2]);
 
     const data = await result.toArray();
-    expect(data[0]).toEqual([0.1, 0.1]);
-    expect(data[1]).toEqual([0.2, 0.2]);
-    expect(data[2]).toEqual([0.3, 0.3]);
+    expect(data[0]![0]).toBeCloseTo(0.1, 5);
+    expect(data[0]![1]).toBeCloseTo(0.1, 5);
+    expect(data[1]![0]).toBeCloseTo(0.2, 5);
+    expect(data[1]![1]).toBeCloseTo(0.2, 5);
+    expect(data[2]![0]).toBeCloseTo(0.3, 5);
+    expect(data[2]![1]).toBeCloseTo(0.3, 5);
   });
 
   it('should handle mixed positive/negative values', async () => {
