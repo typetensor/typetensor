@@ -1018,7 +1018,7 @@ function extractAxisValuesFromCoordinate(
       for (let i = 0; i < ellipsisSize; i++) {
         axisValues.set(`__ellipsis_${i}`, coord[pos + i] || 0);
         if (ellipsisDimensions?.[i] !== undefined) {
-          axisValues.set(`__ellipsis_dim_${i}`, ellipsisDimensions[i]);
+          axisValues.set(`__ellipsis_dim_${i}`, ellipsisDimensions[i]!);
         }
       }
       pos += ellipsisSize;
@@ -1116,11 +1116,10 @@ function generateOutputCoordinates(
 
       // Check if composite contains ellipsis
       let hasEllipsis = false;
-      let ellipsisIndex = -1;
       for (let i = 0; i < pattern.axes.length; i++) {
-        if (isEllipsisAxis(pattern.axes[i])) {
+        const axis = pattern.axes[i];
+        if (axis && isEllipsisAxis(axis)) {
           hasEllipsis = true;
-          ellipsisIndex = i;
           break;
         }
       }
@@ -1132,7 +1131,7 @@ function generateOutputCoordinates(
           // Get all simple axes from the composite (non-ellipsis)
           const simpleAxes = [];
           for (const axis of pattern.axes) {
-            if (isSimpleAxis(axis)) {
+            if (axis && isSimpleAxis(axis)) {
               simpleAxes.push(axis);
             }
           }
@@ -1152,14 +1151,17 @@ function generateOutputCoordinates(
             }
 
             for (let j = ellipsisValues.length - 1; j >= 0; j--) {
-              ellipsisCoord += ellipsisValues[j] * multiplier;
+              const ellipsisValue = ellipsisValues[j];
+              if (ellipsisValue !== undefined) {
+                ellipsisCoord += ellipsisValue * multiplier;
+              }
               const ellipsisDim = ellipsisDimensions[j] || 1;
               multiplier *= ellipsisDim;
             }
           }
 
           // Check if we have new axes in the composite (like 'r' in (... r))
-          const newAxes = simpleAxes.filter((axis) => !inputAxisValues.has(axis.name));
+          const newAxes = simpleAxes.filter((axis) => axis && !inputAxisValues.has(axis.name));
 
           if (newAxes.length > 0) {
             // We have new axes - need expansion
@@ -1167,9 +1169,6 @@ function generateOutputCoordinates(
             const firstNewAxis = newAxes[0];
             if (firstNewAxis) {
               const axisSize = axisDimensions.get(firstNewAxis.name) || 1;
-              const ellipsisProduct = ellipsisDimensions
-                ? ellipsisDimensions.reduce((acc, dim) => acc * dim, 1)
-                : 1;
 
               for (let i = 0; i < axisSize; i++) {
                 values.push(ellipsisCoord * axisSize + i);
