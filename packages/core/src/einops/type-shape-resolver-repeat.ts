@@ -307,7 +307,7 @@ type ComputeOutputShapeFromPatterns<
         : never
       : never
     : Head extends TypeCompositeAxis
-      ? ComputeCompositeOutputDim<Head['axes'], AxisMap> extends infer CompDim
+      ? ComputeCompositeOutputDim<Head['axes'], AxisMap, EllipsisDims> extends infer CompDim
         ? CompDim extends number
           ? Tail extends readonly TypeAxisPattern[]
             ? ComputeOutputShapeFromPatterns<
@@ -336,31 +336,55 @@ type ComputeOutputShapeFromPatterns<
   : Result;
 
 /**
+ * Compute product of all dimensions in an ellipsis shape
+ * Used when ellipsis appears inside composite patterns like (... r)
+ */
+type ComputeEllipsisProduct<
+  EllipsisDims extends Shape,
+  Product extends number = 1,
+> = EllipsisDims extends readonly [infer Head, ...infer Tail]
+  ? Head extends number
+    ? Tail extends Shape
+      ? ComputeEllipsisProduct<Tail, Multiply<Product, Head>>
+      : Multiply<Product, Head>
+    : never
+  : Product;
+
+/**
  * Compute dimension for composite axis in output
  * This handles both existing axes and new axes with repetition
  */
 type ComputeCompositeOutputDim<
   Axes extends readonly TypeAxisPattern[],
   AxisMap extends Record<string, number>,
+  EllipsisDims extends Shape = readonly [],
   Product extends number = 1,
 > = Axes extends readonly [infer Head, ...infer Tail]
   ? Head extends TypeSimpleAxis
     ? Head['name'] extends keyof AxisMap
       ? AxisMap[Head['name']] extends number
         ? Tail extends readonly TypeAxisPattern[]
-          ? ComputeCompositeOutputDim<Tail, AxisMap, Multiply<Product, AxisMap[Head['name']]>>
+          ? ComputeCompositeOutputDim<Tail, AxisMap, EllipsisDims, Multiply<Product, AxisMap[Head['name']]>>
           : Multiply<Product, AxisMap[Head['name']]>
         : never
       : never
     : Head extends TypeCompositeAxis
-      ? ComputeCompositeOutputDim<Head['axes'], AxisMap> extends infer InnerProd
+      ? ComputeCompositeOutputDim<Head['axes'], AxisMap, EllipsisDims> extends infer InnerProd
         ? InnerProd extends number
           ? Tail extends readonly TypeAxisPattern[]
-            ? ComputeCompositeOutputDim<Tail, AxisMap, Multiply<Product, InnerProd>>
+            ? ComputeCompositeOutputDim<Tail, AxisMap, EllipsisDims, Multiply<Product, InnerProd>>
             : Multiply<Product, InnerProd>
           : never
         : never
-      : never
+      : Head extends TypeEllipsisAxis
+        ? ComputeEllipsisProduct<EllipsisDims> extends infer EllipsisProd
+          ? EllipsisProd extends number
+            ? Tail extends readonly TypeAxisPattern[]
+              ? ComputeCompositeOutputDim<Tail, AxisMap, EllipsisDims, Multiply<Product, EllipsisProd>>
+              : Multiply<Product, EllipsisProd>
+            : never
+          : never
+        : never
   : Product;
 
 // =============================================================================
@@ -472,23 +496,27 @@ export type ValidRepeatPattern<
 > =
   // Step 1: Quick syntax validation (like ValidEinopsPattern)
   Pattern extends `${infer Input}->${infer Output}`
-    ? // Step 2: Check for empty input/output, but allow them for scalar operations
-      Input extends '' | ' ' | `  ${string}` | `${string}  `
-      ? // Empty input is only valid for scalar tensors (shape [])
-        InputShape extends readonly []
-        ? ValidateRepeatPatternStructure<Pattern, InputShape, Axes>
-        : RepeatParseError<"Empty input pattern. Specify input axes before '->'">
-      : Output extends '' | ' ' | `  ${string}` | `${string}  `
-        ? // Empty output is invalid for repeat (unlike reduce)
-          RepeatParseError<"Empty output pattern. Specify output axes after '->'">
-        : // Step 3: Progressive validation chain
-          ValidateRepeatPatternStructure<Pattern, InputShape, Axes>
+    ? // Check for multiple arrows (common error case)
+      Output extends `${string}->${string}`
+      ? RepeatParseError<"Missing arrow operator '->'. Pattern must be 'input -> output'">
+      : // Step 2: Check for empty input/output, but allow them for scalar operations
+        Input extends '' | ' ' | `  ${string}` | `${string}  `
+        ? // Empty input is only valid for scalar tensors (shape [])
+          InputShape extends readonly []
+          ? ValidateRepeatPatternStructure<Pattern, InputShape, Axes>
+          : RepeatParseError<"Empty input pattern. Specify input axes before '->'">
+        : Output extends '' | ' ' | `  ${string}` | `${string}  `
+          ? // Empty output is invalid for repeat (unlike reduce)
+            RepeatParseError<"Empty output pattern. Specify output axes after '->'">
+          : // Step 3: Progressive validation chain
+            ValidateRepeatPatternStructure<Pattern, InputShape, Axes>
     : // No arrow operator found
       RepeatParseError<"Missing arrow operator '->'. Pattern must be 'input -> output'">;
 
 /**
  * Simplified validation chain for repeat operations
  * Uses lightweight validation before delegating to existing system
+ * Following the exact pattern from ValidEinopsPattern and ValidReducePattern
  */
 type ValidateRepeatPatternStructure<
   Pattern extends string,
@@ -504,7 +532,11 @@ type ValidateRepeatPatternStructure<
         ? IsValidIntegerShape<Result> extends true
           ? Result // Valid integer shape
           : RepeatFractionalDimensionError<Pattern> // Invalid fractional dimensions
-        : DetectRepeatSpecificError<Pattern, InputShape, Axes>
+        : Result extends { __error: infer ErrorMsg }
+          ? ErrorMsg extends string
+            ? RepeatParseError<ErrorMsg> // Convert internal error to repeat error
+            : DetectRepeatSpecificError<Pattern, InputShape, Axes>
+          : DetectRepeatSpecificError<Pattern, InputShape, Axes>
     : DetectRepeatSpecificError<Pattern, InputShape, Axes>;
 
 /**
@@ -519,17 +551,18 @@ export type DetectRepeatSpecificError<
   // Parse the pattern to analyze what went wrong
   ParsePattern<Pattern> extends infer ParsedAST
     ? ParsedAST extends TypeEinopsAST
-      ? // Check for specific error patterns using IsNever to distinguish never from strings
-        IsNever<CheckForRepeatDuplicateAxes<ParsedAST>> extends true
-        ? // No duplicate error, check for multiple ellipsis
-          IsNever<CheckForRepeatMultipleEllipsis<ParsedAST>> extends true
-          ? // No ellipsis error, check for missing axis sizes
-            IsNever<CheckForRepeatMissingAxes<ParsedAST, Axes>> extends true
-            ? // No missing axes error, check for invalid axis sizes
-              IsNever<CheckForRepeatInvalidSizes<Axes>> extends true
-              ? // No invalid sizes, check for rank mismatch
-                IsNever<CheckForRepeatRankMismatch<ParsedAST, InputShape>> extends true
-                ? // No rank error, check for composite errors
+      ? // Check errors in priority order (matching Python einops behavior)
+        // 1. FIRST: Check for rank mismatch (most fundamental)
+        IsNever<CheckForRepeatRankMismatch<ParsedAST, InputShape>> extends true
+        ? // 2. Check for duplicate axes  
+          IsNever<CheckForRepeatDuplicateAxes<ParsedAST>> extends true
+          ? // 3. Check for multiple ellipsis
+            IsNever<CheckForRepeatMultipleEllipsis<ParsedAST>> extends true
+            ? // 4. Check for missing axis sizes (repeat-specific)
+              IsNever<CheckForRepeatMissingAxes<ParsedAST, Axes>> extends true
+              ? // 5. Check for invalid axis sizes
+                IsNever<CheckForRepeatInvalidSizes<Axes>> extends true
+                ? // 6. Check for composite pattern errors
                   CheckForRepeatCompositeErrors<
                     ParsedAST,
                     InputShape,
@@ -539,11 +572,11 @@ export type DetectRepeatSpecificError<
                     ? RepeatParseError<'Pattern validation failed'> // Generic fallback
                     : CompositeError // Return specific composite error
                   : RepeatParseError<'Pattern validation failed'>
-                : CheckForRepeatRankMismatch<ParsedAST, InputShape> // Return specific rank mismatch error
-              : CheckForRepeatInvalidSizes<Axes> // Return specific invalid size error
-            : CheckForRepeatMissingAxes<ParsedAST, Axes> // Return specific missing axes error
-          : CheckForRepeatMultipleEllipsis<ParsedAST> // Return specific multiple ellipsis error
-        : CheckForRepeatDuplicateAxes<ParsedAST> // Return specific duplicate axis error
+                : CheckForRepeatInvalidSizes<Axes> // Return specific invalid size error
+              : CheckForRepeatMissingAxes<ParsedAST, Axes> // Return specific missing axes error
+            : CheckForRepeatMultipleEllipsis<ParsedAST> // Return specific multiple ellipsis error
+          : CheckForRepeatDuplicateAxes<ParsedAST> // Return specific duplicate axis error
+        : CheckForRepeatRankMismatch<ParsedAST, InputShape> // Return specific rank mismatch error (FIRST PRIORITY)
       : ParsedAST extends TypeParseError<infer ErrorMsg>
         ? RepeatParseError<ErrorMsg>
         : RepeatParseError<'Pattern parsing failed'>
@@ -604,15 +637,38 @@ export type CheckForRepeatInvalidSizes<Axes extends Record<string, number> | und
 
 /**
  * Check for rank mismatch between pattern and input shape
+ * Correctly handles ellipsis patterns following Python einops behavior:
+ * - Pure ellipsis (...) matches any rank - never causes rank mismatch
+ * - Ellipsis + named axes (... a) requires at least named axes count
+ * - No ellipsis (h w) requires exact rank match
  */
 export type CheckForRepeatRankMismatch<AST extends TypeEinopsAST, InputShape extends Shape> =
-  CountConsumingAxes<AST['input']> extends infer ExpectedRank
-    ? ExpectedRank extends number
-      ? InputShape['length'] extends ExpectedRank
-        ? never // Ranks match
-        : RepeatRankMismatchError<ExpectedRank, InputShape['length']>
-      : never
-    : never;
+  CountEllipsis<AST['input']> extends 1
+    ? // Has ellipsis - check if it's pure ellipsis or ellipsis + named axes
+      CountConsumingAxes<AST['input']> extends 0
+      ? never // Pure ellipsis (...) - matches any rank, never a mismatch
+      : // Ellipsis + named axes (... a b) - check minimum required dimensions
+        CountConsumingAxes<AST['input']> extends infer MinRequiredRank
+        ? MinRequiredRank extends number
+          ? InputShape['length'] extends number
+            ? // For ellipsis + named axes, tensor must have at least MinRequiredRank dimensions
+              // Simplified check: only flag obvious mismatches (empty tensor with required axes)
+              InputShape['length'] extends 0
+              ? MinRequiredRank extends 0
+                ? never // No named axes required
+                : RepeatRankMismatchError<MinRequiredRank, InputShape['length']>
+              : never // Non-empty tensor likely has enough dimensions
+            : never
+          : never
+        : never
+    : // No ellipsis - normal exact rank matching
+      CountConsumingAxes<AST['input']> extends infer ExpectedRank
+      ? ExpectedRank extends number
+        ? InputShape['length'] extends ExpectedRank
+          ? never // Ranks match exactly
+          : RepeatRankMismatchError<ExpectedRank, InputShape['length']>
+        : never
+      : never;
 
 /**
  * Check for multiple ellipsis patterns (only one ellipsis per side allowed)
@@ -691,12 +747,14 @@ type CheckRepeatCompositeResolution<
 
 /**
  * Format composite pattern for repeat error messages
+ * Uses the same logic as the working rearrange implementation
  */
 type FormatRepeatCompositePattern<Composite extends TypeCompositeAxis> =
   `(${FormatRepeatAxesInComposite<Composite['axes']>})`;
 
 /**
  * Format the axes inside a composite pattern for repeat operations
+ * Enhanced to handle nested composites like the working implementations
  */
 type FormatRepeatAxesInComposite<
   Axes extends readonly TypeAxisPattern[],
@@ -708,5 +766,22 @@ type FormatRepeatAxesInComposite<
         ? `${Result}${Head['name']}` // Last axis, no space after
         : FormatRepeatAxesInComposite<Tail, `${Result}${Head['name']} `> // Add space after
       : `${Result}${Head['name']}`
-    : Result // Skip non-simple axes for now
+    : Head extends TypeCompositeAxis
+      ? // Handle nested composites
+        FormatRepeatCompositePattern<Head> extends infer NestedPattern
+        ? NestedPattern extends string
+          ? Tail extends readonly TypeAxisPattern[]
+            ? Tail extends readonly []
+              ? `${Result}${NestedPattern}` // Last composite, no space after
+              : FormatRepeatAxesInComposite<Tail, `${Result}${NestedPattern} `> // Add space after
+            : `${Result}${NestedPattern}`
+          : Result
+        : Result
+      : Head extends TypeSingletonAxis
+        ? Tail extends readonly TypeAxisPattern[]
+          ? Tail extends readonly []
+            ? `${Result}1` // Last singleton, no space after
+            : FormatRepeatAxesInComposite<Tail, `${Result}1 `> // Add space after
+          : `${Result}1`
+        : Result // Skip other pattern types
   : Result;

@@ -18,7 +18,6 @@ import {
 } from './ast';
 import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
-import type { Shape } from '../shape/types';
 import type { RepeatOp } from '../storage/einops';
 import type { ValidRepeatPattern } from './type-shape-resolver-repeat';
 
@@ -101,9 +100,9 @@ export function repeat<
   const Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
-  pattern: ValidRepeatPattern<Pattern, S['__output']['__shape'], Axes> extends Shape
-    ? Pattern
-    : ValidRepeatPattern<Pattern, S['__output']['__shape'], Axes>,
+  pattern: ValidRepeatPattern<Pattern, S['__output']['__shape'], Axes> extends string 
+    ? ValidRepeatPattern<Pattern, S['__output']['__shape'], Axes> // Show the actual error message
+    : Pattern,
   axes?: Axes,
 ): ChainablePromise<RepeatOp<S['__output'], Pattern, Axes>> {
   return new ChainablePromise((resolve, reject) => {
@@ -288,7 +287,10 @@ function resolveAxes(
   if (providedAxes) {
     for (const axis of newAxes) {
       if (axis in providedAxes) {
-        extendedAxisDimensions.set(axis, providedAxes[axis]);
+        const axisValue = providedAxes[axis];
+        if (axisValue !== undefined) {
+          extendedAxisDimensions.set(axis, axisValue);
+        }
       }
     }
   }
@@ -457,9 +459,9 @@ function planRepeatOperations(
  * Compute shape for expansion that includes new singleton axes
  */
 function computeExpandShapeWithNewAxes(
-  inputPatterns: readonly AxisPattern[],
+  _inputPatterns: readonly AxisPattern[],
   outputPatterns: readonly AxisPattern[],
-  inputShape: readonly number[],
+  _inputShape: readonly number[],
   axisDimensions: Map<string, number>,
   ellipsisDimensions?: readonly number[],
 ): number[] {
@@ -472,7 +474,7 @@ function computeExpandShapeWithNewAxes(
  * Compute intermediate shape for complex tiling operations
  */
 function computeIntermediateShapeForTiling(
-  inputPatterns: readonly AxisPattern[],
+  _inputPatterns: readonly AxisPattern[],
   outputPatterns: readonly AxisPattern[],
   axisDimensions: Map<string, number>,
   ellipsisDimensions?: readonly number[],
@@ -490,10 +492,22 @@ function computeTilingReps(fromShape: readonly number[], toShape: readonly numbe
     const maxRank = Math.max(fromShape.length, toShape.length);
     const paddedFrom = [...Array(maxRank - fromShape.length).fill(1), ...fromShape];
     const paddedTo = [...Array(maxRank - toShape.length).fill(1), ...toShape];
-    return paddedTo.map((toDim, i) => toDim / paddedFrom[i]);
+    return paddedTo.map((toDim, i) => {
+      const fromDim = paddedFrom[i];
+      if (fromDim === undefined || fromDim === 0) {
+        throw new Error(`Invalid dimension at index ${i}: from=${fromDim}, to=${toDim}`);
+      }
+      return toDim / fromDim;
+    });
   }
   
-  return toShape.map((toDim, i) => toDim / fromShape[i]);
+  return toShape.map((toDim, i) => {
+    const fromDim = fromShape[i];
+    if (fromDim === undefined || fromDim === 0) {
+      throw new Error(`Invalid dimension at index ${i}: from=${fromDim}, to=${toDim}`);
+    }
+    return toDim / fromDim;
+  });
 }
 
 /**
