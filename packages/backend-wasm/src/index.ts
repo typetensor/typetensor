@@ -1,6 +1,6 @@
 /**
  * Minimal WASM Backend exports
- * 
+ *
  * This file exports only the essential components with zero abstraction layers.
  */
 

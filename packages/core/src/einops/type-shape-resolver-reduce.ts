@@ -38,10 +38,7 @@ import type {
   ReduceCompositeResolutionError,
   ReduceFractionalDimensionError,
 } from './errors';
-import type { 
-  CollectAxisNamesIntersectionSafe,
-  FindUnknownAxes,
-} from './type-validation';
+import type { CollectAxisNamesIntersectionSafe, FindUnknownAxes } from './type-validation';
 
 // =============================================================================
 // Helper Types for Reduce
@@ -85,9 +82,9 @@ type IsNever<T> = [T] extends [never] ? true : false;
  * Safer integer validation that works with computed types
  * Uses multiple fallback strategies to handle complex number types
  */
-type IsSafeInteger<N extends number> = 
+type IsSafeInteger<N extends number> =
   // First try: Direct IsInt check for literal numbers
-  IsInt<N> extends 1 
+  IsInt<N> extends 1
     ? true
     : // Second try: Check for obvious fractions using template literals
       `${N}` extends `${string}.${string}`
@@ -636,7 +633,11 @@ export type DetectReduceSpecificError<
             ? // No new axis error, check for rank mismatch
               IsNever<CheckForReduceRankMismatch<ParsedAST, InputShape>> extends true
               ? // No rank error, check for composite errors
-                CheckForReduceCompositeErrors<ParsedAST, InputShape, Axes> extends infer CompositeError
+                CheckForReduceCompositeErrors<
+                  ParsedAST,
+                  InputShape,
+                  Axes
+                > extends infer CompositeError
                 ? IsNever<CompositeError> extends true
                   ? ReduceParseError<'Pattern validation failed'> // Generic fallback
                   : CompositeError // Return specific composite error

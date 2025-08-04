@@ -53,6 +53,99 @@ pub fn execute_view_op(
     }
 }
 
+/// Execute slice operation with stride information for non-contiguous tensors
+pub fn execute_slice_with_strides(
+    input: &WasmTensor,
+    output: &WasmTensor,
+    row_start: usize,
+    col_start: usize,
+    input_strides: &[usize],
+    arena: &TempArena,
+) -> WasmResult<()> {
+    // Get pointers to input and output data
+    let input_ptr = input.get_read_ptr(arena);
+    let output_ptr = output.get_read_ptr(arena) as *mut u8;
+    
+    // Get tensor metadata
+    let input_meta = input.metadata();
+    let output_meta = output.metadata();
+    let input_shape = input_meta.shape();
+    let output_shape = output_meta.shape();
+    let output_size = output_meta.size();
+    
+    // Handle different data types
+    match input_meta.dtype() {
+        WasmDType::Float32 => {
+            // Get the actual data size for bounds checking
+            let input_data_size = input.get_data_size();
+            let input_elements = input_data_size / 4; // 4 bytes per f32
+            
+            let input_slice = unsafe {
+                std::slice::from_raw_parts(input_ptr as *const f32, input_elements)
+            };
+            let output_slice = unsafe {
+                std::slice::from_raw_parts_mut(output_ptr as *mut f32, output_size)
+            };
+            
+            // Perform stride-aware slicing
+            slice_f32_with_strides(
+                input_slice,
+                output_slice,
+                &input_shape,
+                input_strides,
+                &output_shape,
+                row_start,
+                col_start,
+            )?;
+        }
+        WasmDType::Float64 => {
+            let input_data_size = input.get_data_size();
+            let input_elements = input_data_size / 8; // 8 bytes per f64
+            
+            let input_slice = unsafe {
+                std::slice::from_raw_parts(input_ptr as *const f64, input_elements)
+            };
+            let output_slice = unsafe {
+                std::slice::from_raw_parts_mut(output_ptr as *mut f64, output_size)
+            };
+            
+            slice_f64_with_strides(
+                input_slice,
+                output_slice,
+                &input_shape,
+                input_strides,
+                &output_shape,
+                row_start,
+                col_start,
+            )?;
+        }
+        WasmDType::Int32 => {
+            let input_data_size = input.get_data_size();
+            let input_elements = input_data_size / 4; // 4 bytes per i32
+            
+            let input_slice = unsafe {
+                std::slice::from_raw_parts(input_ptr as *const i32, input_elements)
+            };
+            let output_slice = unsafe {
+                std::slice::from_raw_parts_mut(output_ptr as *mut i32, output_size)
+            };
+            
+            slice_i32_with_strides(
+                input_slice,
+                output_slice,
+                &input_shape,
+                input_strides,
+                &output_shape,
+                row_start,
+                col_start,
+            )?;
+        }
+        _ => return Err(WasmError::NotImplemented),
+    }
+    
+    Ok(())
+}
+
 /// Execute slice operation with explicit offset parameters (NEW ARCHITECTURE)
 pub fn execute_slice_with_offsets(
     input: &WasmTensor,
@@ -657,6 +750,136 @@ fn slice_with_offsets_f32(
         let input_flat_index = compute_flat_index(&input_indices, input_strides);
         
         // Bounds check and copy element using actual memory bounds
+        if input_flat_index < input.len() && output_flat_index < output.len() {
+            output[output_flat_index] = input[input_flat_index];
+        } else {
+            return Err(WasmError::InvalidInput);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Slice f32 tensor with stride information for non-contiguous tensors
+fn slice_f32_with_strides(
+    input: &[f32],
+    output: &mut [f32],
+    input_shape: &[usize],
+    input_strides: &[usize],
+    output_shape: &[usize],
+    row_start: usize,
+    col_start: usize,
+) -> WasmResult<()> {
+    let total_output_elements = output_shape.iter().product::<usize>();
+    
+    for output_flat_index in 0..total_output_elements {
+        // Convert output flat index to multi-dimensional indices
+        let output_indices = flat_index_to_indices(output_flat_index, output_shape);
+        
+        // Map output indices to input indices by adding slice offsets
+        let input_indices = match output_shape.len() {
+            1 => vec![output_indices[0] + row_start],
+            2 => vec![output_indices[0] + row_start, output_indices[1] + col_start],
+            _ => {
+                let mut input_indices = output_indices.clone();
+                if input_indices.len() >= 1 {
+                    input_indices[0] += row_start;
+                }
+                if input_indices.len() >= 2 {
+                    input_indices[1] += col_start;
+                }
+                input_indices
+            }
+        };
+        
+        // Use strides to compute the correct flat index for potentially non-contiguous data
+        let input_flat_index = compute_flat_index(&input_indices, input_strides);
+        
+        // Bounds check and copy element
+        if input_flat_index < input.len() && output_flat_index < output.len() {
+            output[output_flat_index] = input[input_flat_index];
+        } else {
+            return Err(WasmError::InvalidInput);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Slice f64 tensor with stride information for non-contiguous tensors
+fn slice_f64_with_strides(
+    input: &[f64],
+    output: &mut [f64],
+    input_shape: &[usize],
+    input_strides: &[usize],
+    output_shape: &[usize],
+    row_start: usize,
+    col_start: usize,
+) -> WasmResult<()> {
+    let total_output_elements = output_shape.iter().product::<usize>();
+    
+    for output_flat_index in 0..total_output_elements {
+        let output_indices = flat_index_to_indices(output_flat_index, output_shape);
+        
+        let input_indices = match output_shape.len() {
+            1 => vec![output_indices[0] + row_start],
+            2 => vec![output_indices[0] + row_start, output_indices[1] + col_start],
+            _ => {
+                let mut input_indices = output_indices.clone();
+                if input_indices.len() >= 1 {
+                    input_indices[0] += row_start;
+                }
+                if input_indices.len() >= 2 {
+                    input_indices[1] += col_start;
+                }
+                input_indices
+            }
+        };
+        
+        let input_flat_index = compute_flat_index(&input_indices, input_strides);
+        
+        if input_flat_index < input.len() && output_flat_index < output.len() {
+            output[output_flat_index] = input[input_flat_index];
+        } else {
+            return Err(WasmError::InvalidInput);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Slice i32 tensor with stride information for non-contiguous tensors
+fn slice_i32_with_strides(
+    input: &[i32],
+    output: &mut [i32],
+    input_shape: &[usize],
+    input_strides: &[usize],
+    output_shape: &[usize],
+    row_start: usize,
+    col_start: usize,
+) -> WasmResult<()> {
+    let total_output_elements = output_shape.iter().product::<usize>();
+    
+    for output_flat_index in 0..total_output_elements {
+        let output_indices = flat_index_to_indices(output_flat_index, output_shape);
+        
+        let input_indices = match output_shape.len() {
+            1 => vec![output_indices[0] + row_start],
+            2 => vec![output_indices[0] + row_start, output_indices[1] + col_start],
+            _ => {
+                let mut input_indices = output_indices.clone();
+                if input_indices.len() >= 1 {
+                    input_indices[0] += row_start;
+                }
+                if input_indices.len() >= 2 {
+                    input_indices[1] += col_start;
+                }
+                input_indices
+            }
+        };
+        
+        let input_flat_index = compute_flat_index(&input_indices, input_strides);
+        
         if input_flat_index < input.len() && output_flat_index < output.len() {
             output[output_flat_index] = input[input_flat_index];
         } else {

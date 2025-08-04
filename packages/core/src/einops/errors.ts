@@ -59,33 +59,33 @@ export type EinopsShapeError<Message extends string> = `[Einops ❌] Shape Error
 /**
  * Common parse error messages
  */
-export type ParseErrorMessages = {
+export interface ParseErrorMessages {
   MissingArrow: EinopsParseError<"Missing arrow operator '->'. Pattern must be 'input -> output'">;
   EmptyInput: EinopsParseError<"Empty input pattern. Specify input axes before '->'">;
   EmptyOutput: EinopsParseError<"Empty output pattern. Specify output axes after '->'">;
   InvalidSyntax: EinopsParseError<'Invalid pattern syntax. Check parentheses and axis names'>;
-};
+}
 
 /**
  * Common axis error messages
  */
-export type AxisErrorMessages = {
+export interface AxisErrorMessages {
   DuplicateInput: EinopsAxisError<'Duplicate axes in input. Each axis can appear at most once per side'>;
   DuplicateOutput: EinopsAxisError<'Duplicate axes in output. Each axis can appear at most once per side'>;
   MultipleEllipsisInput: EinopsAxisError<"Multiple ellipsis '...' in input. Only one ellipsis allowed per side">;
   MultipleEllipsisOutput: EinopsAxisError<"Multiple ellipsis '...' in output. Only one ellipsis allowed per side">;
   UnknownAxis: EinopsAxisError<'Unknown axis in output. All output axes must exist in input'>;
-};
+}
 
 /**
  * Common shape error messages
  */
-export type ShapeErrorMessages = {
+export interface ShapeErrorMessages {
   RankMismatch: EinopsShapeError<'Pattern rank does not match tensor dimensions'>;
   CompositeResolution: EinopsShapeError<'Cannot resolve composite pattern. Specify axis dimensions'>;
   DimensionMismatch: EinopsShapeError<'Composite pattern dimension mismatch. Check axis values'>;
   InvalidDecomposition: EinopsShapeError<'Cannot decompose dimension with given axes'>;
-};
+}
 
 // =============================================================================
 // Helper Types for Error Formatting
@@ -165,9 +165,8 @@ export type ProductMismatchError<
 /**
  * Create specific fractional dimension error (simplified version)
  */
-export type FractionalDimensionError<
-  Pattern extends string,
-> = EinopsShapeError<`Pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})`>;
+export type FractionalDimensionError<Pattern extends string> =
+  EinopsShapeError<`Pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})`>;
 
 // =============================================================================
 // Reduce-Specific Error Types
@@ -249,9 +248,8 @@ export type ReduceProductMismatchError<
 /**
  * Create specific fractional dimension error for reduce operations
  */
-export type ReduceFractionalDimensionError<
-  Pattern extends string,
-> = ReduceShapeError<`Reduce pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: reduce(tensor, pattern, operation, keepDims, {axis: integer})`>;
+export type ReduceFractionalDimensionError<Pattern extends string> =
+  ReduceShapeError<`Reduce pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: reduce(tensor, pattern, operation, keepDims, {axis: integer})`>;
 
 // =============================================================================
 // Repeat-Specific Error Types
@@ -292,16 +290,14 @@ export type RepeatShapeError<Message extends string> = `[Repeat ❌] Shape Error
  * Create specific error for missing axis dimensions in repeat operations
  * Repeat operations allow new axes but they must have explicit sizes
  */
-export type RepeatMissingAxisError<
-  AxisName extends string,
-> = RepeatAxisError<`New axis '${AxisName}' requires explicit size. Specify: repeat(tensor, pattern, {${AxisName}: number})`>;
+export type RepeatMissingAxisError<AxisName extends string> =
+  RepeatAxisError<`New axis '${AxisName}' requires explicit size. Specify: repeat(tensor, pattern, {${AxisName}: number})`>;
 
 /**
  * Create specific error for multiple missing axes in repeat operations
  */
-export type RepeatMissingAxesError<
-  AxesNames extends readonly string[],
-> = RepeatAxisError<`New axes [${FormatAxesList<AxesNames>}] require explicit sizes. Specify: repeat(tensor, pattern, {${FormatAxisSpecs<AxesNames>}})`>;
+export type RepeatMissingAxesError<AxesNames extends readonly string[]> =
+  RepeatAxisError<`New axes [${FormatAxesList<AxesNames>}] require explicit sizes. Specify: repeat(tensor, pattern, {${FormatAxisSpecs<AxesNames>}})`>;
 
 /**
  * Format axis specifications for error messages
@@ -360,6 +356,5 @@ export type RepeatProductMismatchError<
 /**
  * Create specific fractional dimension error for repeat operations
  */
-export type RepeatFractionalDimensionError<
-  Pattern extends string,
-> = RepeatShapeError<`Repeat pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: repeat(tensor, pattern, {axis: integer})`>;
+export type RepeatFractionalDimensionError<Pattern extends string> =
+  RepeatShapeError<`Repeat pattern '${Pattern}' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: repeat(tensor, pattern, {axis: integer})`>;

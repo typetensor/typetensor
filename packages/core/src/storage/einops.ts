@@ -197,7 +197,7 @@ interface RepeatLayout extends LayoutFlags {
  * @example
  * type A = TensorStorage<Float32, [2, 3]>;
  * type B = RepeatOp<A, 'h w -> h w c', {c: 4}>; // Shape: [2, 3, 4]
- * type C = RepeatOp<A, 'h w -> (h h2) w', {h2: 2}>; // Shape: [4, 3] 
+ * type C = RepeatOp<A, 'h w -> (h h2) w', {h2: 2}>; // Shape: [4, 3]
  * type D = RepeatOp<A, 'h w -> (h h2) (w w2)', {h2: 2, w2: 3}>; // Shape: [4, 9]
  */
 export type RepeatOp<

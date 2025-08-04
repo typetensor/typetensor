@@ -54,9 +54,9 @@ type IsNever<T> = [T] extends [never] ? true : false;
  * Safer integer validation that works with computed types
  * Uses multiple fallback strategies to handle complex number types
  */
-type IsSafeInteger<N extends number> = 
+type IsSafeInteger<N extends number> =
   // First try: Direct IsInt check for literal numbers
-  IsInt<N> extends 1 
+  IsInt<N> extends 1
     ? true
     : // Second try: Check for obvious fractions using template literals
       `${N}` extends `${string}.${string}`
@@ -382,8 +382,8 @@ type CheckCompositeResolution<
             ValidateCompositeProduct<FlatAxes, Dimension, Axes> extends true
             ? never // Product is correct, should be resolvable
             : ProductMismatchError<
-                FormatCompositePattern<Composite>, 
-                Dimension, 
+                FormatCompositePattern<Composite>,
+                Dimension,
                 ComputeCompositeProduct<FlatAxes, Axes>
               >
           : CountUnknownAxes<FlatAxes, Axes> extends infer UnknownCount

@@ -48,7 +48,7 @@ async function runWASMBenchmarks() {
 
   // === Tensor Creation Benchmarks ===
   console.log('Setting up tensor creation benchmarks...');
-  
+
   // Vector creation
   for (const size of VECTOR_SIZES) {
     const data = generateRandomData(size.shape);
@@ -80,7 +80,7 @@ async function runWASMBenchmarks() {
 
   // === Unary Operations Benchmarks ===
   console.log('Setting up unary operations benchmarks...');
-  
+
   // Prepare test tensors for unary ops
   const unaryTestSizes = [
     { name: 'small', shape: [1000] },
@@ -90,7 +90,7 @@ async function runWASMBenchmarks() {
 
   for (const size of unaryTestSizes) {
     const unaryOps = ['neg', 'abs', 'sin', 'cos', 'exp', 'log', 'sqrt', 'square'] as const;
-    
+
     for (const op of unaryOps) {
       bench.add(`WASM: ${op} ${size.name} ${size.shape.join('x')}`, async () => {
         const data = generateRandomData(size.shape);
@@ -102,7 +102,7 @@ async function runWASMBenchmarks() {
 
   // === Binary Operations Benchmarks ===
   console.log('Setting up binary operations benchmarks...');
-  
+
   const binaryTestSizes = [
     { name: 'small', shape: [1000] },
     { name: 'medium', shape: [100, 100] },
@@ -131,7 +131,7 @@ async function runWASMBenchmarks() {
 
   // === Matrix Multiplication Benchmarks ===
   console.log('Setting up matrix multiplication benchmarks...');
-  
+
   const matmulSizes = [
     { name: 'tiny', a: [32, 32], b: [32, 32] },
     { name: 'small', a: [64, 64], b: [64, 64] },
@@ -152,7 +152,7 @@ async function runWASMBenchmarks() {
 
   // === Reduction Operations Benchmarks ===
   console.log('Setting up reduction operations benchmarks...');
-  
+
   const reductionTestSizes = [
     { name: 'vector', shape: [10000] },
     { name: 'matrix', shape: [100, 100] },
@@ -164,7 +164,7 @@ async function runWASMBenchmarks() {
     const testTensor = await tensor(data, { device: wasmDevice, dtype: float32 });
 
     const reductionOps = ['sum', 'mean', 'max', 'min'] as const;
-    
+
     for (const op of reductionOps) {
       bench.add(`WASM: ${op} ${size.name} ${size.shape.join('x')}`, async () => {
         await (testTensor as any)[op]();
@@ -174,7 +174,7 @@ async function runWASMBenchmarks() {
 
   // === Memory Transfer Benchmarks ===
   console.log('Setting up memory transfer benchmarks...');
-  
+
   const transferSizes = [
     { name: '1KB', elements: 256 }, // 256 * 4 bytes = 1KB
     { name: '1MB', elements: 262144 }, // 262144 * 4 bytes = 1MB
@@ -191,7 +191,7 @@ async function runWASMBenchmarks() {
 
     const writeBuffer = new ArrayBuffer(size.elements * 4);
     const writeData = wasmDevice.createData(writeBuffer.byteLength);
-    
+
     bench.add(`WASM: write data ${size.name}`, async () => {
       await wasmDevice.writeData(writeData, writeBuffer);
     });
@@ -231,22 +231,36 @@ async function runWASMBenchmarks() {
 
   // Performance analysis
   console.log('\n📈 Performance Analysis:');
-  
-  const creationTasks = bench.tasks.filter(task => task.name.includes('create'));
-  const unaryTasks = bench.tasks.filter(task => task.name.includes('neg') || task.name.includes('abs') || task.name.includes('sin'));
-  const binaryTasks = bench.tasks.filter(task => task.name.includes('add') || task.name.includes('mul'));
-  const matmulTasks = bench.tasks.filter(task => task.name.includes('matmul'));
-  
+
+  const creationTasks = bench.tasks.filter((task) => task.name.includes('create'));
+  const unaryTasks = bench.tasks.filter(
+    (task) => task.name.includes('neg') || task.name.includes('abs') || task.name.includes('sin'),
+  );
+  const binaryTasks = bench.tasks.filter(
+    (task) => task.name.includes('add') || task.name.includes('mul'),
+  );
+  const matmulTasks = bench.tasks.filter((task) => task.name.includes('matmul'));
+
   const getAveragePerformance = (tasks: any[]) => {
-    const validResults = tasks.filter(task => task.result && task.result.hz > 0);
-    if (validResults.length === 0) return 0;
+    const validResults = tasks.filter((task) => task.result && task.result.hz > 0);
+    if (validResults.length === 0) {
+      return 0;
+    }
     return validResults.reduce((sum, task) => sum + task.result.hz, 0) / validResults.length;
   };
 
-  console.log(`   Avg Creation Performance: ${getAveragePerformance(creationTasks).toLocaleString()} ops/sec`);
-  console.log(`   Avg Unary Performance: ${getAveragePerformance(unaryTasks).toLocaleString()} ops/sec`);
-  console.log(`   Avg Binary Performance: ${getAveragePerformance(binaryTasks).toLocaleString()} ops/sec`);
-  console.log(`   Avg MatMul Performance: ${getAveragePerformance(matmulTasks).toLocaleString()} ops/sec`);
+  console.log(
+    `   Avg Creation Performance: ${getAveragePerformance(creationTasks).toLocaleString()} ops/sec`,
+  );
+  console.log(
+    `   Avg Unary Performance: ${getAveragePerformance(unaryTasks).toLocaleString()} ops/sec`,
+  );
+  console.log(
+    `   Avg Binary Performance: ${getAveragePerformance(binaryTasks).toLocaleString()} ops/sec`,
+  );
+  console.log(
+    `   Avg MatMul Performance: ${getAveragePerformance(matmulTasks).toLocaleString()} ops/sec`,
+  );
 
   return bench;
 }

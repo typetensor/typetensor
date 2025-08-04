@@ -1,6 +1,6 @@
 /**
  * Minimal error handling for WASM backend
- * 
+ *
  * Since arena-based memory management handles most safety concerns,
  * we only need basic error classes for operational issues.
  */
@@ -13,10 +13,10 @@ export class WASMError extends Error {
   public readonly category: 'operational' | 'initialization' | 'memory' | 'bounds';
 
   constructor(
-    message: string, 
+    message: string,
     code: string,
     category: 'operational' | 'initialization' | 'memory' | 'bounds',
-    public readonly context?: Record<string, unknown>
+    public readonly context?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'WASMError';
@@ -41,7 +41,12 @@ export class WASMError extends Error {
  */
 export class WASMOperationError extends WASMError {
   constructor(operation: string, reason: string, context?: Record<string, unknown>) {
-    super(`WASM operation '${operation}' failed: ${reason}`, 'OPERATION_FAILED', 'operational', context);
+    super(
+      `WASM operation '${operation}' failed: ${reason}`,
+      'OPERATION_FAILED',
+      'operational',
+      context,
+    );
     this.name = 'WASMOperationError';
   }
 }
@@ -50,8 +55,18 @@ export class WASMOperationError extends WASMError {
  * Invalid state error (device not initialized, etc.)
  */
 export class WASMInvalidStateError extends WASMError {
-  constructor(operation: string, currentState: string, expectedState: string, context?: Record<string, unknown>) {
-    super(`Cannot ${operation} in state '${currentState}', expected '${expectedState}'`, 'INVALID_STATE', 'initialization', context);
+  constructor(
+    operation: string,
+    currentState: string,
+    expectedState: string,
+    context?: Record<string, unknown>,
+  ) {
+    super(
+      `Cannot ${operation} in state '${currentState}', expected '${expectedState}'`,
+      'INVALID_STATE',
+      'initialization',
+      context,
+    );
     this.name = 'WASMInvalidStateError';
   }
 }
@@ -60,9 +75,19 @@ export class WASMInvalidStateError extends WASMError {
  * Bounds/size validation error
  */
 export class WASMBoundsError extends WASMError {
-  constructor(operation: string, value: number, bounds: { min?: number; max?: number }, context?: Record<string, unknown>) {
+  constructor(
+    operation: string,
+    value: number,
+    bounds: { min?: number; max?: number },
+    context?: Record<string, unknown>,
+  ) {
     const boundsStr = `min=${bounds.min ?? 'none'}, max=${bounds.max ?? 'none'}`;
-    super(`Bounds check failed for ${operation}: value ${value} outside bounds (${boundsStr})`, 'BOUNDS_CHECK_FAILED', 'operational', context);
+    super(
+      `Bounds check failed for ${operation}: value ${value} outside bounds (${boundsStr})`,
+      'BOUNDS_CHECK_FAILED',
+      'operational',
+      context,
+    );
     this.name = 'WASMBoundsError';
   }
 }
@@ -82,7 +107,12 @@ export class WASMAllocationError extends WASMError {
  */
 export class WASMMemoryLimitError extends WASMError {
   constructor(requestedSize: number, availableSize: number, context?: Record<string, unknown>) {
-    super(`Memory limit exceeded: requested ${requestedSize} bytes, available ${availableSize} bytes`, 'MEMORY_LIMIT_EXCEEDED', 'memory', context);
+    super(
+      `Memory limit exceeded: requested ${requestedSize} bytes, available ${availableSize} bytes`,
+      'MEMORY_LIMIT_EXCEEDED',
+      'memory',
+      context,
+    );
     this.name = 'WASMMemoryLimitError';
   }
 }

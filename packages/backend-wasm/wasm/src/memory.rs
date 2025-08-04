@@ -142,6 +142,15 @@ impl WasmTensor {
         }
     }
     
+    /// Create a view of this tensor with different metadata
+    /// This is a zero-copy operation that shares the same underlying data
+    pub fn create_view(&self, meta: WasmTensorMeta) -> Self {
+        WasmTensor {
+            data: self.data.clone(),
+            meta,
+        }
+    }
+    
     /// Get read pointer to tensor data
     pub fn get_read_ptr(&self, arena: &TempArena) -> *const u8 {
         self.data.get_read_ptr(arena)

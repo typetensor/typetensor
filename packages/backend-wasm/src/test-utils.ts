@@ -1,6 +1,6 @@
 /**
  * Test utilities for arena-based WASM backend
- * 
+ *
  * With arena memory management, test isolation is automatic
  * and no manual cleanup is required.
  */

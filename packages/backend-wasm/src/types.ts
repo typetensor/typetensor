@@ -1,6 +1,6 @@
 /**
  * Minimal type definitions for WASM backend - Direct interface to Rust
- * 
+ *
  * This file provides the simplest possible interface to the WasmExecutor
  * with zero abstraction layers.
  */
@@ -20,38 +20,61 @@ export type {
 export const OPS = {
   // Creation
   create: 0,
-  
+
   // Unary operations (implemented in unary.rs)
-  neg: 1, abs: 2, sin: 3, cos: 4, exp: 5, log: 6, sqrt: 7, square: 8,
-  
+  neg: 1,
+  abs: 2,
+  sin: 3,
+  cos: 4,
+  exp: 5,
+  log: 6,
+  sqrt: 7,
+  square: 8,
+
   // Binary operations (implemented in binary.rs)
-  add: 10, sub: 11, mul: 12, div: 13,
-  
+  add: 10,
+  sub: 11,
+  mul: 12,
+  div: 13,
+
   // View operations (implemented in view.rs)
-  reshape: 20, view: 21, slice: 22, flatten: 23,
-  permute: 24, transpose: 25, squeeze: 26, unsqueeze: 27,
-  expand: 28, tile: 29,
-  
+  reshape: 20,
+  view: 21,
+  slice: 22,
+  flatten: 23,
+  permute: 24,
+  transpose: 25,
+  squeeze: 26,
+  unsqueeze: 27,
+  expand: 28,
+  tile: 29,
+
   // Matrix operations (implemented in matmul.rs)
   matmul: 30,
-  
+
   // Softmax operations (implemented in softmax.rs)
-  softmax: 40, log_softmax: 41,
-  
+  softmax: 40,
+  log_softmax: 41,
+
   // Reduction operations (implemented in reduction.rs)
-  sum: 50, mean: 51, max: 52, min: 53, prod: 54,
-  
+  sum: 50,
+  mean: 51,
+  max: 52,
+  min: 53,
+  prod: 54,
+
   // Einops operations
-  rearrange: 60, reduce: 61,
+  rearrange: 60,
+  reduce: 61,
 } as const;
 
-// Data type mapping - matches WasmDType enum exactly  
+// Data type mapping - matches WasmDType enum exactly
 export const DTYPES = {
   bool: 0,
-  int8: 1, 
+  int8: 1,
   uint8: 2,
   int16: 3,
-  uint16: 4, 
+  uint16: 4,
   int32: 5,
   uint32: 6,
   float32: 7,
@@ -90,6 +113,6 @@ export interface WASMCapabilities {
 // Simplified memory stats for backward compatibility
 export interface WASMMemoryStats {
   totalAllocated: number;
-  activeBuffers: number; 
+  activeBuffers: number;
   poolSummary: string;
 }

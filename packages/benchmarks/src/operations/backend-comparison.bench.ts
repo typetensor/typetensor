@@ -38,7 +38,8 @@ describe('CPU vs WASM: tensor creation', () => {
   }
 
   // Zeros/ones comparison
-  for (const size of testSizes.slice(0, 2)) { // Only small and medium
+  for (const size of testSizes.slice(0, 2)) {
+    // Only small and medium
     bench(`CPU: zeros ${size.name} ${size.shape.join('x')}`, async () => {
       await zeros(size.shape, { device: cpu, dtype: float32 });
     });

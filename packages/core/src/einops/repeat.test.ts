@@ -1,5 +1,20 @@
 /**
  * Tests for repeat function
+ *
+ * Test suite for einops repeat operation
+ *
+ * Test categories:
+ * 1. Basic Repeat Operations (lines 14-400) - Simple new axis addition
+ * 2. Composite Pattern Tests (lines 401-800) - Composite repetition patterns
+ * 3. Mixed Pattern Tests (lines 801-1200) - Mixed patterns with both
+ * 4. Ellipsis Handling (lines 1201-1600) - Ellipsis pattern tests
+ * 5. Edge Cases and Error Conditions (lines 1601+) - Error validation
+ *
+ * Each test follows pattern:
+ * - Create input tensor with known values
+ * - Apply repeat operation
+ * - Verify output shape
+ * - Verify value placement (sampling specific coordinates)
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -368,108 +383,107 @@ describe('Advanced Repeat Patterns', () => {
 // =============================================================================
 
 describe('Composite Pattern Repeat', () => {
-  it('should handle composite with provided axes', async () => {
-    const testTensor = await ones([4, 6] as const, { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(h h2) w -> h w c', { h: 2, h2: 2, c: 3 });
-    expect(result.shape).toEqual([2, 6, 3]);
+  it('should handle composite in output only', async () => {
+    const testTensor = await ones([2, 6] as const, { device: cpu, dtype: float32 });
+    const result = await repeat(testTensor, 'h w -> (h h2) w c', { h2: 2, c: 3 });
+    expect(result.shape).toEqual([4, 6, 3]);
 
     const data = await result.toArray();
     expect(data[0][0]).toEqual([1, 1, 1]);
     expect(data[1][5]).toEqual([1, 1, 1]);
   });
 
-  it('should infer missing composite dimensions', async () => {
+  it('should reject composite in input pattern', async () => {
     const testTensor = await ones([4, 6] as const, { device: cpu, dtype: float32 });
-    // h2 should be inferred as 4/2 = 2
-    const result = await repeat(testTensor, '(h h2) w -> h w c', { h: 2, c: 3 });
-    expect(result.shape).toEqual([2, 6, 3]);
-
-    const data = await result.toArray();
-    expect(data[0][0]).toEqual([1, 1, 1]);
+    // Composite patterns in input are not allowed in einops repeat
+    await expect(repeat(testTensor, '(h h2) w -> h w c', { h: 2, c: 3 })).rejects.toThrow(
+      'Composite patterns in input are not allowed',
+    );
   });
 
-  it('should handle nested composite patterns', async () => {
-    const testTensor = await ones([8, 6] as const, { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(h (h2 h3)) w -> h h2 w c', {
-      h: 2,
+  it('should handle nested composite patterns in output', async () => {
+    const testTensor = await ones([2, 6] as const, { device: cpu, dtype: float32 });
+    const result = await repeat(testTensor, 'h w -> ((h h2) h3) w', {
       h2: 2,
       h3: 2,
-      c: 3,
     });
-    expect(result.shape).toEqual([2, 2, 6, 3]);
+    expect(result.shape).toEqual([8, 6]);
 
     const data = await result.toArray();
-    expect(data[0][0][0]).toEqual([1, 1, 1]);
-    expect(data[1][1][5]).toEqual([1, 1, 1]);
+    expect(data[0][0]).toBe(1);
+    expect(data[7][5]).toBe(1);
   });
 
   it('should handle composite with repetition', async () => {
-    const testTensor = await tensor([1, 2, 3, 4, 5, 6], { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(h h2) -> h (h2 h3) c', { h: 2, h2: 3, h3: 2, c: 2 });
-    expect(result.shape).toEqual([2, 6, 2]);
+    const testTensor = await tensor(
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      { device: cpu, dtype: float32 },
+    );
+    const result = await repeat(testTensor, 'h w -> (h h2) (w w2)', { h2: 2, w2: 3 });
+    expect(result.shape).toEqual([4, 6]);
 
     const data = await result.toArray();
-    expect(data[0][0]).toEqual([1, 1]); // First element of first group
-    expect(data[1][0]).toEqual([4, 4]); // First element of second group
+    expect(data[0]).toEqual([1, 1, 1, 2, 2, 2]); // First row repeated
+    expect(data[2]).toEqual([3, 3, 3, 4, 4, 4]); // Second row repeated
   });
 
-  it('should handle multiple composite axes', async () => {
-    const testTensor = await ones([4, 6, 8] as const, { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(a a2) (b b2) (c c2) -> a b c d', {
-      a: 2,
+  it('should handle multiple composite axes in output', async () => {
+    const testTensor = await ones([2, 3, 4] as const, { device: cpu, dtype: float32 });
+    const result = await repeat(testTensor, 'a b c -> (a a2) (b b2) (c c2) d', {
       a2: 2,
-      b: 3,
       b2: 2,
-      c: 4,
       c2: 2,
       d: 5,
     });
-    expect(result.shape).toEqual([2, 3, 4, 5]);
+    expect(result.shape).toEqual([4, 6, 8, 5]);
 
     const data = await result.toArray();
     expect(data[0][0][0]).toEqual([1, 1, 1, 1, 1]);
   });
 
-  it('should handle composite decomposition with new axes', async () => {
+  it('should handle flattened input with new axes', async () => {
     const testTensor = await tensor([1, 2, 3, 4, 5, 6, 7, 8], { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(h w) -> h w c', { h: 2, w: 4, c: 3 });
-    expect(result.shape).toEqual([2, 4, 3]);
+    const result = await repeat(testTensor, 'flat -> (flat c)', { c: 3 });
+    expect(result.shape).toEqual([24]);
 
     const data = await result.toArray();
-    expect(data[0][0]).toEqual([1, 1, 1]);
-    expect(data[0][3]).toEqual([4, 4, 4]);
-    expect(data[1][0]).toEqual([5, 5, 5]);
-    expect(data[1][3]).toEqual([8, 8, 8]);
+    expect(data[0]).toBe(1);
+    expect(data[1]).toBe(1);
+    expect(data[2]).toBe(1);
+    expect(data[3]).toBe(2);
   });
 
-  it('should handle composite with partial specification', async () => {
+  it('should handle partial specification with new axis', async () => {
     const testTensor = await ones([12] as const, { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(h w c) -> h w c d', { h: 3, w: 4, d: 2 });
-    expect(result.shape).toEqual([3, 4, 1, 2]); // c inferred as 1
+    const result = await repeat(testTensor, 'flat -> flat d', { d: 2 });
+    expect(result.shape).toEqual([12, 2]);
 
     const data = await result.toArray();
-    expect(data[0][0][0]).toEqual([1, 1]);
+    expect(data[0]).toEqual([1, 1]);
   });
 
-  it('should handle complex composite nesting', async () => {
-    const testTensor = await ones([24] as const, { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(a (b c) d) -> a b c d e', {
-      a: 2,
-      b: 3,
-      c: 2,
-      d: 2,
-      e: 4,
+  it('should handle complex composite nesting in output', async () => {
+    const testTensor = await ones([2, 3] as const, { device: cpu, dtype: float32 });
+    const result = await repeat(testTensor, 'a b -> ((a a2) a3) ((b b2) b3) c', {
+      a2: 2,
+      a3: 2,
+      b2: 2,
+      b3: 2,
+      c: 4,
     });
-    expect(result.shape).toEqual([2, 3, 2, 2, 4]);
+    expect(result.shape).toEqual([8, 12, 4]);
 
     const data = await result.toArray();
-    expect(data[0][0][0][0]).toEqual([1, 1, 1, 1]);
-    expect(data[1][2][1][1]).toEqual([1, 1, 1, 1]);
+    expect(data[0][0]).toEqual([1, 1, 1, 1]);
+    expect(data[7][11]).toEqual([1, 1, 1, 1]);
   });
 
   it('should handle composite with large factors', async () => {
-    const testTensor = await ones([6] as const, { device: cpu, dtype: float32 });
-    const result = await repeat(testTensor, '(h w) -> (h h2) (w w2)', { h: 2, w: 3, h2: 5, w2: 7 });
+    const testTensor = await ones([2, 3] as const, { device: cpu, dtype: float32 });
+    const result = await repeat(testTensor, 'h w -> (h h2) (w w2)', { h2: 5, w2: 7 });
     expect(result.shape).toEqual([10, 21]);
 
     const data = await result.toArray();
@@ -477,20 +491,24 @@ describe('Composite Pattern Repeat', () => {
     expect(data[9][20]).toBe(1);
   });
 
-  it('should handle composite reshaping with repetition', async () => {
+  it('should handle composite output for repetition', async () => {
     const testTensor = await tensor(
       [
-        [1, 2, 3, 4],
-        [5, 6, 7, 8],
+        [1, 2],
+        [3, 4],
       ],
       { device: cpu, dtype: float32 },
     );
-    const result = await repeat(testTensor, 'h (w w2) -> (h h2) w c', { w: 2, w2: 2, h2: 3, c: 2 });
-    expect(result.shape).toEqual([6, 2, 2]);
+    // Composite patterns are allowed in output for repetition
+    const result = await repeat(testTensor, 'h w -> (h h2) (w w2)', { h2: 2, w2: 2 });
+    expect(result.shape).toEqual([4, 4]);
 
     const data = await result.toArray();
-    expect(data[0][0]).toEqual([1, 1]); // First element
-    expect(data[3][0]).toEqual([5, 5]); // First element of second original row
+    // Check that values are repeated correctly
+    expect(data[0]).toEqual([1, 1, 2, 2]); // First row
+    expect(data[1]).toEqual([1, 1, 2, 2]); // Repeated first row
+    expect(data[2]).toEqual([3, 3, 4, 4]); // Second row
+    expect(data[3]).toEqual([3, 3, 4, 4]); // Repeated second row
   });
 });
 
@@ -725,7 +743,7 @@ describe('Edge Cases', () => {
     const result = await repeat(testTensor, 'x -> (x r)', { r: 1000 });
     expect(result.shape).toEqual([1000]);
 
-    const data = await result.toArray() as number[];
+    const data = (await result.toArray()) as number[];
     expect(data[0] as number).toBe(1);
     expect(data[999] as number).toBe(1);
     expect(data.every((x: number) => x === 1)).toBe(true);
@@ -851,8 +869,10 @@ describe('Computer Vision Patterns', () => {
     expect(tiled.shape).toEqual([6, 6, 3]);
 
     const data = await tiled.toArray();
-    expect(data[0][0]).toEqual([1, 1, 1]);
-    expect(data[2][2]).toEqual([3, 3, 3]); // Center patch element
+    expect(data[0][0]).toEqual([1, 1, 1]); // Top-left block
+    expect(data[2][2]).toEqual([1, 1, 1]); // Still in top-left block
+    expect(data[3][0]).toEqual([3, 3, 3]); // Bottom-left block
+    expect(data[0][3]).toEqual([2, 2, 2]); // Top-right block
   });
 
   it('should simulate data augmentation', async () => {
@@ -993,12 +1013,12 @@ describe('Error Cases', () => {
     await expect(repeat(testTensor, 'h w c -> h w c d', { d: 4 })).rejects.toThrow(RepeatError);
   });
 
-  it('should throw error for composite resolution failure', async () => {
+  it('should throw error for composite in input pattern', async () => {
     const testTensor = await ones([4, 6] as const, { device: cpu, dtype: float32 });
-    // This should fail: repeat cannot decompose input axes, only create new output axes
-    // @ts-expect-error - TypeScript should show: [Repeat ❌] Shape Error: Cannot resolve '(h h2)' from dimension 6. Specify axis values: repeat(tensor, pattern, {axis: number})
+    // Composite patterns in input are not allowed in einops repeat
+    // @ts-expect-error - TypeScript should show: [Repeat ❌] Axis Error: Composite patterns in input are not allowed for repeat. Use rearrange first to decompose axes.
     await expect(repeat(testTensor, '(h h2) w -> h w c', { h: 3, h2: 2, c: 3 })).rejects.toThrow(
-      'Cannot resolve',
+      'Composite patterns in input are not allowed',
     );
   });
 
@@ -1016,10 +1036,10 @@ describe('Error Cases', () => {
     );
   });
 
-  it('should handle partial axis specification gracefully', async () => {
-    const testTensor = await ones([4, 6] as const, { device: cpu, dtype: float32 });
-    // Should infer h2 = 2 from 4/2
-    const result = await repeat(testTensor, '(h h2) w -> h w c', { h: 2, c: 3 });
+  it('should handle adding new axis', async () => {
+    const testTensor = await ones([2, 6] as const, { device: cpu, dtype: float32 });
+    // Add new axis c
+    const result = await repeat(testTensor, 'h w -> h w c', { c: 3 });
     expect(result.shape).toEqual([2, 6, 3]);
   });
 

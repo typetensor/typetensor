@@ -24,9 +24,7 @@ describe('WASM unary operations', () => {
     { name: 'large', shape: [316, 316] as const }, // ~100k elements
   ];
 
-  const unaryOps = [
-    'neg', 'abs', 'sin', 'cos', 'exp', 'log', 'sqrt', 'square'
-  ] as const;
+  const unaryOps = ['neg', 'abs', 'sin', 'cos', 'exp', 'log', 'sqrt', 'square'] as const;
 
   for (const size of testSizes) {
     const data = generateRandomData(size.shape);

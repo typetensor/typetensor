@@ -248,10 +248,7 @@ type ExtendAxisMapWithNewAxes<
   BaseMap extends Record<string, number>,
   NewAxes extends readonly string[],
   Axes extends Record<string, number> | undefined,
-> =
-  Axes extends Record<string, number>
-    ? AddNewAxesToMap<BaseMap, NewAxes, Axes>
-    : BaseMap;
+> = Axes extends Record<string, number> ? AddNewAxesToMap<BaseMap, NewAxes, Axes> : BaseMap;
 type AddNewAxesToMap<
   BaseMap extends Record<string, number>,
   NewAxes extends readonly string[],
@@ -364,7 +361,12 @@ type ComputeCompositeOutputDim<
     ? Head['name'] extends keyof AxisMap
       ? AxisMap[Head['name']] extends number
         ? Tail extends readonly TypeAxisPattern[]
-          ? ComputeCompositeOutputDim<Tail, AxisMap, EllipsisDims, Multiply<Product, AxisMap[Head['name']]>>
+          ? ComputeCompositeOutputDim<
+              Tail,
+              AxisMap,
+              EllipsisDims,
+              Multiply<Product, AxisMap[Head['name']]>
+            >
           : Multiply<Product, AxisMap[Head['name']]>
         : never
       : never
@@ -380,7 +382,12 @@ type ComputeCompositeOutputDim<
         ? ComputeEllipsisProduct<EllipsisDims> extends infer EllipsisProd
           ? EllipsisProd extends number
             ? Tail extends readonly TypeAxisPattern[]
-              ? ComputeCompositeOutputDim<Tail, AxisMap, EllipsisDims, Multiply<Product, EllipsisProd>>
+              ? ComputeCompositeOutputDim<
+                  Tail,
+                  AxisMap,
+                  EllipsisDims,
+                  Multiply<Product, EllipsisProd>
+                >
               : Multiply<Product, EllipsisProd>
             : never
           : never
@@ -408,7 +415,7 @@ export type ValidateRepeatPatternInferred<
         ? CountEllipsis<OutputPatterns> extends 0 | 1
           ? ValidateNewAxesSizes<
               FindNewAxes<
-                CollectAxisNamesIntersectionSafe<InputPatterns>, 
+                CollectAxisNamesIntersectionSafe<InputPatterns>,
                 CollectAxisNamesIntersectionSafe<OutputPatterns>
               >,
               Axes
@@ -439,16 +446,17 @@ export type ResolveRepeatShape<
           ? ValidateRepeatPatternInferred<InputPatterns, OutputPatterns, Axes> extends {
               valid: true;
             }
-            ? RepeatBuildAxisMap<InputPatterns, OutputPatterns, InputShape, Axes> extends infer AxisMapping
+            ? RepeatBuildAxisMap<
+                InputPatterns,
+                OutputPatterns,
+                InputShape,
+                Axes
+              > extends infer AxisMapping
               ? AxisMapping extends Record<string, number>
                 ? ExtractEllipsisDims<InputPatterns, InputShape> extends infer EllipsisDims
                   ? EllipsisDims extends Shape
                     ? ValidateComposites<InputPatterns, InputShape, Axes> extends true
-                      ? BuildRepeatShape<
-                          OutputPatterns,
-                          AxisMapping,
-                          EllipsisDims
-                        >
+                      ? BuildRepeatShape<OutputPatterns, AxisMapping, EllipsisDims>
                       : never
                     : never
                   : never
@@ -554,7 +562,7 @@ export type DetectRepeatSpecificError<
       ? // Check errors in priority order (matching Python einops behavior)
         // 1. FIRST: Check for rank mismatch (most fundamental)
         IsNever<CheckForRepeatRankMismatch<ParsedAST, InputShape>> extends true
-        ? // 2. Check for duplicate axes  
+        ? // 2. Check for duplicate axes
           IsNever<CheckForRepeatDuplicateAxes<ParsedAST>> extends true
           ? // 3. Check for multiple ellipsis
             IsNever<CheckForRepeatMultipleEllipsis<ParsedAST>> extends true

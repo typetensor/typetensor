@@ -98,6 +98,20 @@ export class AxisResolver {
 
   /**
    * Resolve input pattern to axis dimensions
+   *
+   * ALGORITHM: Pattern-to-Shape Matching
+   *
+   * Maps pattern elements to tensor dimensions left-to-right:
+   * - Simple axis 'h' → consume one dimension, map h→dim
+   * - Composite '(h w)' → consume one dimension, resolve h*w=dim
+   * - Singleton '1' → consume dimension, validate it equals 1
+   * - Ellipsis '...' → consume all remaining dims except what's needed after
+   *
+   * Example: Pattern 'batch (h w) ... c' with shape [2, 20, 3, 4, 5]
+   * 1. 'batch' → 2 (consume index 0)
+   * 2. '(h w)' → 20 (consume index 1, resolve h and w)
+   * 3. '...' → [3, 4] (consume indices 2-3, leaving 1 for 'c')
+   * 4. 'c' → 5 (consume index 4)
    */
   private resolveInputPattern(
     patterns: readonly AxisPattern[],
@@ -252,6 +266,19 @@ export class AxisResolver {
 
   /**
    * Resolve a composite axis pattern
+   *
+   * ALGORITHM: Composite Axis Resolution
+   *
+   * Given pattern "(h w)" with total dimension 20:
+   * 1. Flatten to get simple axes [h, w]
+   * 2. Check provided/known dimensions
+   * 3. Three cases:
+   *    a) All known: Validate product equals total (h=4, w=5 → 4*5=20 ✓)
+   *    b) One unknown: Infer from total/known (h=4, w=? → w=20/4=5)
+   *    c) Multiple unknown: Cannot infer (h=?, w=? → ambiguous)
+   *
+   * This enables partial specification of composite patterns while
+   * maintaining mathematical consistency.
    */
   private resolveCompositeAxis(
     composite: CompositeAxis,

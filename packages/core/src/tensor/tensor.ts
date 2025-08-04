@@ -1305,9 +1305,19 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             __inputs: [tensor.storage] as const,
           } as ReshapeOp<S['__output'], NewShape>;
 
-          // Reshape typically returns a view (same data, new metadata)
+          // Reshape returns a view if the device supports it, otherwise same data
+          const viewData = tensor.data.device.createView
+            ? tensor.data.device.createView(
+                tensor.data,
+                validShape,
+                computeStrides(validShape),
+                tensor.storage.__offset,
+                tensor.storage.__dtype,
+              )
+            : tensor.data;
+
           resolve(
-            new Tensor(reshapeOp, tensor.data) as CanReshape<
+            new Tensor(reshapeOp, viewData) as CanReshape<
               S['__output']['__shape'],
               NewShape
             > extends true
@@ -1352,7 +1362,18 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       __inputs: [this.storage] as const,
     } as ReshapeOp<S['__output'], NewShape>;
 
-    return new Tensor(reshapeOp, this.data);
+    // Create a view if the device supports it
+    const viewData = this.data.device.createView
+      ? this.data.device.createView(
+          this.data,
+          shape,
+          computeStrides(shape),
+          this.storage.__offset,
+          this.storage.__dtype,
+        )
+      : this.data;
+
+    return new Tensor(reshapeOp, viewData);
   }
 
   /**
@@ -1707,7 +1728,18 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
             __inputs: [contiguousTensor.storage] as const,
           } as TransposeOp<S['__output']>;
 
-          resolve(new Tensor(transposeOp, contiguousTensor.data));
+          // Create a view with transposed strides if the device supports it
+          const viewData = contiguousTensor.data.device.createView
+            ? contiguousTensor.data.device.createView(
+                contiguousTensor.data,
+                transposedShape,
+                transposedStrides,
+                contiguousTensor.storage.__offset,
+                contiguousTensor.storage.__dtype,
+              )
+            : contiguousTensor.data;
+
+          resolve(new Tensor(transposeOp, viewData));
         } catch (error) {
           reject(error);
         }
@@ -2466,7 +2498,12 @@ export class Tensor<S extends AnyStorageTransformation = AnyStorageTransformatio
       void (async () => {
         try {
           const buffer = await this.data.device.readData(this.data);
-          const newData = this.data.device.createData(buffer.byteLength);
+          // Use dtype-aware allocation if the device supports it
+          const dtype = this.transform.__output.__dtype;
+          const shape = this.transform.__output.__shape;
+          const newData =
+            (this.data.device as any).createDataWithBufferAndShape?.(buffer, dtype, shape) ??
+            this.data.device.createData(buffer.byteLength);
           await this.data.device.writeData(newData, buffer);
           resolve(new Tensor(this.transform, newData));
         } catch (error) {

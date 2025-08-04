@@ -19,6 +19,7 @@ import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
 import type { ReduceEinopsOp } from '../storage/einops';
 import type { ValidReducePattern } from './type-shape-resolver-reduce';
+import { arraysEqual } from './utils/array';
 
 // =============================================================================
 // Types
@@ -109,7 +110,7 @@ export function reduce<
   const Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
-  pattern: ValidReducePattern<Pattern, S['__output']['__shape'], KeepDims, Axes> extends string 
+  pattern: ValidReducePattern<Pattern, S['__output']['__shape'], KeepDims, Axes> extends string
     ? ValidReducePattern<Pattern, S['__output']['__shape'], KeepDims, Axes> // Show the actual error message
     : Pattern,
   operation: Op = 'mean' as Op,
@@ -250,6 +251,13 @@ function computeReducedDimensions(
   _axisDimensions: Map<string, number>,
   ellipsisDimensions?: readonly number[],
 ): number[] {
+  // ALGORITHM: Determine which dimensions to reduce
+  // 1. Flatten input pattern to get position -> axis name mapping
+  // 2. Collect all axes that appear in output
+  // 3. Dimensions whose axes don't appear in output are reduced
+  //
+  // Example: 'h w c -> h c' reduces dimension 1 (w)
+
   // First, flatten input patterns to get ordered list of axes
   const flattenedInput: string[] = [];
   const positionToAxis = new Map<number, string>();
@@ -261,6 +269,8 @@ function computeReducedDimensions(
       positionToAxis.set(position, pattern.name);
       position++;
     } else if (isCompositeAxis(pattern)) {
+      // Composite patterns in input are flattened before reduction.
+      // Example: '(h w) c -> c' first reshapes to 'hw c' then reduces
       const innerAxes = flattenComposite(pattern);
       for (const axis of innerAxes) {
         flattenedInput.push(axis);
@@ -506,11 +516,4 @@ async function executeReduceOperations<S extends AnyStorageTransformation>(
   }
 
   return result;
-}
-
-/**
- * Check if two arrays are equal
- */
-function arraysEqual(a: readonly number[], b: readonly number[]): boolean {
-  return a.length === b.length && a.every((val, i) => val === b[i]);
 }

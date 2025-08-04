@@ -174,24 +174,37 @@ impl WasmExecutor {
         ).map_err(|e| self.map_wasm_error(e))
     }
     
-    /// Execute slice operation with explicit offset parameters
+    /// Execute slice operation with explicit offset parameters and optional stride information
     #[wasm_bindgen]
     pub fn execute_slice(&mut self,
         input: &WasmTensor,
         output: &WasmTensor,
         row_start: usize,
-        col_start: usize
+        col_start: usize,
+        input_strides: Option<Vec<usize>>,
     ) -> Result<(), JsValue> {
         use crate::operations::view;
         
-        
-        view::execute_slice_with_offsets(
-            input,
-            output,
-            row_start,
-            col_start,
-            self.memory.arena(),
-        ).map_err(|e| self.map_wasm_error(e))
+        // If we have stride information, use stride-aware slicing
+        if let Some(strides) = input_strides {
+            view::execute_slice_with_strides(
+                input,
+                output,
+                row_start,
+                col_start,
+                &strides,
+                self.memory.arena(),
+            ).map_err(|e| self.map_wasm_error(e))
+        } else {
+            // Use the original offset-based slicing for contiguous tensors
+            view::execute_slice_with_offsets(
+                input,
+                output,
+                row_start,
+                col_start,
+                self.memory.arena(),
+            ).map_err(|e| self.map_wasm_error(e))
+        }
     }
     
     /// Execute reduction operation with optional axis parameter
@@ -217,6 +230,86 @@ impl WasmExecutor {
             self.memory.arena(),
             axes_slice,
             keep_dims,
+        ).map_err(|e| self.map_wasm_error(e))
+    }
+    
+    /// Create a view of a tensor with a different shape (same data, different metadata)
+    #[wasm_bindgen]
+    pub fn create_view_with_shape(&mut self, tensor: &WasmTensor, new_shape: &[u32]) -> WasmTensor {
+        // Create a new tensor with the same data but different shape
+        // This is used when reshape/view operations change the tensor metadata
+        use crate::types::WasmTensorMeta;
+        
+        let new_shape_usize: Vec<usize> = new_shape.iter().map(|&x| x as usize).collect();
+        let new_size: usize = new_shape_usize.iter().product();
+        
+        // Compute strides for the new shape (C-contiguous)
+        let mut new_strides = Vec::with_capacity(new_shape_usize.len());
+        let mut stride = 1;
+        for &dim in new_shape_usize.iter().rev() {
+            new_strides.push(stride);
+            stride *= dim;
+        }
+        new_strides.reverse();
+        
+        // Create new metadata with the updated shape
+        let old_meta = tensor.metadata();
+        let new_meta = WasmTensorMeta::new(
+            old_meta.dtype(),
+            new_shape_usize,
+            new_strides,
+            new_size,
+            old_meta.offset(), // Keep the same offset
+        );
+        
+        // Create a view of the tensor with new metadata
+        // This is a zero-copy operation that shares the same underlying data
+        tensor.create_view(new_meta)
+    }
+    
+    /// Create a view with specific shape and strides (for non-contiguous views like transpose)
+    #[wasm_bindgen]
+    pub fn create_view_with_shape_and_strides(&mut self, tensor: &WasmTensor, new_shape: &[u32], new_strides: &[u32]) -> WasmTensor {
+        use crate::types::WasmTensorMeta;
+        
+        let new_shape_usize: Vec<usize> = new_shape.iter().map(|&x| x as usize).collect();
+        let new_strides_usize: Vec<usize> = new_strides.iter().map(|&x| x as usize).collect();
+        let new_size: usize = new_shape_usize.iter().product();
+        
+        // Create new metadata with the provided shape and strides
+        let old_meta = tensor.metadata();
+        let new_meta = WasmTensorMeta::new(
+            old_meta.dtype(),
+            new_shape_usize,
+            new_strides_usize,
+            new_size,
+            old_meta.offset(), // Keep the same offset
+        );
+        
+        // Create a view of the tensor with new metadata
+        // This is a zero-copy operation that shares the same underlying data
+        tensor.create_view(new_meta)
+    }
+
+    /// Execute softmax operation with optional axis parameter
+    #[wasm_bindgen]
+    pub fn execute_softmax(&mut self,
+        operation: WasmOperation,
+        input: &WasmTensor,
+        output: &WasmTensor,
+        axis: Option<i32>
+    ) -> Result<(), JsValue> {
+        use crate::operations::softmax;
+        
+        // Record pattern for optimization
+        self.record_operation_pattern(operation, &[input], output);
+        
+        softmax::execute_softmax_op(
+            operation,
+            input,
+            output,
+            self.memory.arena(),
+            axis,
         ).map_err(|e| self.map_wasm_error(e))
     }
     

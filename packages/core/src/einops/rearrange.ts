@@ -13,6 +13,7 @@ import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation } from '../storage/layout';
 import type { RearrangeOp } from '../storage/einops';
 import type { ValidEinopsPattern } from './type-validation';
+import { arraysEqual } from './utils/array';
 
 // =============================================================================
 // Types
@@ -92,7 +93,7 @@ export function rearrange<
   Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
-  pattern: ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> extends string 
+  pattern: ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> extends string
     ? ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> // Show the actual error message
     : Pattern,
   axes?: Axes,
@@ -288,10 +289,13 @@ function flattenPatternToAxisNames(
     } else if (isCompositeAxis(pattern)) {
       names.push(...flattenPatternToAxisNames(pattern.axes, ellipsisDimensions));
     } else if (isSingletonAxis(pattern)) {
-      // Use a consistent name for singletons - they represent the same logical dimension
+      // Singletons use a consistent name __singleton_1 because they all
+      // represent dimension 1 and can be treated as the same logical axis
+      // during permutation computation
       names.push(`__singleton_1`);
     } else if (isEllipsisAxis(pattern)) {
-      // Ellipsis: expand to individual dimension names
+      // Ellipsis expands to numbered dimensions __ellipsis_0, __ellipsis_1, etc.
+      // This allows us to track which ellipsis dimension maps where during permutation
       if (ellipsisDimensions) {
         for (let i = 0; i < ellipsisDimensions.length; i++) {
           names.push(`__ellipsis_${i}`);
@@ -584,11 +588,4 @@ function computeSimplePermutation(ast: EinopsAST): number[] {
   }
 
   return permutation;
-}
-
-/**
- * Check if two arrays are equal
- */
-function arraysEqual(a: readonly number[], b: readonly number[]): boolean {
-  return a.length === b.length && a.every((val, i) => val === b[i]);
 }

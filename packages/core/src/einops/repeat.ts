@@ -20,6 +20,7 @@ import { Tensor, ChainablePromise } from '../tensor/tensor';
 import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
 import type { RepeatOp } from '../storage/einops';
 import type { ValidRepeatPattern } from './type-shape-resolver-repeat';
+import { arraysEqual } from './utils/array';
 
 // =============================================================================
 // Types
@@ -170,8 +171,18 @@ export function repeat<
  * 1. New axes in output require explicit sizes in axes parameter
  * 2. No duplicate axes in input or output
  * 3. Repetition factors must be positive integers
+ * 4. No composite patterns in input (following einops behavior)
  */
 function validateRepeatPattern(ast: EinopsAST, providedAxes?: Record<string, number>): void {
+  // Check for composite patterns in input (not allowed in repeat, following einops)
+  const hasInputComposite = ast.input.some((p) => isCompositeAxis(p));
+  if (hasInputComposite) {
+    throw new RepeatError(
+      'Composite patterns in input are not allowed for repeat. Use rearrange first to decompose axes.',
+      ast.metadata.originalPattern,
+    );
+  }
+
   // Check for multiple ellipsis
   const inputEllipsisCount = ast.input.filter((p) => isEllipsisAxis(p)).length;
   const outputEllipsisCount = ast.output.filter((p) => isEllipsisAxis(p)).length;
@@ -272,6 +283,18 @@ function validateRepeatPattern(ast: EinopsAST, providedAxes?: Record<string, num
 /**
  * Custom axis resolution for repeat operations
  * Unlike reduce/rearrange, repeat can create new axes that don't exist in input
+ *
+ * ARCHITECTURAL DECISION: Custom Axis Resolution for Repeat
+ *
+ * Unlike rearrange/reduce where all output axes must exist in input,
+ * repeat can CREATE new axes. This requires a different resolution strategy:
+ *
+ * 1. Resolve input pattern to get known dimensions
+ * 2. Add new axes from providedAxes parameter
+ * 3. Validate all output axes are now known
+ *
+ * We CANNOT use the standard AxisResolver because it validates that
+ * output axes exist in input, which would fail for new axes.
  */
 function resolveAxes(
   ast: EinopsAST,
@@ -346,7 +369,9 @@ function resolveInputPatternOnly(
 
   for (let i = 0; i < patterns.length; i++) {
     const pattern = patterns[i];
-    if (!pattern) continue;
+    if (!pattern) {
+      continue;
+    }
 
     if (isSimpleAxis(pattern)) {
       // Simple axis: direct mapping
@@ -427,7 +452,7 @@ function resolveCompositeAxisCustom(
   providedAxes?: Record<string, number>,
 ): void {
   // Flatten nested composites to get all simple axes
-  const simpleAxes = flattenCompositeCustom(composite);
+  const simpleAxes = flattenCompositeToSimpleAxes(composite);
   const innerAxes: { axis: SimpleAxis; value?: number }[] = [];
   let knownProduct = 1;
   let unknownCount = 0;
@@ -486,7 +511,7 @@ function resolveCompositeAxisCustom(
 /**
  * Flatten a composite axis to extract all simple axes
  */
-function flattenCompositeCustom(composite: CompositeAxis): SimpleAxis[] {
+function flattenCompositeToSimpleAxes(composite: CompositeAxis): SimpleAxis[] {
   const result: SimpleAxis[] = [];
 
   for (const axis of composite.axes) {
@@ -494,10 +519,9 @@ function flattenCompositeCustom(composite: CompositeAxis): SimpleAxis[] {
       result.push(axis);
     } else if (isCompositeAxis(axis)) {
       // Recursively flatten nested composites
-      result.push(...flattenCompositeCustom(axis));
-    } else {
-      throw new Error(`Composite patterns can only contain simple axes or other composites`);
+      result.push(...flattenCompositeToSimpleAxes(axis));
     }
+    // Skip non-simple axes (ellipsis, singleton) - they don't contribute to composite dimension
   }
 
   return result;
@@ -517,7 +541,7 @@ function validateAllOutputAxesKnown(
       }
     } else if (isCompositeAxis(pattern)) {
       // Use flattening to handle nested composites properly
-      const simpleAxes = flattenCompositeCustom(pattern);
+      const simpleAxes = flattenCompositeToSimpleAxes(pattern);
       for (const innerAxis of simpleAxes) {
         if (!axisDimensions.has(innerAxis.name)) {
           throw new Error(`Unknown axis '${innerAxis.name}' in output pattern`);
@@ -546,17 +570,46 @@ function computeOutputShapeFromPatterns(
       }
       outputShape.push(dim);
     } else if (isCompositeAxis(pattern)) {
-      // Composite in output: compute product of all simple axes (including nested)
-      const simpleAxes = flattenCompositeCustom(pattern);
-      let product = 1;
-      for (const axis of simpleAxes) {
-        const dim = axisDimensions.get(axis.name);
-        if (dim === undefined) {
-          throw new Error(`Internal error: axis '${axis.name}' not found`);
+      // Composite in output: compute product of all components
+      // Check if composite contains ellipsis
+      let hasEllipsis = false;
+      let ellipsisProduct = 1;
+
+      for (const innerPattern of pattern.axes) {
+        if (isEllipsisAxis(innerPattern)) {
+          hasEllipsis = true;
+          if (ellipsisDimensions) {
+            for (const dim of ellipsisDimensions) {
+              ellipsisProduct *= dim;
+            }
+          }
         }
-        product *= dim;
       }
-      outputShape.push(product);
+
+      if (hasEllipsis) {
+        // Composite with ellipsis like (... r)
+        const simpleAxes = flattenCompositeToSimpleAxes(pattern);
+        let simpleProduct = 1;
+        for (const axis of simpleAxes) {
+          const dim = axisDimensions.get(axis.name);
+          if (dim !== undefined) {
+            simpleProduct *= dim;
+          }
+        }
+        outputShape.push(ellipsisProduct * simpleProduct);
+      } else {
+        // Regular composite with only simple axes
+        const simpleAxes = flattenCompositeToSimpleAxes(pattern);
+        let product = 1;
+        for (const axis of simpleAxes) {
+          const dim = axisDimensions.get(axis.name);
+          if (dim === undefined) {
+            throw new Error(`Internal error: axis '${axis.name}' not found`);
+          }
+          product *= dim;
+        }
+        outputShape.push(product);
+      }
     } else if (isEllipsisAxis(pattern)) {
       // Ellipsis: insert all ellipsis dimensions
       if (ellipsisDimensions) {
@@ -589,9 +642,30 @@ function computeExtendedShape(
       }
       shape.push(dim);
     } else if (isCompositeAxis(pattern)) {
-      // Compute composite dimension
-      const compositeDim = computeCompositeShape(pattern, axisDimensions);
-      shape.push(compositeDim);
+      // Check if composite contains ellipsis
+      let hasEllipsis = false;
+      let ellipsisProduct = 1;
+
+      for (const innerPattern of pattern.axes) {
+        if (isEllipsisAxis(innerPattern)) {
+          hasEllipsis = true;
+          if (ellipsisDimensions) {
+            for (const dim of ellipsisDimensions) {
+              ellipsisProduct *= dim;
+            }
+          }
+        }
+      }
+
+      if (hasEllipsis) {
+        // Composite with ellipsis like (... r)
+        const simpleProduct = computeCompositeShape(pattern, axisDimensions);
+        shape.push(ellipsisProduct * simpleProduct);
+      } else {
+        // Regular composite
+        const compositeDim = computeCompositeShape(pattern, axisDimensions);
+        shape.push(compositeDim);
+      }
     } else if (isSingletonAxis(pattern)) {
       shape.push(1);
     } else if (isEllipsisAxis(pattern)) {
@@ -698,7 +772,6 @@ async function executeRepeatOperations<S extends AnyStorageTransformation>(
 
       case 'expand':
         if (operation.params?.targetShape) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
           result = (await result.expand(
             operation.params.targetShape as any,
           )) as unknown as Tensor<S>;
@@ -707,7 +780,7 @@ async function executeRepeatOperations<S extends AnyStorageTransformation>(
 
       case 'tile':
         if (operation.params?.reps) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           result = (await result.tile(operation.params.reps as any)) as unknown as Tensor<S>;
         }
         break;
@@ -796,6 +869,39 @@ async function createTensorWithCoordinateMapping<S extends AnyStorageTransformat
 }
 
 /**
+ * Get ellipsis dimensions from patterns and shape
+ */
+function getEllipsisDimensionsFromPatterns(
+  patterns: readonly AxisPattern[],
+  shape: readonly number[],
+): readonly number[] | undefined {
+  let pos = 0;
+
+  for (let i = 0; i < patterns.length; i++) {
+    const pattern = patterns[i];
+    if (!pattern) {
+      continue;
+    }
+
+    if (isEllipsisAxis(pattern)) {
+      // Calculate how many dimensions the ellipsis captures
+      const remainingPatterns = patterns.length - i - 1;
+      const ellipsisCount = shape.length - pos - remainingPatterns;
+
+      const ellipsisDims: number[] = [];
+      for (let j = 0; j < ellipsisCount; j++) {
+        ellipsisDims.push(shape[pos + j] || 1);
+      }
+      return ellipsisDims;
+    } else if (isSimpleAxis(pattern) || isCompositeAxis(pattern) || isSingletonAxis(pattern)) {
+      pos++;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Improved array filling with proper composite pattern handling
  */
 function fillRepeatArrayImproved(
@@ -808,22 +914,26 @@ function fillRepeatArrayImproved(
   axisDimensions: Map<string, number>,
 ): void {
   // Generate all coordinates in the input
-  const inputCoords = generateCoordinates(inputShape);
+  const inputCoordinates = generateCoordinates(inputShape);
+
+  // Get ellipsis dimensions from resolved pattern
+  const ellipsisDimensions = getEllipsisDimensionsFromPatterns(inputPatterns, inputShape);
 
   // For each input coordinate, map it to output coordinates and set values
-  for (const inputCoord of inputCoords) {
+  for (const inputCoord of inputCoordinates) {
     const inputValue = getNestedValue(inputData, inputCoord);
 
     // Map input coordinate to all corresponding output coordinates
-    const outputCoords = mapInputToOutputCoordinatesImproved(
+    const outputCoordinates = mapInputToOutputCoordinatesImproved(
       inputCoord,
       inputPatterns,
       outputPatterns,
       axisDimensions,
+      ellipsisDimensions,
     );
 
     // Set the value at all corresponding output coordinates
-    for (const outputCoord of outputCoords) {
+    for (const outputCoord of outputCoordinates) {
       setNestedValue(outputData, outputCoord, inputValue);
     }
   }
@@ -837,16 +947,23 @@ function mapInputToOutputCoordinatesImproved(
   inputPatterns: readonly AxisPattern[],
   outputPatterns: readonly AxisPattern[],
   axisDimensions: Map<string, number>,
+  ellipsisDimensions?: readonly number[],
 ): number[][] {
   // Step 1: Extract axis values from input coordinate
   const inputAxisValues = extractAxisValuesFromCoordinate(
     inputCoord,
     inputPatterns,
     axisDimensions,
+    ellipsisDimensions,
   );
 
   // Step 2: Generate all output coordinates using these axis values
-  return generateOutputCoordinates(outputPatterns, inputAxisValues, axisDimensions);
+  return generateOutputCoordinates(
+    outputPatterns,
+    inputAxisValues,
+    axisDimensions,
+    ellipsisDimensions,
+  );
 }
 
 /**
@@ -856,6 +973,7 @@ function extractAxisValuesFromCoordinate(
   coord: readonly number[],
   patterns: readonly AxisPattern[],
   axisDimensions: Map<string, number>,
+  ellipsisDimensions?: readonly number[],
 ): Map<string, number> {
   const axisValues = new Map<string, number>();
   let pos = 0;
@@ -867,7 +985,17 @@ function extractAxisValuesFromCoordinate(
     } else if (isCompositeAxis(pattern)) {
       // For composite patterns, decompose the coordinate
       const compositeDim = coord[pos] || 0;
-      const simpleAxes = extractSimpleAxesFromComposite(pattern);
+      const simpleAxes = flattenCompositeToSimpleAxes(pattern);
+
+      // ALGORITHM: Composite Coordinate Decomposition
+      //
+      // Given composite pattern (h w) with shape [20] where h=4, w=5:
+      // - Coordinate 17 decomposes to: h = 17 // 5 = 3, w = 17 % 5 = 2
+      // - Formula: h = 17 // 5 = 3, w = 17 % 5 = 2
+      //
+      // We process axes RIGHT TO LEFT (reverse order) because the rightmost
+      // axis varies fastest in row-major memory layout.
+      // This matches NumPy/PyTorch conventions.
 
       // Decompose coordinate using actual axis dimensions
       let remainingCoord = compositeDim;
@@ -886,9 +1014,12 @@ function extractAxisValuesFromCoordinate(
       const remainingPatterns = patterns.length - patterns.indexOf(pattern) - 1;
       const ellipsisSize = coord.length - pos - remainingPatterns;
 
-      // Store ellipsis dimensions
+      // Store ellipsis dimensions with their actual dimension sizes
       for (let i = 0; i < ellipsisSize; i++) {
         axisValues.set(`__ellipsis_${i}`, coord[pos + i] || 0);
+        if (ellipsisDimensions?.[i] !== undefined) {
+          axisValues.set(`__ellipsis_dim_${i}`, ellipsisDimensions[i]);
+        }
       }
       pos += ellipsisSize;
     } else if (isSingletonAxis(pattern)) {
@@ -900,6 +1031,55 @@ function extractAxisValuesFromCoordinate(
 }
 
 /**
+ * Check if an axis is known (exists in input)
+ */
+function isKnownAxis(axisName: string, inputAxisValues: Map<string, number>): boolean {
+  return inputAxisValues.has(axisName);
+}
+
+/**
+ * Generate all possible composite coordinate combinations for mixed patterns
+ */
+function generateCompositeCoordinateCombinations(
+  simpleAxes: readonly SimpleAxis[],
+  newAxes: { axis: SimpleAxis; size: number }[],
+  inputAxisValues: Map<string, number>,
+  axisDimensions: Map<string, number>,
+): number[] {
+  const possibleValues: number[] = [];
+
+  function generateCombinations(axisIndex: number, currentValues: Map<string, number>): void {
+    if (axisIndex >= newAxes.length) {
+      // All new axes assigned - compute composite coordinate
+      let compositeCoord = 0;
+      let multiplier = 1;
+
+      for (let i = simpleAxes.length - 1; i >= 0; i--) {
+        const axis = simpleAxes[i];
+        if (axis) {
+          const axisValue = currentValues.get(axis.name) ?? inputAxisValues.get(axis.name) ?? 0;
+          compositeCoord += axisValue * multiplier;
+          const axisSize = axisDimensions.get(axis.name) || 1;
+          multiplier *= axisSize;
+        }
+      }
+      possibleValues.push(compositeCoord);
+      return;
+    }
+
+    const { axis, size } = newAxes[axisIndex]!;
+    for (let i = 0; i < size; i++) {
+      const newValues = new Map(currentValues);
+      newValues.set(axis.name, i);
+      generateCombinations(axisIndex + 1, newValues);
+    }
+  }
+
+  generateCombinations(0, new Map());
+  return possibleValues;
+}
+
+/**
  * Generate all output coordinates from axis values
  * This is the core function that needs to handle composite patterns correctly
  */
@@ -907,9 +1087,10 @@ function generateOutputCoordinates(
   patterns: readonly AxisPattern[],
   inputAxisValues: Map<string, number>,
   axisDimensions: Map<string, number>,
+  ellipsisDimensions?: readonly number[],
 ): number[][] {
   // Track positions that need expansion (for new axes or repetition)
-  const expansions: Array<{ pos: number; values: number[] }> = [];
+  const expansions: { pos: number; values: number[] }[] = [];
   const baseCoordinates: number[] = [];
 
   let pos = 0;
@@ -931,94 +1112,156 @@ function generateOutputCoordinates(
       }
       pos++;
     } else if (isCompositeAxis(pattern)) {
-      // Composite axis like (h h2) - this is the tricky part
-      const simpleAxes = extractSimpleAxesFromComposite(pattern);
+      // Composite axis like (h h2) or (... r) - this is the tricky part
 
-      // Check which axes are from input vs new (repetition axes)
-      const knownAxes: Array<{ axis: SimpleAxis; value: number }> = [];
-      const newAxes: Array<{ axis: SimpleAxis; size: number }> = [];
-
-      for (const axis of simpleAxes) {
-        if (axis) {
-          const inputValue = inputAxisValues.get(axis.name);
-          if (inputValue !== undefined) {
-            knownAxes.push({ axis, value: inputValue });
-          } else {
-            const axisSize = axisDimensions.get(axis.name) || 1;
-            newAxes.push({ axis, size: axisSize });
-          }
+      // Check if composite contains ellipsis
+      let hasEllipsis = false;
+      let ellipsisIndex = -1;
+      for (let i = 0; i < pattern.axes.length; i++) {
+        if (isEllipsisAxis(pattern.axes[i])) {
+          hasEllipsis = true;
+          ellipsisIndex = i;
+          break;
         }
       }
 
-      if (knownAxes.length === simpleAxes.length) {
-        // All axes are known - compute composite coordinate directly
-        let compositeCoord = 0;
-        let multiplier = 1;
-
-        for (let i = simpleAxes.length - 1; i >= 0; i--) {
-          const axis = simpleAxes[i];
-          if (axis) {
-            const axisValue = inputAxisValues.get(axis.name) || 0;
-            compositeCoord += axisValue * multiplier;
-            const axisSize = axisDimensions.get(axis.name) || 1;
-            multiplier *= axisSize;
+      if (hasEllipsis) {
+        // Special handling for composite with ellipsis like (... r)
+        // For now, use the same logic as regular composites but handle ellipsis expansion
+        try {
+          // Get all simple axes from the composite (non-ellipsis)
+          const simpleAxes = [];
+          for (const axis of pattern.axes) {
+            if (isSimpleAxis(axis)) {
+              simpleAxes.push(axis);
+            }
           }
-        }
-        baseCoordinates.push(compositeCoord);
-      } else {
-        // Mixed case: some axes known, some new (repetition)
-        // For pattern (h h2) where h is known and h2 is new:
-        // Generate all possible composite coordinates
-        const possibleValues: number[] = [];
 
-        // Generate all combinations of new axes
-        function generateCompositeValues(
-          axisIndex: number,
-          currentValues: Map<string, number>,
-        ): void {
-          if (axisIndex >= newAxes.length) {
-            // All new axes assigned - compute composite coordinate
-            let compositeCoord = 0;
+          // Handle the pattern by treating it as a flattened composite
+          // For (... r), we compute the flattened ellipsis index then multiply by r values
+
+          // Compute flattened ellipsis coordinate
+          let ellipsisCoord = 0;
+          if (ellipsisDimensions && ellipsisDimensions.length > 0) {
             let multiplier = 1;
-
-            for (let i = simpleAxes.length - 1; i >= 0; i--) {
-              const axis = simpleAxes[i];
-              if (axis) {
-                const axisValue =
-                  currentValues.get(axis.name) ?? inputAxisValues.get(axis.name) ?? 0;
-                compositeCoord += axisValue * multiplier;
-                const axisSize = axisDimensions.get(axis.name) || 1;
-                multiplier *= axisSize;
+            const ellipsisValues = [];
+            for (const [key, value] of inputAxisValues) {
+              if (key.startsWith('__ellipsis_') && !key.includes('_dim_')) {
+                ellipsisValues.push(value);
               }
             }
-            possibleValues.push(compositeCoord);
-            return;
+
+            for (let j = ellipsisValues.length - 1; j >= 0; j--) {
+              ellipsisCoord += ellipsisValues[j] * multiplier;
+              const ellipsisDim = ellipsisDimensions[j] || 1;
+              multiplier *= ellipsisDim;
+            }
           }
 
-          const { axis, size } = newAxes[axisIndex]!;
-          for (let i = 0; i < size; i++) {
-            const newValues = new Map(currentValues);
-            newValues.set(axis.name, i);
-            generateCompositeValues(axisIndex + 1, newValues);
+          // Check if we have new axes in the composite (like 'r' in (... r))
+          const newAxes = simpleAxes.filter((axis) => !inputAxisValues.has(axis.name));
+
+          if (newAxes.length > 0) {
+            // We have new axes - need expansion
+            const values = [];
+            const firstNewAxis = newAxes[0];
+            if (firstNewAxis) {
+              const axisSize = axisDimensions.get(firstNewAxis.name) || 1;
+              const ellipsisProduct = ellipsisDimensions
+                ? ellipsisDimensions.reduce((acc, dim) => acc * dim, 1)
+                : 1;
+
+              for (let i = 0; i < axisSize; i++) {
+                values.push(ellipsisCoord * axisSize + i);
+              }
+              expansions.push({ pos, values });
+              baseCoordinates.push(0); // Placeholder
+            }
+          } else {
+            // No new axes - just add the flattened coordinate
+            baseCoordinates.push(ellipsisCoord);
+          }
+        } catch (error) {
+          throw new Error(`Error in composite ellipsis handling: ${error}`);
+        }
+      } else {
+        // Original logic for composites without ellipsis
+        const simpleAxes = flattenCompositeToSimpleAxes(pattern);
+
+        // Check which axes are from input vs new (repetition axes)
+        const knownAxes: { axis: SimpleAxis; value: number }[] = [];
+        const newAxes: { axis: SimpleAxis; size: number }[] = [];
+
+        for (const axis of simpleAxes) {
+          if (!axis) {
+            continue;
+          }
+
+          if (isKnownAxis(axis.name, inputAxisValues)) {
+            const value = inputAxisValues.get(axis.name)!;
+            knownAxes.push({ axis, value });
+          } else {
+            const size = axisDimensions.get(axis.name) || 1;
+            newAxes.push({ axis, size });
           }
         }
 
-        generateCompositeValues(0, new Map());
-        expansions.push({ pos, values: possibleValues });
-        baseCoordinates.push(0); // Placeholder
+        if (knownAxes.length === simpleAxes.length) {
+          // All axes are known - compute composite coordinate directly
+          let compositeCoord = 0;
+          let multiplier = 1;
+
+          for (let i = simpleAxes.length - 1; i >= 0; i--) {
+            const axis = simpleAxes[i];
+            if (axis) {
+              const axisValue = inputAxisValues.get(axis.name) || 0;
+              compositeCoord += axisValue * multiplier;
+              const axisSize = axisDimensions.get(axis.name) || 1;
+              multiplier *= axisSize;
+            }
+          }
+          baseCoordinates.push(compositeCoord);
+        } else {
+          // Mixed case: some axes known, some new (repetition)
+          // For pattern (h h2) where h is known and h2 is new:
+          // Generate all possible composite coordinates
+
+          // ALGORITHM: Mixed Pattern Coordinate Generation
+          //
+          // For pattern like (h h2) where h is from input and h2 is new:
+          // 1. Known axes contribute their fixed value
+          // 2. New axes generate all possible values [0, 1, ..., size-1]
+          // 3. Cartesian product gives all output coordinates
+          //
+          // Example: h=2 (from input), h2=3 (new)
+          // Generates: (2*3+0), (2*3+1), (2*3+2) = 6, 7, 8
+
+          const possibleValues = generateCompositeCoordinateCombinations(
+            simpleAxes,
+            newAxes,
+            inputAxisValues,
+            axisDimensions,
+          );
+          expansions.push({ pos, values: possibleValues });
+          baseCoordinates.push(0); // Placeholder
+        }
       }
       pos++;
     } else if (isEllipsisAxis(pattern)) {
       // Handle ellipsis in output - need to determine how many dimensions it represents
       // Find ellipsis dimensions from input axis values
-      let ellipsisCount = 0;
+      const ellipsisValues = [];
       for (const [key, value] of inputAxisValues) {
-        if (key.startsWith('__ellipsis_')) {
-          ellipsisCount++;
-          baseCoordinates.push(value);
+        if (key.startsWith('__ellipsis_') && !key.includes('_dim_')) {
+          ellipsisValues.push(value);
         }
       }
-      pos += ellipsisCount;
+
+      // Add ellipsis coordinates in the right order
+      for (const value of ellipsisValues) {
+        baseCoordinates.push(value);
+      }
+      pos += ellipsisValues.length;
     } else if (isSingletonAxis(pattern)) {
       baseCoordinates.push(0);
       pos++;
@@ -1047,7 +1290,7 @@ function generateOutputCoordinates(
     }
   }
 
-  generateAllCombinations(0, baseCoordinates);
+  generateAllCombinations(0, [...baseCoordinates]);
   return allCoords;
 }
 
@@ -1083,7 +1326,7 @@ async function createRepeatTensorWithNewAxes<S extends AnyStorageTransformation>
 
   // Create new tensor from the filled array
   const { tensor } = await import('../tensor/creation');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return tensor(outputArray as any, {
     device: inputTensor.device,
     dtype: inputTensor.dtype,
@@ -1127,13 +1370,13 @@ function fillRepeatArray(
   // 2. Replicate that value across all positions in the new axis c
 
   // Create mapping from input coordinates to output coordinates
-  const inputCoords = generateCoordinates(inputShape);
+  const inputCoordinates = generateCoordinates(inputShape);
 
-  for (const inputCoord of inputCoords) {
+  for (const inputCoord of inputCoordinates) {
     const inputValue = getNestedValue(inputData, inputCoord);
 
     // For each input coordinate, determine all output coordinates that should have this value
-    const outputCoords = mapInputCoordToOutputCoords(
+    const outputCoordinates = mapInputCoordinateToOutputCoordinates(
       inputCoord,
       inputPatterns,
       outputPatterns,
@@ -1144,7 +1387,7 @@ function fillRepeatArray(
     );
 
     // Set the value at all corresponding output coordinates
-    for (const outputCoord of outputCoords) {
+    for (const outputCoord of outputCoordinates) {
       setNestedValue(outputData, outputCoord, inputValue);
     }
   }
@@ -1158,12 +1401,12 @@ function generateCoordinates(shape: readonly number[]): number[][] {
     return [[]]; // Single empty coordinate for scalar
   }
 
-  const result: number[][] = [];
+  const coordinates: number[][] = [];
   const current: number[] = new Array(shape.length).fill(0);
 
   function generateRecursive(dim: number): void {
     if (dim === shape.length) {
-      result.push([...current]);
+      coordinates.push([...current]);
       return;
     }
 
@@ -1177,7 +1420,7 @@ function generateCoordinates(shape: readonly number[]): number[][] {
   }
 
   generateRecursive(0);
-  return result;
+  return coordinates;
 }
 
 /**
@@ -1186,6 +1429,11 @@ function generateCoordinates(shape: readonly number[]): number[][] {
 function getNestedValue(data: any, coord: readonly number[]): any {
   let current = data;
   for (const index of coord) {
+    if (current == null) {
+      throw new Error(
+        `Cannot access index ${index} of null/undefined value at coordinate [${coord.join(', ')}]`,
+      );
+    }
     current = current[index];
   }
   return current;
@@ -1197,7 +1445,17 @@ function getNestedValue(data: any, coord: readonly number[]): any {
 function setNestedValue(data: any, coord: readonly number[], value: any): void {
   let current = data;
   for (let i = 0; i < coord.length - 1; i++) {
+    if (current == null) {
+      throw new Error(
+        `Cannot access index ${coord[i]} of null/undefined value at coordinate [${coord.join(', ')}]`,
+      );
+    }
     current = current[coord[i]!];
+  }
+  if (current == null) {
+    throw new Error(
+      `Cannot set value at coordinate [${coord.join(', ')}] - target is null/undefined`,
+    );
   }
   current[coord[coord.length - 1]!] = value;
 }
@@ -1206,7 +1464,7 @@ function setNestedValue(data: any, coord: readonly number[], value: any): void {
  * Map an input coordinate to all output coordinates that should have the same value
  * For patterns with new axes, each input coordinate maps to multiple output coordinates
  */
-function mapInputCoordToOutputCoords(
+function mapInputCoordinateToOutputCoordinates(
   inputCoord: readonly number[],
   inputPatterns: readonly AxisPattern[],
   outputPatterns: readonly AxisPattern[],
@@ -1259,7 +1517,7 @@ function buildAxisCoordinateMapping(
       const compositeCoord = coord[pos] || 0;
 
       // Extract simple axes from the composite
-      const simpleAxes = extractSimpleAxesFromComposite(pattern);
+      const simpleAxes = flattenCompositeToSimpleAxes(pattern);
 
       // Decompose the composite coordinate using actual axis dimensions
       let remainingCoord = compositeCoord;
@@ -1306,7 +1564,7 @@ function buildOutputCoordinateGenerator(
     let pos = 0;
 
     // Build base coordinate by processing output patterns
-    const newAxisInfo: Array<{ pos: number; size: number }> = [];
+    const newAxisInfo: { pos: number; size: number }[] = [];
 
     for (const pattern of patterns) {
       if (isSimpleAxis(pattern)) {
@@ -1320,7 +1578,7 @@ function buildOutputCoordinateGenerator(
         pos++;
       } else if (isCompositeAxis(pattern)) {
         // Handle composite patterns in output
-        const simpleAxes = extractSimpleAxesFromComposite(pattern);
+        const simpleAxes = flattenCompositeToSimpleAxes(pattern);
 
         // For composite patterns, we need to handle repetition properly
         // For patterns like (h h2), input h=1 maps to output positions [h*h2, h*h2+1, ..., h*h2+h2-1]
@@ -1413,7 +1671,7 @@ async function expandTensorWithNewAxes<S extends AnyStorageTransformation>(
   }
 
   // Add new dimensions by unsqueezing at the right positions
-  const insertions: Array<{ pos: number; size: number }> = [];
+  const insertions: { pos: number; size: number }[] = [];
 
   for (const [axisName, targetPos] of axisPositions) {
     const size = axisDimensions.get(axisName);
@@ -1456,24 +1714,6 @@ async function expandTensorWithNewAxes<S extends AnyStorageTransformation>(
     const expandShape = [...result.shape];
     expandShape[pos] = size;
     result = (await result.expand(expandShape as any)) as unknown as Tensor<S>;
-  }
-
-  return result;
-}
-
-/**
- * Extract simple axes from a composite pattern
- */
-function extractSimpleAxesFromComposite(composite: CompositeAxis): SimpleAxis[] {
-  const result: SimpleAxis[] = [];
-
-  for (const axis of composite.axes) {
-    if (isSimpleAxis(axis)) {
-      result.push(axis);
-    } else if (isCompositeAxis(axis)) {
-      // Recursively extract from nested composites
-      result.push(...extractSimpleAxesFromComposite(axis));
-    }
   }
 
   return result;
@@ -1585,7 +1825,7 @@ async function createCompositeRepetitionTensor<S extends AnyStorageTransformatio
         break;
       case 'tile':
         if (op.reps) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           result = (await result.tile(op.reps as any)) as unknown as Tensor<S>;
         }
         break;
@@ -1610,18 +1850,18 @@ function planCompositeRepetitionOperations(
   inputPatterns: readonly AxisPattern[],
   outputPatterns: readonly AxisPattern[],
   axisDimensions: Map<string, number>,
-): Array<{
+): {
   type: 'reshape' | 'tile' | 'flatten';
   shape?: readonly number[];
   reps?: readonly number[];
   targetShape?: readonly number[];
-}> {
-  const operations: Array<{
+}[] {
+  const operations: {
     type: 'reshape' | 'tile' | 'flatten';
     shape?: readonly number[];
     reps?: readonly number[];
     targetShape?: readonly number[];
-  }> = [];
+  }[] = [];
 
   // Identify which axes need repetition within composites
   const inputAxisNames = getAxisNames(inputPatterns);
@@ -1716,11 +1956,4 @@ function planCompositeRepetitionOperations(
   });
 
   return operations;
-}
-
-/**
- * Check if two arrays are equal
- */
-function arraysEqual(a: readonly number[], b: readonly number[]): boolean {
-  return a.length === b.length && a.every((val, i) => val === b[i]);
 }

@@ -415,6 +415,18 @@ export type CountUnknownAxes<
 
 /**
  * Compute axis map for composite pattern
+ *
+ * TYPE-LEVEL DESIGN: Composite Axis Dimension Inference
+ *
+ * This type computes dimensions for composite patterns at compile time.
+ * For pattern "(h w)" with total dimension 20:
+ * - If h=4 provided, infers w=5
+ * - If w=5 provided, infers h=4
+ * - If both provided, validates h*w=20
+ * - If neither provided, cannot infer (would need runtime info)
+ *
+ * The recursion through axes is necessary to build the type-level map.
+ * We cannot use loops at type level, only recursion.
  */
 export type ComputeCompositeAxisMap<
   Axes extends readonly TypeSimpleAxis[],
@@ -458,6 +470,15 @@ export type ComputeCompositeAxisMap<
 
 /**
  * Compute unknown dimension from total and known axes
+ *
+ * TYPE ALGORITHM: Unknown Dimension Calculation
+ *
+ * Given total dimension and known axes, compute the unknown:
+ * total = known1 * known2 * ... * unknown * ...
+ * Therefore: unknown = total / (product of all known)
+ *
+ * CONSTRAINT: Only ONE unknown axis allowed per composite.
+ * Multiple unknowns would have infinite solutions.
  */
 export type ComputeUnknownDimension<
   AllAxes extends readonly TypeSimpleAxis[],

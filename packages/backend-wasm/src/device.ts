@@ -1,6 +1,6 @@
 /**
  * Minimal WASM Device - Direct WasmExecutor integration
- * 
+ *
  * This implementation removes all abstraction layers and directly
  * uses WasmExecutor with arena-based memory management.
  */
@@ -12,7 +12,7 @@ import type {
   ValidateDeviceOperations,
   AnyDType,
 } from '@typetensor/core';
-import { WASMTensorData, createWASMTensorData } from './data';
+import { type WASMTensorData, createWASMTensorData } from './data';
 import type {
   WasmExecutor,
   WasmTensor,
@@ -23,25 +23,35 @@ import type {
   WASMLoadOptions,
 } from './types';
 import { OPS, DTYPES } from './types';
-import { 
-  WASMBoundsError, 
-  WASMAllocationError, 
+import {
+  WASMBoundsError,
+  WASMAllocationError,
   WASMOperationError,
-  WASMInvalidStateError 
+  WASMInvalidStateError,
 } from './errors';
 
 export class WASMDevice implements Device {
   readonly type = 'wasm';
   readonly id = 'wasm:0';
-  
+
   private executor: WasmExecutor | null = null;
   private initialized = false;
   private useCustomPatternCache?: { maxPatterns: number; maxMemoryMB: number };
 
   // @ts-expect-error: This property is used for compile-time validation only
   private _operationValidation: ValidateDeviceOperations<
-    | 'neg' | 'abs' | 'sin' | 'cos' | 'exp' | 'log' | 'sqrt' | 'square' // Unary ops
-    | 'add' | 'sub' | 'mul' | 'div' // Binary ops  
+    | 'neg'
+    | 'abs'
+    | 'sin'
+    | 'cos'
+    | 'exp'
+    | 'log'
+    | 'sqrt'
+    | 'square' // Unary ops
+    | 'add'
+    | 'sub'
+    | 'mul'
+    | 'div' // Binary ops
     | 'matmul' // Matrix ops
   > = true;
 
@@ -60,7 +70,7 @@ export class WASMDevice implements Device {
   static async createWithPatternCache(
     maxPatterns: number,
     maxMemoryMB: number,
-    options: WASMLoadOptions = {}
+    options: WASMLoadOptions = {},
   ): Promise<WASMDevice> {
     const device = new WASMDevice();
     device.useCustomPatternCache = { maxPatterns, maxMemoryMB };
@@ -82,17 +92,17 @@ export class WASMDevice implements Device {
       // Import and initialize WASM module
       const wasmModule = await import('../wasm/pkg/typetensor_wasm.js');
       await wasmModule.default(); // Initialize the WASM module
-      
+
       // Create WasmExecutor with optional pattern cache settings
       if (this.useCustomPatternCache) {
         this.executor = wasmModule.WasmExecutor.new_with_pattern_cache(
           this.useCustomPatternCache.maxPatterns,
-          this.useCustomPatternCache.maxMemoryMB
+          this.useCustomPatternCache.maxMemoryMB,
         );
       } else {
         this.executor = new wasmModule.WasmExecutor();
       }
-      
+
       this.initialized = true;
     } catch (error) {
       throw new Error(`Failed to initialize WASM device: ${error}`);
@@ -109,18 +119,33 @@ export class WASMDevice implements Device {
   ): Promise<DeviceData> {
     this.ensureInitialized();
 
-    // Convert inputs to WasmTensor
-    const wasmInputs = inputs.map(input => (input as WASMTensorData).wasmTensor);
-    
+    // Handle view metadata from DeviceData
+    const wasmInputs = inputs.map((input) => {
+      const wasmTensorData = input as WASMTensorData;
+
+      // If this data has view metadata, create a WASM tensor with the correct shape and strides
+      if (wasmTensorData.viewMetadata) {
+        const viewShape = new Uint32Array(wasmTensorData.viewMetadata.shape);
+        const viewStrides = new Uint32Array(wasmTensorData.viewMetadata.strides);
+        // Use the new method that preserves strides for non-contiguous views
+        return this.executor!.create_view_with_shape_and_strides(
+          wasmTensorData.wasmTensor,
+          viewShape,
+          viewStrides,
+        );
+      }
+
+      return wasmTensorData.wasmTensor;
+    });
+
     // Allocate output tensor if not provided
-    const outputTensor = output ? 
-      (output as WASMTensorData).wasmTensor :
-      this.allocateOutputTensor(op);
+    const outputTensor = output
+      ? (output as WASMTensorData).wasmTensor
+      : this.allocateOutputTensor(op);
 
     // Direct operation dispatch based on operation type and input count
     const wasmOp = this.mapOperation(op.__op);
-    
-    
+
     try {
       // Dispatch based on operation category
       if (this.isUnaryOperation(op.__op) && inputs.length === 1) {
@@ -140,13 +165,12 @@ export class WASMDevice implements Device {
         this.executeReductionOperation(wasmOp, wasmInputs[0]!, outputTensor, op);
       } else if (this.isSoftmaxOperation(op.__op) && inputs.length === 1) {
         // Softmax operations (softmax, log_softmax)
-        this.executeSoftmaxOperation(wasmOp, wasmInputs[0]!, outputTensor);
+        this.executeSoftmaxOperation(wasmOp, wasmInputs[0]!, outputTensor, op);
       } else {
         throw new Error(`Unsupported operation: ${op.__op} with ${inputs.length} inputs`);
       }
 
       return createWASMTensorData(this, outputTensor);
-
     } catch (error) {
       throw new Error(`WASM operation failed: ${error}`);
     }
@@ -162,41 +186,37 @@ export class WASMDevice implements Device {
     const MAX_ALLOCATION_SIZE = 1024 * 1024 * 1024; // 1GB limit
     if (byteLength > MAX_ALLOCATION_SIZE) {
       throw new WASMBoundsError(
-        'buffer allocation', 
-        byteLength, 
+        'buffer allocation',
+        byteLength,
         { max: MAX_ALLOCATION_SIZE },
-        { 
-          requestedSize: byteLength, 
+        {
+          requestedSize: byteLength,
           maxSize: MAX_ALLOCATION_SIZE,
-          suggestion: 'Consider using smaller allocations or streaming for large data'
-        }
+          suggestion: 'Consider using smaller allocations or streaming for large data',
+        },
       );
     }
 
     // Default to Float32 and infer shape from byte length
     const elementCount = Math.ceil(byteLength / 4); // 4 bytes per float32
     const shape = new Uint32Array([elementCount]);
-    
+
     try {
       const tensor = this.executor!.alloc_temp_tensor(DTYPES.float32, shape);
       return createWASMTensorData(this, tensor);
     } catch (error) {
       // Convert WASM errors to typed errors
       const message = error instanceof Error ? error.message : String(error);
-      
+
       if (message.includes('Allocation too large')) {
         throw new WASMBoundsError(
           'buffer allocation',
           byteLength,
           { max: MAX_ALLOCATION_SIZE },
-          { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE }
+          { requestedSize: byteLength, maxSize: MAX_ALLOCATION_SIZE },
         );
       } else if (message.includes('out of memory') || message.includes('allocation failed')) {
-        throw new WASMAllocationError(
-          byteLength,
-          message,
-          { requestedSize: byteLength }
-        );
+        throw new WASMAllocationError(byteLength, message, { requestedSize: byteLength });
       } else {
         throw new WASMOperationError('createData', message, { byteLength });
       }
@@ -211,7 +231,7 @@ export class WASMDevice implements Device {
 
     const data = new Uint8Array(buffer);
     const shape = new Uint32Array([Math.ceil(buffer.byteLength / 4)]); // Assume Float32
-    
+
     const tensor = this.executor!.tensor_from_data(data, DTYPES.float32, shape);
     return createWASMTensorData(this, tensor);
   }
@@ -219,13 +239,17 @@ export class WASMDevice implements Device {
   /**
    * Create data from existing buffer with specific shape and dtype
    */
-  createDataWithBufferAndShape(buffer: ArrayBuffer, dtype: AnyDType, tensorShape: readonly number[]): DeviceData {
+  createDataWithBufferAndShape(
+    buffer: ArrayBuffer,
+    dtype: AnyDType,
+    tensorShape: readonly number[],
+  ): DeviceData {
     this.ensureInitialized();
 
     const data = new Uint8Array(buffer);
     const shape = new Uint32Array(tensorShape);
     const wasmDType = this.mapDType(dtype);
-    
+
     const tensor = this.executor!.tensor_from_data(data, wasmDType, shape);
     return createWASMTensorData(this, tensor);
   }
@@ -245,18 +269,21 @@ export class WASMDevice implements Device {
    */
   async readData(data: DeviceData): Promise<ArrayBuffer> {
     this.ensureInitialized();
-    
+
     if (data.device.id !== this.id) {
       throw new Error(`Cannot read data from device ${data.device.id} on ${this.id}`);
     }
 
     const wasmTensorData = data as WASMTensorData;
-    
+
     // Use the new WASM bridge method to copy tensor data to JavaScript
     const uint8Data = this.executor!.copy_tensor_data_to_js(wasmTensorData.wasmTensor);
-    
+
     // Convert Uint8Array to ArrayBuffer
-    return uint8Data.buffer.slice(uint8Data.byteOffset, uint8Data.byteOffset + uint8Data.byteLength) as ArrayBuffer;
+    return uint8Data.buffer.slice(
+      uint8Data.byteOffset,
+      uint8Data.byteOffset + uint8Data.byteLength,
+    ) as ArrayBuffer;
   }
 
   /**
@@ -264,35 +291,38 @@ export class WASMDevice implements Device {
    */
   readDataView(data: DeviceData, dtype: AnyDType): ArrayBufferView {
     this.ensureInitialized();
-    
+
     if (data.device.id !== this.id) {
       throw new Error(`Cannot read data from device ${data.device.id} on ${this.id}`);
     }
 
     const wasmTensorData = data as WASMTensorData;
     const tensor = wasmTensorData.wasmTensor;
-    
+
     // Get the actual tensor data from WASM memory
     const uint8Data = this.executor!.copy_tensor_data_to_js(tensor);
-    
+
     // Calculate element count based on total bytes and requested dtype element size
     const totalBytes = uint8Data.byteLength;
     const dtypeElementSizes: Record<string, number> = {
-      'float32': 4,
-      'float64': 8,
-      'int32': 4,
-      'uint8': 1,
+      bool: 1,
+      float32: 4,
+      float64: 8,
+      int32: 4,
+      uint8: 1,
     };
-    
+
     const elementSize = dtypeElementSizes[dtype.__dtype];
     if (!elementSize) {
       throw new Error(`Unsupported dtype for view: ${dtype.__dtype}`);
     }
-    
+
     const elementCount = totalBytes / elementSize;
-    
+
     // Create appropriate typed array view based on dtype
     switch (dtype.__dtype) {
+      case 'bool':
+        return new Uint8Array(uint8Data.buffer, uint8Data.byteOffset, elementCount);
       case 'float32':
         return new Float32Array(uint8Data.buffer, uint8Data.byteOffset, elementCount);
       case 'float64':
@@ -318,22 +348,49 @@ export class WASMDevice implements Device {
    */
   async writeData(data: DeviceData, buffer: ArrayBuffer): Promise<void> {
     this.ensureInitialized();
-    
+
     if (data.device.id !== this.id) {
       throw new Error(`Cannot write data to device ${data.device.id} on ${this.id}`);
     }
 
     if (buffer.byteLength !== data.byteLength) {
       throw new Error(
-        `Buffer size mismatch: expected ${data.byteLength} bytes, got ${buffer.byteLength} bytes`
+        `Buffer size mismatch: expected ${data.byteLength} bytes, got ${buffer.byteLength} bytes`,
       );
     }
 
     const wasmTensorData = data as WASMTensorData;
     const uint8Data = new Uint8Array(buffer);
-    
+
     // Use the new WASM bridge method to copy JavaScript data to tensor
     this.executor!.copy_js_data_to_tensor(wasmTensorData.wasmTensor, uint8Data);
+  }
+
+  /**
+   * Create a view of existing device data with different shape/strides
+   *
+   * This creates a zero-copy view by reusing the same underlying WASM tensor
+   * but wrapping it with new view metadata.
+   */
+  createView(
+    data: DeviceData,
+    shape: readonly number[],
+    strides: readonly number[],
+    offset: number,
+    dtype: { __byteSize: number },
+  ): DeviceData {
+    this.ensureInitialized();
+
+    const wasmTensorData = data as WASMTensorData;
+
+    // Create new WASMTensorData with view metadata
+    // The underlying WASM tensor remains the same (zero-copy)
+    return createWASMTensorData(this, wasmTensorData.wasmTensor, {
+      shape,
+      strides,
+      offset,
+      dtype,
+    });
   }
 
   /**
@@ -342,14 +399,21 @@ export class WASMDevice implements Device {
   supportsNonContiguous(op: AnyStorageTransformation['__op']): boolean {
     // WASM backend currently assumes C-contiguous data for most operations
     // Operations that don't properly handle stride-based memory access need contiguous data
-    
+
     // Operations that properly handle non-contiguous data via strides
     const strideAwareOps = new Set([
       // Only simple unary operations that process elements linearly
       // These work because they just transform each element in place
-      'neg', 'abs', 'sin', 'cos', 'exp', 'log', 'sqrt', 'square'
+      'neg',
+      'abs',
+      'sin',
+      'cos',
+      'exp',
+      'log',
+      'sqrt',
+      'square',
     ]);
-    
+
     // For all other operations, require contiguous data
     // This includes: tile, expand, slice, transpose, binary ops, reductions, etc.
     return strideAwareOps.has(op);
@@ -360,13 +424,13 @@ export class WASMDevice implements Device {
    */
   getCapabilities(): WASMCapabilities {
     this.ensureInitialized();
-    
+
     return {
       simd: true, // Assume SIMD support
       sharedMemory: false,
       optimalThreadCount: 1,
       availableMemory: 256 * 1024 * 1024, // 256MB
-      version: '0.1.0'
+      version: '0.1.0',
     };
   }
 
@@ -375,13 +439,13 @@ export class WASMDevice implements Device {
    */
   getMemoryStats(): WASMMemoryStats {
     this.ensureInitialized();
-    
+
     const wasmStats = this.executor!.memory_stats();
-    
+
     return {
       totalAllocated: wasmStats.arena_used,
       activeBuffers: 0, // Arena doesn't track individual buffers
-      poolSummary: `Arena: ${wasmStats.arena_used}/${wasmStats.arena_capacity} bytes`
+      poolSummary: `Arena: ${wasmStats.arena_used}/${wasmStats.arena_capacity} bytes`,
     };
   }
 
@@ -397,7 +461,7 @@ export class WASMDevice implements Device {
    */
   withScope<T>(fn: () => T): T {
     this.ensureInitialized();
-    
+
     const checkpoint = this.executor!.checkpoint();
     try {
       return fn();
@@ -459,10 +523,10 @@ export class WASMDevice implements Device {
    */
   createPersistentData(dtype: AnyDType, shape: number[]): DeviceData {
     this.ensureInitialized();
-    
+
     const wasmDType = this.mapDType(dtype);
     const wasmShape = new Uint32Array(shape);
-    
+
     const tensor = this.executor!.alloc_persistent_tensor(wasmDType, wasmShape);
     return createWASMTensorData(this, tensor);
   }
@@ -485,8 +549,18 @@ export class WASMDevice implements Device {
    * Check if operation is a view operation
    */
   private isViewOperation(op: string): boolean {
-    return ['reshape', 'view', 'slice', 'flatten', 'permute', 'transpose', 
-            'squeeze', 'unsqueeze', 'expand', 'tile'].includes(op);
+    return [
+      'reshape',
+      'view',
+      'slice',
+      'flatten',
+      'permute',
+      'transpose',
+      'squeeze',
+      'unsqueeze',
+      'expand',
+      'tile',
+    ].includes(op);
   }
 
   /**
@@ -506,50 +580,94 @@ export class WASMDevice implements Device {
   /**
    * Execute view operation using WASM view operations
    */
-  private executeViewOperation(wasmOp: WasmOperation, input: WasmTensor, output: WasmTensor, op?: AnyStorageTransformation): void {
+  private executeViewOperation(
+    wasmOp: WasmOperation,
+    input: WasmTensor,
+    output: WasmTensor,
+    op?: AnyStorageTransformation,
+  ): void {
     // Check if this is a slice operation and we have operation metadata
-    if (wasmOp === OPS.slice && op && op.__output && '__sliceIndices' in op.__output) {
+    if (wasmOp === OPS.slice && op?.__output && '__sliceIndices' in op.__output) {
       // Extract slice indices from operation metadata
       const sliceIndices = (op.__output as any).__sliceIndices;
-      
+
       if (Array.isArray(sliceIndices) && sliceIndices.length > 0) {
         // Extract start offsets for row and column dimensions
         const rowStart = sliceIndices[0]?.start || 0;
         const colStart = sliceIndices[1]?.start || 0;
-        
-        // Use the new dedicated slice method with explicit offsets
-        this.executor!.execute_slice(input, output, rowStart, colStart);
+
+        // Check if the input tensor is non-contiguous by looking at its layout
+        // For non-contiguous tensors, we need to pass stride information
+        const inputMeta = input.meta;
+
+        const isContiguous =
+          inputMeta.shape.length <= 1 ||
+          (inputMeta.strides && this.isContiguousStrides(inputMeta.shape, inputMeta.strides));
+
+        if (!isContiguous && inputMeta.strides) {
+          // Non-contiguous tensor: pass stride information
+          const strides = Array.from(inputMeta.strides);
+          this.executor!.execute_slice(input, output, rowStart, colStart, strides);
+        } else {
+          // Contiguous tensor: use fast path without strides
+          this.executor!.execute_slice(input, output, rowStart, colStart, undefined);
+        }
         return;
       }
     }
-    
+
     // For all other view operations, use the standard view operation handler
     this.executor!.execute_unary(wasmOp, input, output);
   }
 
   /**
+   * Check if strides represent contiguous memory layout
+   */
+  private isContiguousStrides(shape: readonly number[], strides: readonly number[]): boolean {
+    // C-contiguous: strides should be [product(shape[i+1:]), ..., shape[-2], 1]
+    let expectedStride = 1;
+    for (let i = shape.length - 1; i >= 0; i--) {
+      if (strides[i] !== expectedStride) {
+        return false;
+      }
+      expectedStride *= shape[i];
+    }
+    return true;
+  }
+
+  /**
    * Execute reduction operation using WASM reduction operations
    */
-  private executeReductionOperation(wasmOp: WasmOperation, input: WasmTensor, output: WasmTensor, op?: AnyStorageTransformation): void {
+  private executeReductionOperation(
+    wasmOp: WasmOperation,
+    input: WasmTensor,
+    output: WasmTensor,
+    op?: AnyStorageTransformation,
+  ): void {
     // Extract axis information based on operation type
     let axis: number[] | null = null;
     let keepDims = false;
-    
+
     if (op) {
       // Look for axis information in operation metadata
       // Different operations store axis information with different keys
       const opAny = op as any;
-      
-      if ('__sumAxes' in opAny) axis = opAny.__sumAxes;
-      else if ('__meanAxes' in opAny) axis = opAny.__meanAxes;
-      else if ('__maxAxes' in opAny) axis = opAny.__maxAxes;
-      else if ('__minAxes' in opAny) axis = opAny.__minAxes;
-      else if ('__prodAxes' in opAny) axis = opAny.__prodAxes;
-      
+
+      if ('__sumAxes' in opAny) {
+        axis = opAny.__sumAxes;
+      } else if ('__meanAxes' in opAny) {
+        axis = opAny.__meanAxes;
+      } else if ('__maxAxes' in opAny) {
+        axis = opAny.__maxAxes;
+      } else if ('__minAxes' in opAny) {
+        axis = opAny.__minAxes;
+      } else if ('__prodAxes' in opAny) {
+        axis = opAny.__prodAxes;
+      }
+
       keepDims = ('__keepDims' in opAny && opAny.__keepDims) || false;
-      
     }
-    
+
     if (axis && Array.isArray(axis) && axis.length > 0) {
       // Use the new dedicated reduction method with axis information
       this.executor!.execute_reduction(wasmOp, input, output, new Uint32Array(axis), keepDims);
@@ -562,9 +680,33 @@ export class WASMDevice implements Device {
   /**
    * Execute softmax operation using WASM softmax operations
    */
-  private executeSoftmaxOperation(wasmOp: WasmOperation, input: WasmTensor, output: WasmTensor): void {
-    // Softmax operations are also handled by execute_unary
-    this.executor!.execute_unary(wasmOp, input, output);
+  private executeSoftmaxOperation(
+    wasmOp: WasmOperation,
+    input: WasmTensor,
+    output: WasmTensor,
+    op?: AnyStorageTransformation,
+  ): void {
+    // Extract axis information from operation metadata
+    let axis: number | null = null;
+
+    if (op) {
+      const opAny = op as any;
+
+      // Look for softmax axis information in operation metadata
+      // Different operations use different field names
+      if ('__softmaxAxis' in opAny) {
+        axis = opAny.__softmaxAxis;
+      } else if ('__logSoftmaxAxis' in opAny) {
+        axis = opAny.__logSoftmaxAxis;
+      } else if ('__axis' in opAny) {
+        axis = opAny.__axis;
+      } else if ('__dim' in opAny) {
+        axis = opAny.__dim;
+      }
+    }
+
+    // Use the new dedicated softmax method with axis information
+    this.executor!.execute_softmax(wasmOp, input, output, axis);
   }
 
   /**
@@ -584,7 +726,9 @@ export class WASMDevice implements Device {
   private mapDType(dtype: AnyDType): WasmDType {
     const wasmDType = DTYPES[dtype.__dtype as keyof typeof DTYPES];
     if (wasmDType === undefined) {
-      throw new Error(`Unsupported dtype: ${dtype.__dtype}. Available: ${Object.keys(DTYPES).join(', ')}`);
+      throw new Error(
+        `Unsupported dtype: ${dtype.__dtype}. Available: ${Object.keys(DTYPES).join(', ')}`,
+      );
     }
     return wasmDType;
   }
@@ -595,7 +739,7 @@ export class WASMDevice implements Device {
   private allocateOutputTensor(op: AnyStorageTransformation): WasmTensor {
     const shape = new Uint32Array(op.__output.__shape);
     const dtype = this.mapDType(op.__output.__dtype);
-    
+
     return this.executor!.alloc_temp_tensor(dtype, shape);
   }
 
@@ -604,12 +748,9 @@ export class WASMDevice implements Device {
    */
   private ensureInitialized(): void {
     if (!this.initialized || !this.executor) {
-      throw new WASMInvalidStateError(
-        'use device',
-        'not initialized',
-        'initialized',
-        { hint: 'Call WASMDevice.create() first.' }
-      );
+      throw new WASMInvalidStateError('use device', 'not initialized', 'initialized', {
+        hint: 'Call WASMDevice.create() first.',
+      });
     }
   }
 

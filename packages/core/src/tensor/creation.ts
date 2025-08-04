@@ -313,13 +313,13 @@ export async function zeros<D extends AnyDType, S extends Shape>(
 
   // Create zero-initialized data using createDataWithBuffer for immutable architecture
   const zerosBuffer = new ArrayBuffer(byteLength);
-  const deviceData = device.createDataWithBuffer ? 
-    device.createDataWithBuffer(zerosBuffer) : 
-    await (async () => {
-      const data = device.createData(byteLength);
-      await device.writeData(data, zerosBuffer);
-      return data;
-    })();
+  const deviceData = device.createDataWithBuffer
+    ? device.createDataWithBuffer(zerosBuffer)
+    : await (async () => {
+        const data = device.createData(byteLength);
+        await device.writeData(data, zerosBuffer);
+        return data;
+      })();
 
   return new Tensor(createOp, deviceData);
 }
@@ -410,13 +410,13 @@ export async function ones<D extends AnyDType, S extends Shape>(
   );
 
   // Create ones-initialized data using createDataWithBuffer for immutable architecture
-  const deviceData = device.createDataWithBuffer ? 
-    device.createDataWithBuffer(onesBuffer) : 
-    await (async () => {
-      const data = device.createData(byteLength);
-      await device.writeData(data, onesBuffer);
-      return data;
-    })();
+  const deviceData = device.createDataWithBuffer
+    ? device.createDataWithBuffer(onesBuffer)
+    : await (async () => {
+        const data = device.createData(byteLength);
+        await device.writeData(data, onesBuffer);
+        return data;
+      })();
 
   return new Tensor(createOp, deviceData);
 }
@@ -480,13 +480,13 @@ export async function eye<D extends AnyDType>(
   );
 
   // Create identity matrix data using createDataWithBuffer for immutable architecture
-  const deviceData = device.createDataWithBuffer ? 
-    device.createDataWithBuffer(identityBuffer) : 
-    await (async () => {
-      const data = device.createData(byteLength);
-      await device.writeData(data, identityBuffer);
-      return data;
-    })();
+  const deviceData = device.createDataWithBuffer
+    ? device.createDataWithBuffer(identityBuffer)
+    : await (async () => {
+        const data = device.createData(byteLength);
+        await device.writeData(data, identityBuffer);
+        return data;
+      })();
 
   return new Tensor(createOp, deviceData);
 }
