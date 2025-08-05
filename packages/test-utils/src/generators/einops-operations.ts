@@ -7,7 +7,8 @@
  */
 
 import type { Device } from '@typetensor/core';
-import { tensor, float32, int32, rearrange } from '@typetensor/core';
+import { tensor, float32, int32 } from '@typetensor/core';
+import { rearrange } from '@typetensor/einops';
 
 /**
  * Generates tests for einops operations
