@@ -1,4 +1,4 @@
-# @typetensor/core
+# @typetensor/einops
 
 ## 0.3.0
 
@@ -19,3 +19,8 @@
   - Added caching for rearrange, reduce, and repeat operations
   - Improved einops performance through optimized execution paths
   - Better separation of concerns between core tensor operations and einops
+
+### Patch Changes
+
+- Updated dependencies
+  - @typetensor/core@0.3.0

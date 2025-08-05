@@ -1,6 +1,6 @@
 {
   "name": "@typetensor/backend-metal",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Apple Metal backend for TypedTensor",
   "license": "MIT",
   "author": "Thomas Santerre <thomas@santerre.xyz>",

@@ -1,5 +1,19 @@
 # @typetensor/backend-webgpu
 
+## 2.0.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @typetensor/core@2.0.0
+
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @typetensor/core@1.0.0
+
 ## 0.2.1
 
 ### Patch Changes
