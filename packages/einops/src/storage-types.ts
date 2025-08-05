@@ -1,23 +1,23 @@
 /**
- * Einops operations for tensor storage with type-safe transformations
+ * Einops storage transformation types
  *
- * This module provides einops-style operations that create different views of tensor data
- * with compile-time pattern validation and shape computation.
+ * This module provides type-level storage transformations for einops operations,
+ * defining how rearrange, reduce, and repeat operations transform tensor metadata.
  */
 
-import type { Shape, ShapeToString } from '../shape/types';
-import type { AnyDType } from '../dtype/types';
+import type { Shape, ShapeToString } from '@typetensor/core';
+import type { AnyDType } from '@typetensor/core';
 import type {
   TensorStorage,
   StorageTransformation,
   LayoutFlags,
   AnyTensorStorage,
   ComputeStrides,
-} from './layout';
-import type { ValidEinopsPattern } from '../einops/type-validation';
-import type { ResolveReduceShape } from '../einops/type-shape-resolver-reduce';
-import type { ReductionOp } from '../einops/reduce';
-import type { ValidRepeatPattern } from '../einops/type-shape-resolver-repeat';
+} from '@typetensor/core';
+import type { ValidEinopsPattern } from './type-validation';
+import type { ResolveReduceShape } from './type-shape-resolver-reduce';
+import type { ReductionOp } from './reduce';
+import type { ValidRepeatPattern } from './type-shape-resolver-repeat';
 
 // =============================================================================
 // Layout Types

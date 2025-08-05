@@ -10,7 +10,7 @@
  * - Creates new data (not a view operation)
  */
 
-import type { Shape } from '../shape/types';
+import type { Shape } from '@typetensor/core';
 import type {
   ParsePattern,
   TypeEinopsAST,

@@ -26,6 +26,3 @@ export type * from './softmax';
 
 // Re-export reduction operations
 export type * from './reduction';
-
-// Re-export einops operations
-export type * from './einops';

@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@typetensor/core": "workspace:*",
+    "@typetensor/einops": "workspace:*",
     "@typetensor/backend-cpu": "workspace:*"
   },
   "scripts": {

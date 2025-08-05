@@ -5,7 +5,7 @@
  * rearrange and reduce shape resolvers.
  */
 
-import type { Shape } from '../shape/types';
+import type { Shape } from '@typetensor/core';
 import type {
   TypeAxisPattern,
   TypeSimpleAxis,

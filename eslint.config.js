@@ -94,6 +94,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['**/node_modules/', '**/dist/', '**/coverage/', '*.config.js', '*.test-d.ts', '*.test.ts', '**/*.test-d.ts', '**/*.test.ts'],
+    ignores: ['**/node_modules/', '**/dist/', '**/coverage/', '*.config.js', '*.test-d.ts', '*.test.ts', '**/*.test-d.ts', '**/*.test.ts', 'examples/**/*.ts'],
   }
 );

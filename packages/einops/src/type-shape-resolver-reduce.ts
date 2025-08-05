@@ -5,7 +5,7 @@
  * determining the output shape based on which axes are being reduced.
  */
 
-import type { Shape } from '../shape/types';
+import type { Shape } from '@typetensor/core';
 import type {
   ParsePattern,
   TypeEinopsAST,

@@ -5,6 +5,7 @@
   "fixed": [
     [
       "@typetensor/core",
+      "@typetensor/einops",
       "@typetensor/backend-cpu",
       "@typetensor/backend-cuda",
       "@typetensor/backend-metal",

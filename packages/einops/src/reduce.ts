@@ -15,9 +15,9 @@ import {
   isSingletonAxis,
   getAxisNames,
 } from './ast';
-import { Tensor, ChainablePromise } from '../tensor/tensor';
-import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
-import type { ReduceEinopsOp } from '../storage/einops';
+import { Tensor, ChainablePromise } from '@typetensor/core';
+import type { AnyStorageTransformation, AnyTensorStorage } from '@typetensor/core';
+import type { ReduceEinopsOp } from './storage-types';
 import type { ValidReducePattern } from './type-shape-resolver-reduce';
 import { arraysEqual } from './utils/array';
 
@@ -127,23 +127,57 @@ export function reduce<
           throw new Error('Expected a Tensor instance');
         }
 
-        // Step 1: Parse the pattern
-        const ast = parse(pattern);
-
-        // Step 2: Validate the pattern follows reduce rules
-        validateReducePattern(ast);
-
-        // Step 3: Resolve axes against tensor shape
-        const resolved = resolveAxes(ast, resolvedTensor.shape, axes);
-
-        // Step 4: Plan operations
-        const operations = planReduceOperations(
-          ast,
-          resolvedTensor.shape,
-          resolved,
-          operation,
-          keepDims ?? false,
+        // OPTIMIZATION: Try cache first
+        const { getCachedReduceRecipe, setCachedReduceRecipe } = await import('./reduce-cache');
+        const cachedRecipe = getCachedReduceRecipe(
+          pattern, 
+          resolvedTensor.shape, 
+          operation, 
+          keepDims ?? false, 
+          axes
         );
+        
+        let ast: import('./ast').EinopsAST;
+        let resolved: import('./axis-resolver').ResolvedPattern;
+        let operations: ReduceOperation[];
+        
+        if (cachedRecipe) {
+          // Use cached recipe
+          ast = cachedRecipe.ast;
+          resolved = cachedRecipe.resolved;
+          operations = cachedRecipe.operations;
+        } else {
+          // Create new recipe and cache it
+          // Step 1: Parse the pattern
+          ast = parse(pattern);
+
+          // Step 2: Validate the pattern follows reduce rules
+          validateReducePattern(ast);
+
+          // Step 3: Resolve axes against tensor shape
+          resolved = resolveAxes(ast, resolvedTensor.shape, axes);
+
+          // Step 4: Plan operations
+          operations = planReduceOperations(
+            ast,
+            resolvedTensor.shape,
+            resolved,
+            operation,
+            keepDims ?? false,
+          );
+          
+          // Cache the recipe for future use
+          setCachedReduceRecipe(
+            pattern, 
+            resolvedTensor.shape, 
+            operation, 
+            keepDims ?? false, 
+            ast, 
+            resolved, 
+            operations, 
+            axes
+          );
+        }
 
         // Step 5: Execute operations
         const result = await executeReduceOperations(resolvedTensor, operations);
@@ -345,7 +379,7 @@ function flattenComposite(composite: CompositeAxis): string[] {
 /**
  * Plan the sequence of operations for reduction
  */
-function planReduceOperations(
+export function planReduceOperations(
   ast: EinopsAST,
   inputShape: readonly number[],
   resolved: ResolvedPattern,

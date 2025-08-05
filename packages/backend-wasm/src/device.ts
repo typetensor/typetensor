@@ -602,7 +602,8 @@ export class WASMDevice implements Device {
 
         const isContiguous =
           inputMeta.shape.length <= 1 ||
-          (inputMeta.strides && this.isContiguousStrides(Array.from(inputMeta.shape), Array.from(inputMeta.strides)));
+          (inputMeta.strides &&
+            this.isContiguousStrides(Array.from(inputMeta.shape), Array.from(inputMeta.strides)));
 
         if (!isContiguous && inputMeta.strides) {
           // Non-contiguous tensor: pass stride information

@@ -2,9 +2,9 @@
  * Type-level tests for einops rearrange operations
  */
 
-import type { TensorStorage, LayoutFlags, DTypeOf, ShapeOf, OutputOf, LayoutOf } from './layout';
-import type { RearrangeOp } from './einops';
-import type { Float32, Int32, Float64 } from '../dtype/types';
+import type { TensorStorage, LayoutFlags, DTypeOf, ShapeOf, OutputOf, LayoutOf } from '@typetensor/core';
+import type { RearrangeOp } from './storage-types';
+import type { Float32, Int32, Float64 } from '@typetensor/core';
 import { expectTypeOf } from 'expect-type';
 
 // =============================================================================

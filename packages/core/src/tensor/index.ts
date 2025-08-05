@@ -8,7 +8,7 @@
  * the storage layer with runtime execution via backends.
  */
 
-export { Tensor } from './tensor';
+export { Tensor, ChainablePromise } from './tensor';
 export { tensor, zeros, ones, eye } from './creation';
 export type { TensorOptions, NestedArray, InferShape, FlattenArray, DTypeValue } from './types';
 

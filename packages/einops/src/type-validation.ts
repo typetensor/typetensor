@@ -6,7 +6,7 @@
  * adds syntax validation while delegating to the existing system.
  */
 
-import type { Shape } from '../shape/types';
+import type { Shape } from '@typetensor/core';
 import type {
   EinopsParseError,
   UnknownAxisError,

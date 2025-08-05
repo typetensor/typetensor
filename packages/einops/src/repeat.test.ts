@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { repeat, RepeatError } from './repeat';
-import { tensor, float32, ones, zeros } from '..';
+import { tensor, float32, ones, zeros } from '@typetensor/core';
 import { cpu } from '@typetensor/backend-cpu';
 
 // =============================================================================

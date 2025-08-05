@@ -9,9 +9,9 @@ import { parse } from './scanner';
 import { AxisResolver, type ResolvedPattern } from './axis-resolver';
 import type { EinopsAST, AxisPattern } from './ast';
 import { isSimpleAxis, isCompositeAxis, isEllipsisAxis, isSingletonAxis } from './ast';
-import { Tensor, ChainablePromise } from '../tensor/tensor';
-import type { AnyStorageTransformation } from '../storage/layout';
-import type { RearrangeOp } from '../storage/einops';
+import { Tensor, ChainablePromise } from '@typetensor/core';
+import type { AnyStorageTransformation } from '@typetensor/core';
+import type { RearrangeOp } from './storage-types';
 import type { ValidEinopsPattern } from './type-validation';
 import { arraysEqual } from './utils/array';
 
@@ -90,7 +90,7 @@ export class RearrangeError extends Error {
 export function rearrange<
   S extends AnyStorageTransformation,
   Pattern extends string,
-  Axes extends Record<string, number> | undefined = undefined,
+  const Axes extends Record<string, number> | undefined = undefined,
 >(
   tensor: Tensor<S> | ChainablePromise<S>,
   pattern: ValidEinopsPattern<Pattern, S['__output']['__shape'], Axes> extends string
@@ -108,19 +108,38 @@ export function rearrange<
           throw new Error('Expected a Tensor instance');
         }
 
-        // Step 1: Parse the pattern
-        const ast = parse(pattern);
+        // OPTIMIZATION: Try cache first
+        const { getCachedRearrangeRecipe, setCachedRearrangeRecipe } = await import('./rearrange-cache');
+        const cachedRecipe = getCachedRearrangeRecipe(pattern, resolvedTensor.shape, axes);
+        
+        let ast: import('./ast').EinopsAST;
+        let resolved: import('./axis-resolver').ResolvedPattern;
+        let operations: TensorOperation[];
+        
+        if (cachedRecipe) {
+          // Use cached recipe
+          ast = cachedRecipe.ast;
+          resolved = cachedRecipe.resolved;
+          operations = cachedRecipe.operations;
+        } else {
+          // Create new recipe and cache it
+          // Step 1: Parse the pattern
+          ast = parse(pattern);
 
-        // Step 2: Validate the pattern follows rearrange rules
-        validateRearrangePattern(ast);
+          // Step 2: Validate the pattern follows rearrange rules
+          validateRearrangePattern(ast);
 
-        // Step 3: Resolve axes against tensor shape
-        const resolved = resolveAxes(ast, resolvedTensor.shape, axes);
+          // Step 3: Resolve axes against tensor shape
+          resolved = resolveAxes(ast, resolvedTensor.shape, axes);
 
-        // Step 3: Plan operations
-        const operations = planOperations(ast, resolvedTensor.shape, resolved);
+          // Step 4: Plan operations
+          operations = planOperations(ast, resolvedTensor.shape, resolved);
+          
+          // Cache the recipe for future use
+          setCachedRearrangeRecipe(pattern, resolvedTensor.shape, ast, resolved, operations, axes);
+        }
 
-        // Step 4: Execute operations
+        // Step 5: Execute operations
         const result = await executeOperations(resolvedTensor, operations);
 
         // Return with correct type
@@ -365,7 +384,7 @@ function needsComplexOperations(ast: EinopsAST): boolean {
 /**
  * Plan the sequence of tensor operations needed
  */
-function planOperations(
+export function planOperations(
   ast: EinopsAST,
   inputShape: readonly number[],
   resolved: ResolvedPattern,

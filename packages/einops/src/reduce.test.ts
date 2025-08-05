@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { reduce, ReduceError } from './reduce';
-import { tensor, float32, ones, zeros } from '..';
+import { tensor, float32, ones, zeros } from '@typetensor/core';
 import { cpu } from '@typetensor/backend-cpu';
 
 describe('Basic Reduce Operations', () => {

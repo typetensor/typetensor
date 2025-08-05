@@ -97,7 +97,12 @@ export class WASMBoundsError extends WASMError {
  */
 export class WASMAllocationError extends WASMError {
   constructor(requestedSize: number, reason: string, context?: Record<string, unknown>) {
-    super(`Allocation failed for ${requestedSize} bytes: ${reason}`, 'ALLOCATION_FAILED', 'memory', context);
+    super(
+      `Allocation failed for ${requestedSize} bytes: ${reason}`,
+      'ALLOCATION_FAILED',
+      'memory',
+      context,
+    );
     this.name = 'WASMAllocationError';
   }
 }

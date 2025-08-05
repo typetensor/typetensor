@@ -113,6 +113,22 @@ import type { ValidEinopsPattern } from './type-validation';
   // Test fractional dimension detection
   type FractionalDimension = ValidEinopsPattern<'(h w) -> h w', readonly [13], { h: 4 }>; // 13/4 = 3.25 (non-integer)
   expectTypeOf<FractionalDimension>().toEqualTypeOf<"[Einops ❌] Shape Error: Pattern '(h w) -> h w' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})">();
+
+  // Test our specific failing case from einops example
+  type ExampleFailingCase = ValidEinopsPattern<'batch (heads dim) -> batch heads dim', readonly [1, 8], { heads: 3 }>; // dim = 8/3 = 2.67
+  expectTypeOf<ExampleFailingCase>().toEqualTypeOf<"[Einops ❌] Shape Error: Pattern 'batch (heads dim) -> batch heads dim' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})">();
+
+  // Test corresponding working case (should succeed)
+  type ExampleWorkingCase = ValidEinopsPattern<'batch (heads dim) -> batch heads dim', readonly [1, 8], { heads: 4 }>; // dim = 8/4 = 2
+  expectTypeOf<ExampleWorkingCase>().toEqualTypeOf<readonly [1, 4, 2]>();
+
+  // Test another fractional case
+  type AnotherFractional = ValidEinopsPattern<'batch (heads dim) -> batch heads dim', readonly [1, 10], { heads: 3 }>; // dim = 10/3 = 3.33
+  expectTypeOf<AnotherFractional>().toEqualTypeOf<"[Einops ❌] Shape Error: Pattern 'batch (heads dim) -> batch heads dim' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})">();
+
+  // Test EXACT scenario from failing example - let's trace what's different
+  type ExactScenario = ValidEinopsPattern<'batch (heads dim) -> batch heads dim', readonly [1, 8], { heads: 3 }>; // dim = 8/3 = 2.67
+  expectTypeOf<ExactScenario>().toEqualTypeOf<"[Einops ❌] Shape Error: Pattern 'batch (heads dim) -> batch heads dim' produces fractional dimensions. Composite axes must divide evenly. Use integer axis values: rearrange(tensor, pattern, {axis: integer})">();
 }
 
 // =============================================================================

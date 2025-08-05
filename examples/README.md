@@ -31,6 +31,8 @@ In a real project outside this monorepo, you would simply:
 1. Install the packages:
    ```bash
    npm install @typetensor/core @typetensor/backend-cpu
+   # Optional: for einops operations
+   npm install @typetensor/einops
    ```
 
 2. Import and use normally:
@@ -53,13 +55,13 @@ Memory-efficient tensor views and reshaping.
 ### 04-chaining.ts
 Chaining tensor operations with type safety.
 
-### 05-einops-rearrange.ts ⭐ **NEW**
-Simple tensor rearrangement using Einstein notation:
-- Transpose: `"h w -> w h"`
-- Format conversion: `"c h w -> h w c"`
-- Add dimensions: `"h w -> 1 h w"`
-- Split dimensions: `"(h w) c -> h w c"`
-- Multi-head attention preparation
+### 05-einops.ts
+Comprehensive einops operations demonstration with the `@typetensor/einops` package:
+- **Rearrange**: Transpose, flatten, split, and reshape operations
+- **Reduce**: Sum, mean, max, min aggregations along dimensions
+- **Repeat**: Expand, duplicate, and upsample tensor elements
+- Type-safe patterns with compile-time validation
+- Practical image processing pipeline example
 
 ## What the Examples Demonstrate
 

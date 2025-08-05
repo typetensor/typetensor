@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { rearrange, RearrangeError } from './rearrange';
-import { tensor, float32, ones } from '..';
+import { tensor, float32, ones } from '@typetensor/core';
 import { cpu } from '@typetensor/backend-cpu';
 
 describe('Simple Transpose Operations', () => {
@@ -343,6 +343,7 @@ describe('Error Handling', () => {
   it('should error on invalid composite split', async () => {
     const testTensor = await ones([100, 3] as const, { device: cpu, dtype: float32 });
 
+    // @ts-expect-error - Type error is expected here!
     await expect(rearrange(testTensor, '(h w) c -> h w c', { h: 30 })).rejects.toThrow(
       RearrangeError,
     ); // 100/30 is not integer

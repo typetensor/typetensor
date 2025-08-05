@@ -5,7 +5,7 @@
  * enabling static type checking for tensor transformations.
  */
 
-import type { Shape } from '../shape/types';
+import type { Shape } from '@typetensor/core';
 import type {
   ParsePattern,
   TypeEinopsAST,

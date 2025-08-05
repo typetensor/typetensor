@@ -16,9 +16,9 @@ import {
   isSingletonAxis,
   getAxisNames,
 } from './ast';
-import { Tensor, ChainablePromise } from '../tensor/tensor';
-import type { AnyStorageTransformation, AnyTensorStorage } from '../storage/layout';
-import type { RepeatOp } from '../storage/einops';
+import { Tensor, ChainablePromise, tensor } from '@typetensor/core';
+import type { AnyStorageTransformation, AnyTensorStorage } from '@typetensor/core';
+import type { RepeatOp } from './storage-types';
 import type { ValidRepeatPattern } from './type-shape-resolver-repeat';
 import { arraysEqual } from './utils/array';
 
@@ -127,17 +127,36 @@ export function repeat<
           throw new Error('Expected a Tensor instance');
         }
 
-        // Step 1: Parse the pattern
-        const ast = parse(pattern);
+        // OPTIMIZATION: Try cache first
+        const { getCachedRepeatRecipe, setCachedRepeatRecipe } = await import('./repeat-cache');
+        const cachedRecipe = getCachedRepeatRecipe(pattern, resolvedTensor.shape, axes);
+        
+        let ast: import('./ast').EinopsAST;
+        let resolved: import('./axis-resolver').ResolvedPattern;
+        let operations: RepeatOperation[];
+        
+        if (cachedRecipe) {
+          // Use cached recipe
+          ast = cachedRecipe.ast;
+          resolved = cachedRecipe.resolved;
+          operations = cachedRecipe.operations;
+        } else {
+          // Create new recipe and cache it
+          // Step 1: Parse the pattern
+          ast = parse(pattern);
 
-        // Step 2: Validate the pattern follows repeat rules
-        validateRepeatPattern(ast, axes);
+          // Step 2: Validate the pattern follows repeat rules
+          validateRepeatPattern(ast, axes);
 
-        // Step 3: Resolve axes against tensor shape
-        const resolved = resolveAxes(ast, resolvedTensor.shape, axes);
+          // Step 3: Resolve axes against tensor shape
+          resolved = resolveAxes(ast, resolvedTensor.shape, axes);
 
-        // Step 4: Plan operations
-        const operations = planRepeatOperations(ast, resolvedTensor.shape, resolved);
+          // Step 4: Plan operations
+          operations = planRepeatOperations(ast, resolvedTensor.shape, resolved);
+          
+          // Cache the recipe for future use
+          setCachedRepeatRecipe(pattern, resolvedTensor.shape, ast, resolved, operations, axes);
+        }
 
         // Step 5: Execute operations
         const result = await executeRepeatOperations(resolvedTensor, operations);
@@ -707,7 +726,7 @@ function computeCompositeShape(
  * Plan the sequence of operations for repetition
  * Strategy: Use expand() for new singleton dimensions, tile() for repetition
  */
-function planRepeatOperations(
+export function planRepeatOperations(
   ast: EinopsAST,
   inputShape: readonly number[],
   resolved: ResolvedPattern,
@@ -861,7 +880,6 @@ async function createTensorWithCoordinateMapping<S extends AnyStorageTransformat
   );
 
   // Create new tensor from the filled array
-  const { tensor } = await import('../tensor/creation');
   return tensor(outputArray as any, {
     device: inputTensor.device,
     dtype: inputTensor.dtype,
@@ -1324,7 +1342,6 @@ async function createRepeatTensorWithNewAxes<S extends AnyStorageTransformation>
   );
 
   // Create new tensor from the filled array
-  const { tensor } = await import('../tensor/creation');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return tensor(outputArray as any, {
     device: inputTensor.device,
